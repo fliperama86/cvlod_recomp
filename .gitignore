@@ -27,3 +27,6 @@ assets/*.bin
 
 # Generated assembly (from ROM via splat)
 asm/
+
+# CMake build
+cmake-build/
