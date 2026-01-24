@@ -5,12 +5,639 @@ entrypoint = 2147484672
 directory = "recompiled"
 use_lookup_for_all_function_calls = true
 
+# Static functions with incorrect boundaries - define manually and stub
+# Also functions that are type A (absolute) in the ELF but need to be recognized
+[[input.manual_funcs]]
+name = "static_80002410"
+section = ".main"
+vram = 0x80002410
+size = 0x100
+
+[[input.manual_funcs]]
+name = "func_80059CB8"
+section = ".main"
+vram = 0x80059CB8
+size = 0x100
+
+[[input.manual_funcs]]
+name = "func_8000F560"
+section = ".main"
+vram = 0x8000F560
+size = 0x30
+
+[[input.manual_funcs]]
+name = "func_8000F584"
+section = ".main"
+vram = 0x8000F584
+size = 0x30
+
+[[input.manual_funcs]]
+name = "func_8000F648"
+section = ".main"
+vram = 0x8000F648
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8000F71C"
+section = ".main"
+vram = 0x8000F71C
+size = 0x150
+
+[[input.manual_funcs]]
+name = "func_8000F960"
+section = ".main"
+vram = 0x8000F960
+size = 0xA0
+
+[[input.manual_funcs]]
+name = "func_8000FF88"
+section = ".main"
+vram = 0x8000FF88
+size = 0x120
+
+[[input.manual_funcs]]
+name = "func_80010070"
+section = ".main"
+vram = 0x80010070
+size = 0x90
+
+[[input.manual_funcs]]
+name = "func_800100FC"
+section = ".main"
+vram = 0x800100FC
+size = 0x90
+
+[[input.manual_funcs]]
+name = "func_80010188"
+section = ".main"
+vram = 0x80010188
+size = 0x90
+
+[[input.manual_funcs]]
+name = "func_80010214"
+section = ".main"
+vram = 0x80010214
+size = 0xC0
+
+[[input.manual_funcs]]
+name = "func_800102D8"
+section = ".main"
+vram = 0x800102D8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8000F874"
+section = ".main"
+vram = 0x8000F874
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80014FF4"
+section = ".main"
+vram = 0x80014FF4
+size = 0x20
+
+[[input.manual_funcs]]
+name = "func_80059F14"
+section = ".main"
+vram = 0x80059F14
+size = 0x40
+
+[[input.manual_funcs]]
+name = "func_80059F30"
+section = ".main"
+vram = 0x80059F30
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8000F7FC"
+section = ".main"
+vram = 0x8000F7FC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8007F650"
+section = ".main"
+vram = 0x8007F650
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80075040"
+section = ".main"
+vram = 0x80075040
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80080EF0"
+section = ".main"
+vram = 0x80080EF0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80082988"
+section = ".main"
+vram = 0x80082988
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80082AFC"
+section = ".main"
+vram = 0x80082AFC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80082AA8"
+section = ".main"
+vram = 0x80082AA8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80082B68"
+section = ".main"
+vram = 0x80082B68
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80082C60"
+section = ".main"
+vram = 0x80082C60
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80084004"
+section = ".main"
+vram = 0x80084004
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80084040"
+section = ".main"
+vram = 0x80084040
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_800840AC"
+section = ".main"
+vram = 0x800840AC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80084104"
+section = ".main"
+vram = 0x80084104
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80083E50"
+section = ".main"
+vram = 0x80083E50
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80085B30"
+section = ".main"
+vram = 0x80085B30
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80086058"
+section = ".main"
+vram = 0x80086058
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_80085DBC"
+section = ".main"
+vram = 0x80085DBC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8008A600"
+section = ".main"
+vram = 0x8008A600
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8008DE80"
+section = ".main"
+vram = 0x8008DE80
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8008EA64"
+section = ".main"
+vram = 0x8008EA64
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8008EDB8"
+section = ".main"
+vram = 0x8008EDB8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_8008F860"
+section = ".main"
+vram = 0x8008F860
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8009B230"
+section = ".main"
+vram = 0x8009B230
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80142ED4"
+section = ".common"
+vram = 0x80142ED4
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80146AC0"
+section = ".common"
+vram = 0x80146AC0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80147584"
+section = ".common"
+vram = 0x80147584
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80142DD4"
+section = ".common"
+vram = 0x80142DD4
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_8014314C"
+section = ".common"
+vram = 0x8014314C
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8001A05C"
+section = ".main"
+vram = 0x8001A05C
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80019FD0"
+section = ".main"
+vram = 0x80019FD0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8003E958"
+section = ".main"
+vram = 0x8003E958
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8007D154"
+section = ".main"
+vram = 0x8007D154
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80142E7C"
+section = ".common"
+vram = 0x80142E7C
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80142E68"
+section = ".common"
+vram = 0x80142E68
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80018E30"
+section = ".main"
+vram = 0x80018E30
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80080CFC"
+section = ".main"
+vram = 0x80080CFC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80019F58"
+section = ".main"
+vram = 0x80019F58
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80018E28"
+section = ".main"
+vram = 0x80018E28
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80085C54"
+section = ".main"
+vram = 0x80085C54
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80146440"
+section = ".common"
+vram = 0x80146440
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8000F9D8"
+section = ".main"
+vram = 0x8000F9D8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8000FF54"
+section = ".main"
+vram = 0x8000FF54
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8000FB84"
+section = ".main"
+vram = 0x8000FB84
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8000FA84"
+section = ".main"
+vram = 0x8000FA84
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80146650"
+section = ".common"
+vram = 0x80146650
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8001A230"
+section = ".main"
+vram = 0x8001A230
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80018374"
+section = ".main"
+vram = 0x80018374
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8007F688"
+section = ".main"
+vram = 0x8007F688
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80148218"
+section = ".common"
+vram = 0x80148218
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80070390"
+section = ".main"
+vram = 0x80070390
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80147748"
+section = ".common"
+vram = 0x80147748
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80019034"
+section = ".main"
+vram = 0x80019034
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80047B84"
+section = ".main"
+vram = 0x80047B84
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_801476FC"
+section = ".common"
+vram = 0x801476FC
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80018EE0"
+section = ".main"
+vram = 0x80018EE0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_800183A0"
+section = ".main"
+vram = 0x800183A0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_800191A0"
+section = ".main"
+vram = 0x800191A0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8004BC98"
+section = ".main"
+vram = 0x8004BC98
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80056AA4"
+section = ".main"
+vram = 0x80056AA4
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80147C30"
+section = ".common"
+vram = 0x80147C30
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8005A03C"
+section = ".main"
+vram = 0x8005A03C
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_8007F7A8"
+section = ".main"
+vram = 0x8007F7A8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80165A84"
+section = ".common"
+vram = 0x80165A84
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80172D34"
+section = ".common"
+vram = 0x80172D34
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80080BF0"
+section = ".main"
+vram = 0x80080BF0
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_5_80010604"
+section = ".main"
+vram = 0x80010604
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80159AB8"
+section = ".common"
+vram = 0x80159AB8
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_80148414"
+section = ".common"
+vram = 0x80148414
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_8014801C"
+section = ".common"
+vram = 0x8014801C
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_8014A270"
+section = ".common"
+vram = 0x8014A270
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_8015A3C4"
+section = ".common"
+vram = 0x8015A3C4
+size = 0x400
+
+[[input.manual_funcs]]
+name = "static_7_8015A66C"
+section = ".common"
+vram = 0x8015A66C
+size = 0x400
+
 [output]
 output_dir = "recompiled/build"
 
 [patches]
 # Functions with unanalyzable jump tables or branches
 stubs = [
+    "static_7_8015A66C",
+    "static_7_8015A3C4",
+    "static_7_8014A270",
+    "static_7_8014801C",
+    "static_7_80148414",
+    "static_7_80159AB8",
+    "static_5_80010604",
+    "static_5_80080BF0",
+    "static_7_80172D34",
+    "static_7_80165A84",
+    "static_5_8007F7A8",
+    "static_5_8005A03C",
+    "static_7_80147C30",
+    "static_5_80056AA4",
+    "static_5_8004BC98",
+    "static_5_800191A0",
+    "static_5_800183A0",
+    "static_5_80018EE0",
+    "static_7_801476FC",
+    "static_5_80047B84",
+    "static_5_80019034",
+    "static_7_80147748",
+    "static_5_80070390",
+    "static_7_80148218",
+    "static_5_8007F688",
+    "static_5_80018374",
+    "static_5_8001A230",
+    "static_7_80146650",
+    "static_5_8000FA84",
+    "static_5_8000FB84",
+    "static_5_8000FF54",
+    "static_5_8000F9D8",
+    "static_7_80146440",
+    "static_5_80085C54",
+    "static_5_80018E28",
+    "static_5_80019F58",
+    "static_5_80080CFC",
+    "static_5_80018E30",
+    "static_7_80142E68",
+    "static_7_80142E7C",
+    "static_5_8007D154",
+    "static_5_8003E958",
+    "static_5_80019FD0",
+    "static_5_8001A05C",
+    "static_7_8014314C",
+    "static_7_80142DD4",
+    "static_7_80147584",
+    "static_7_80146AC0",
+    "static_7_80142ED4",
+    "static_5_8009B230",
+    "static_5_80097330",
+    "func_800A1340",
+    "func_800A27E4",
+    "func_800A2858",
+    "func_8008F860",
+    "func_8008EDB8",
+    "func_8008EA64",
+    "func_8008DE80",
+    "func_8008A600",
+    "func_80085DBC",
+    "func_80086058",
+    "func_80085B30",
+    "func_80083E50",
+    "func_80084104",
+    "func_800840AC",
+    "func_80084040",
+    "func_80084004",
+    "func_80082C60",
+    "func_80082B68",
+    "func_80082AA8",
+    "func_80082AFC",
+    "func_80082988",
+    "func_80080EF0",
+    "func_80075040",
+    "func_8007F650",
+    "func_8000F7FC",
+    "func_80059F30",
+    "func_8000F560",
+    "func_8000F584",
+    "func_8000F648",
+    "func_8000F71C",
+    "func_8000F960",
+    "func_8000FF88",
+    "func_80010070",
+    "func_800100FC",
+    "func_80010188",
+    "func_80010214",
+    "func_800102D8",
+    "func_8000F874",
+    "func_80014FF4",
+    "func_80059F14",
     "func_80042CD4",
     "D_8014628C",
     "D_80015094",
@@ -204,4 +831,31 @@ stubs = [
     "func_8003E2F0"
 ]
 
-ignored = []
+ignored = [
+    "static_7_80147584"
+]
+
+[[input.manual_funcs]]
+name = "static_5_80097330"
+section = ".main"
+vram = 0x80097330
+size = 0xC00
+
+[[input.manual_funcs]]
+name = "func_800A2858"
+section = ".main"
+vram = 0x800A2858
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_800A27E4"
+section = ".main"
+vram = 0x800A27E4
+size = 0x400
+
+[[input.manual_funcs]]
+name = "func_800A1340"
+section = ".main"
+vram = 0x800A1340
+size = 0x400
+

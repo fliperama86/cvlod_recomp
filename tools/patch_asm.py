@@ -37,8 +37,13 @@ def main():
                 # Heuristics for relocation patching
                 for line in lines:
                     stripped = line.strip()
-                    
-                    # 1. Handle Function Stubbing
+
+                    # 1. Convert alabel func_8 to glabel for proper function export (do this first!)
+                    if "alabel func_8" in line:
+                        line = line.replace("alabel func_8", "glabel func_8")
+                        file_patched = True
+
+                    # 2. Handle Function Stubbing
                     # Check for function start
                     glabel_match = re.search(r"glabel\s+(\w+)", line)
                     if glabel_match:
@@ -51,25 +56,21 @@ def main():
                             new_lines.append("    nop\n")
                             # print(f"  Stubbing {func_name} in {filename}")
                             continue
-                    
+
                     if in_stubbed_func:
                         if "endlabel" in line:
                             in_stubbed_func = False
                             new_lines.append(line)
                         else:
                             # Preserve labels to satisfy local jumps, but stub code
-                            if stripped.endswith(":") or "glabel" in line or "alabel" in line or "dlabel" in line:
+                            if stripped.endswith(":") or "glabel" in line or "dlabel" in line:
                                  new_lines.append(line)
                                  new_lines.append("    jr $ra\n")
                                  new_lines.append("    nop\n")
                         continue
 
-                    # 2. Convert alabel func_8 to glabel for proper function export
-                    if "alabel func_8" in line:
-                        line = line.replace("alabel func_8", "glabel func_8")
-                        file_patched = True
-
                     # 3. Handle Relocation Truncation (Suspicious Branches)
+                    # (alabel->glabel conversion was moved to step 1)
                     is_branch = False
                     if "bltz" in line or "bgez" in line or "blez" in line or "bgtz" in line or "beq" in line or "bne" in line or "bc1" in line:
                         is_branch = True
