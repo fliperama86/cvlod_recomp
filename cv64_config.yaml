@@ -1,0 +1,3006 @@
+name: Castlevania (North America)
+# sha1: 989a28782ed6b0bc489a1bbbd7bec355d8f2707e
+sha1: c176c2493d90e12d0a2b6873cfcbc611a9bea245
+options:
+  basename: castlevania
+  platform: n64
+  compiler: IDO
+  # Paths
+  base_path: .
+  target_path: baserom_uncompressed.z64
+  # Used to generate values within the `castlevania.ld` linker script
+  build_path: CMakeFiles/castlevania.dir
+  ld_script_path: linker/castlevania.ld
+  undefined_funcs_auto_path: linker/auto/undefined_funcs_auto.ld
+  undefined_syms_auto_path: linker/auto/undefined_syms_auto.ld
+  # Disambiguates default symbol names sharing same VRAM address in separate overlays
+  symbol_name_format: $VRAM_$ROM
+  symbol_addrs_path:
+    - linker/symbol_addrs.txt
+    - linker/symbol_addrs_makerom.txt
+    - linker/symbol_addrs_overlays.txt
+    - linker/symbol_addrs_assets.txt
+  disassemble_all: false
+  migrate_rodata_to_functions: false
+  find_file_boundaries: true
+  header_encoding: ASCII
+  generated_c_preamble: |
+    #include "cv64.h"
+  o_as_suffix: false
+  use_legacy_include_asm: false
+  mips_abi_float_regs: o32
+  asm_function_macro: glabel
+  asm_jtbl_label_macro: jlabel
+  asm_data_macro: dlabel
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+  gfx_ucode: f3dex2
+segments:
+  - name: header
+    type: code
+    start: 0x00000000
+    # Uncommenting this causes linking to fail
+    # vram: 0xA4000000
+    subsegments:
+      - [0x00000000, header, header]
+
+  - name: boot
+    type: code
+    start: 0x00000040
+    vram: 0xA4000040
+    # Same here...
+    # follows_vram: header
+    exclusive_ram_id: ipl3
+    subsegments:
+      - [0x00000040, hasm, ipl3]
+      - [0x00000B70, bin, ipl3font]
+
+  - name: entrypoint
+    type: code
+    start: 0x00001000
+    vram: 0x80000400
+    subsegments:
+      - [0x00001000, hasm, entrypoint]
+
+  - name: main
+    type: code
+    start: 0x00001060
+    vram: 0x80000460
+    follows_vram: entrypoint
+    bss_size: 0x7DA10
+    subsegments:
+      - [0x00001060, c, gamestate]
+      - [0x00001370, c, memory]
+      - [0x00002280, c, object]
+      - [0x00003550, asm]               # Matrix operations
+      - [0x00004BC0, asm]
+      - [0x00004D80, asm]               # Nisitenma-Ichigo related functions + atan2 functions
+      - [0x00004FE0, asm, figure]       # Figure-type structs (model_info, camera and light)
+      # - [0x000057B4, asm, camera]
+      - [0x0000D270, asm]
+      - [0x0000DD70, asm]
+      - [0x0000F190, c, fade]
+      - [0x0000F460, c, object_flow]    # Contains some gamestate-related functions
+      - [0x0000F960, asm]               # File load-related. Object 0x0003's code is located here
+      - [0x00010100, asm]
+      - [0x000101C0, asm, dma_manager]
+      - [0x000113D0, asm]              # light, Objects 0x006D, 0x006E and 0x006F's code
+      - [0x00011F10, c, vec3f]
+      - [0x00012700, c]                # Appears to contain float-rounding functions?
+      - [0x00012900, asm]
+      - [0x00015AE0, asm, main]        # Contains func_80014EE0, main and Idle_ThreadEntry
+      - [0x00015C80, asm]
+      - [0x00016510, asm]              # Contains loadCompressedFile
+      - [0x00016640, asm]
+      - [0x000166A0, asm, scheduler]
+      - [0x00017040, asm]              # Contains createGraphicTasks and end_master_display_list
+      - [0x000172F0, asm]              # Contains setup_framebuffer, setup_background_color and setup_z_buffer
+      - [0x00017660, asm, controller]
+      - [0x00017A00, asm]              # Contains decompression and file-loading functions
+      - [0x00018310, c, dma]
+      - [0x00018430, asm]
+      - [0x00018590, asm, crash_screen]
+      - [0x000186E0, asm] # potential file split
+      - [0x00018E40, asm] # potential file split
+      - [0x00018FC0, asm] # potential file split
+      - [0x00019340, asm] # potential file split
+      - [0x00019570, asm] # potential file split
+      - [0x00019620, asm] # potential file split
+      - [0x00019630, asm] # potential file split
+      # - [0x000197D0, asm] # potential file split
+      # - [0x00019BA0, asm] # potential file split
+      - [0x00019E20, asm] # potential file split
+      # - [0x00019E60, asm] # potential file split
+      - [0x00019F40, asm] # potential file split
+      - [0x0001A160, asm, crash_screen_init]
+      - [0x0001A7C0, c, debug] # Likely comes from an internal Konami library
+      - [0x0001AE50, c]
+      - [0x0001AF80, c, controller_pak] # Controller Pak handling functions
+      - [0x0001B7D0, asm, save] # Handles save file loading and errors
+      - [0x0001C830, asm]
+      - [0x00022350, asm]
+      - [0x00025F80, asm]
+      - [0x0002BC60, asm]
+      - [0x0002D5D0, asm]
+      - [0x0002FA90, asm]
+      - [0x000333F0, asm]
+      - [0x00039330, asm]
+      - [0x0003F400, c, enemy_list]
+      - [0x0003F870, asm]
+      - [0x000407B0, asm]
+      - [0x00041170, asm, atari]
+      - [0x000451C0, asm]
+      - [0x000458C0, asm]
+      - [0x00045C80, asm]
+      - [0x00046140, asm]
+      - [0x00046520, asm]
+      - [0x00047AA0, asm]
+      - [0x00047FD0, asm]
+      - [0x000483A0, asm]
+      - [0x00048780, asm]
+      - [0x00048B40, asm]
+      - [0x00049100, asm]
+      - [0x00049D80, asm]
+      - [0x0004A310, asm]
+      - [0x0004ADB0, asm]
+      - [0x0004B630, asm]
+      - [0x0004C0A0, asm]
+      - [0x0004C7A0, asm]
+      - [0x0004CDE0, asm]
+      - [0x0004D470, asm]
+      - [0x0004DB20, c, effect/fire]
+      - [0x0004DEC0, asm]
+      - [0x0004F3C0, asm]
+      - [0x0004F5E0, asm]
+      - [0x00051CB0, asm]
+      - [0x00052710, asm]
+      - [0x00052910, asm]
+      - [0x00052D50, asm]
+      - [0x00054E70, asm]
+      - [0x00055050, asm]
+      - [0x000552F0, asm]
+      - [0x000554D0, asm]
+      - [0x000556B0, asm]
+      - [0x00055890, asm]
+      - [0x00055C90, asm]
+      - [0x00055E70, asm]
+      - [0x00056490, c, effect/fire_sparkles]
+      - [0x000566D0, asm]
+      - [0x00056B60, asm]
+      - [0x00057050, asm]
+      - [0x000574C0, asm]
+      - [0x0005B620, asm]
+      - [0x0005B7E0, asm]
+      - [0x0005BAC0, c, effect_manager]
+      - [0x0005BBA0, asm, effect]
+      - [0x000610F0, asm]
+      - [0x00063A60, asm]
+      - [0x0006A4A0, asm]
+      - [0x0006A990, asm]
+      - [0x0006AE70, asm]
+      - [0x0006C0B0, asm]
+      - [0x0006CB40, asm]
+      - [0x00070460, asm]
+      - [0x00070C90, asm]
+      - [0x00071180, asm]
+      - [0x00072060, asm]
+      - [0x00072700, asm]
+      - [0x00072D90, asm]
+      - [0x00072DA0, asm]
+      - [0x00072DB0, asm]
+      - [0x00073D80, asm]
+      - [0x000750B0, asm]
+      - [0x00075730, asm]
+      - [0x00076AE0, asm]
+
+      # These are mostly identical between other N64 Konami games,
+      # so they probably come from an internal library
+      - [0x00079B70, asm, audio/audioMgr]
+      - [0x0007A4A0, asm, audio/audio]
+      - [0x0007CBB0, asm]   # Handles audio sequences
+      - [0x0007E080, asm]   # Handles audio sequences commands?
+
+      # libultra (N64 SDK)
+      - [0x0007FEE0, asm, libultra/os/sendmesg]
+      - [0x00080030, asm, libultra/io/pfsfreeblocks]
+      - [0x000801D0, asm, libultra/gu/perspective]
+      - [0x00080460, asm, libultra/os/recvmesg]
+      - [0x000805A0, hasm, libultra/os/setintmask]
+      - [0x00080640, asm, libultra/al/sl]
+      - [0x00080700, asm, libultra/gu/align]
+      - [0x000808F0, asm, libultra/gu/sinf]
+      - [0x00080AB0, asm, libultra/gu/sins]
+      - [0x00080B20, asm, libultra/al/synsetvol]
+      - [0x00080BC0, asm, libultra/io/sptask]
+      - [0x00080EB0, hasm, libultra/os/os_tlb]
+      - [0x00080F70, hasm, libultra/os/exceptasm]
+      - [0x00081870, asm, libultra/os/thread]
+      - [0x000818B0, asm, libultra/os/destroythread]
+      - [0x000819C0, asm, libultra/io/piread]
+      - [0x00081A00, asm, libultra/io/piacs]
+      - [0x00081AC0, asm, libultra/io/controller]
+      - [0x00081E00, asm, libultra/io/siacs]
+      - [0x00081EC0, asm, libultra/os/createthread]
+      - [0x00082010, asm, libultra/io/contreaddata]
+      - [0x000821F0, asm, libultra/gu/rotate]
+      - [0x00082650, asm, libultra/al/synallocvoice]
+      - [0x00082880, asm, libultra/os/virtualtophysical]
+      - [0x00082900, hasm, libultra/os/writebackdcache]
+      - [0x00082980, asm, libultra/os/initialize]
+      - [0x00082CD0, asm, libultra/libc/ll]
+      - [0x00082F90, hasm, libultra/libc/bzero]
+      - [0x00083090, hasm, libultra/os/setsr]
+      - [0x000830A0, hasm, libultra/os/getsr]
+      - [0x000830B0, asm, libultra/audio/synsetfxparam]
+      - [0x000830F0, asm, libultra/io/vigetnextframebuf]
+      - [0x00083130, asm, libultra/audio/synstartvoice]
+      - [0x000831C0, asm, libultra/io/sprawdma]
+      - [0x00083250, asm, libultra/io/sirawdma]
+      - [0x00083300, asm, libultra/io/viblack]
+      - [0x00083370, asm, libultra/io/pirawread]
+      - [0x000833C0, asm, libultra/io/sirawread]
+      - [0x00083410, asm, libultra/io/sptaskyield]
+      - [0x00083430, asm, libultra/io/pfsreadwritefile]
+      - [0x00083880, asm, libultra/io/pfsgetstatus]
+      - [0x00083AB0, asm, libultra/gu/mtxutil]
+      - [0x00083D20, asm, libultra/io/visetmode]
+      - [0x00083D90, asm, libultra/io/motor]
+      - [0x00084160, asm, libultra/io/pfsallocatefile]
+      - [0x000845E0, asm, libultra/io/pfsisplug]
+      - [0x00084920, asm, libultra/audio/synsetpitch]
+      - [0x000849B0, hasm, libultra/os/probetlb]
+      - [0x00084A70, asm, libultra/io/pimgr]
+      - [0x00084BE0, asm, libultra/io/devmgr]
+      - [0x00084FF0, asm, libultra/io/pirawdma]
+      - [0x000850C0, asm, libultra/audio/synsetpan]
+      - [0x00085150, hasm, libultra/os/getcount]
+      - [0x00085160, asm, libultra/io/contpfs]
+      - [0x00085CE0, asm, libultra/io/pidma]
+      - [0x00085DF0, asm, libultra/io/pfssearchfile]
+      - [0x00085FC0, asm, libultra/audio/synthesizer]
+      - [0x00086640, asm, libultra/audio/drvrnew]
+      - [0x00086DF0, asm, libultra/audio/mainbus]
+      - [0x00086F40, asm, libultra/audio/reverb]
+      - [0x00087BA0, asm, libultra/audio/auxbus]
+      - [0x00087CB0, asm, libultra/audio/env]
+      - [0x00088930, asm, libultra/audio/resample]
+      - [0x00088C30, asm, libultra/audio/load]
+      - [0x00089780, asm, libultra/os/seteventmesg]
+      - [0x00089840, hasm, libultra/gu/sqrtf]
+      - [0x00089850, asm, libultra/os/afterprenmi]
+      - [0x00089870, asm, libultra/io/contquery]
+      - [0x00089920, asm, libultra/gu/random]
+      - [0x00089950, hasm, libultra/os/unmaptlb]
+      - [0x00089990, asm, libultra/libc/xprintf]
+      - [0x0008A650, asm, libultra/audio/filter]
+      - [0x0008A670, asm, libultra/gu/ortho]
+      - [0x0008A830, hasm, libultra/os/unmaptlball]
+      - [0x0008A880, asm, libultra/io/epidma]
+      - [0x0008A960, asm, libultra/audio/heapinit]
+      - [0x0008A9A0, asm, libultra/libc/string]
+      - [0x0008AA40, hasm, libultra/os/invalicache]
+      - [0x0008AAC0, asm, libultra/os/createmesgqueue]
+      - [0x0008AAF0, hasm, libultra/os/invaldcache]
+      - [0x0008ABA0, asm, libultra/audio/synsetfxmix]
+      - [0x0008AC40, asm, libultra/audio/save]
+      - [0x0008AD00, asm, libultra/io/pfsrepairid]
+      - [0x0008AD60, asm, libultra/audio/syngetfxref]
+      - [0x0008ADE0, asm, libultra/io/sp]
+      - [0x0008AE10, asm, libultra/io/si]
+      - [0x0008AE40, asm, libultra/gu/translate]
+      - [0x0008AEE0, asm, libultra/os/jammesg]
+      - [0x0008B030, asm, libultra/os/setthreadpri]
+      - [0x0008B110, asm, libultra/os/getthreadpri]
+      - [0x0008B130, asm, libultra/io/epirawread]
+      - [0x0008B290, asm, libultra/io/viswapbuf]
+      - [0x0008B2E0, asm, libultra/gu/lookat]
+      - [0x0008B610, asm, libultra/gu/position]
+      - [0x0008B830, asm, libultra/io/epirawdma]
+      - [0x0008BA10, asm, libultra/io/sptaskyielded]
+      - [0x0008BA90, hasm, libultra/libc/bcmp]
+      - [0x0008BBB0, asm, libultra/os/gettime]
+      - [0x0008BC40, asm, libultra/os/timerintr]
+      - [0x0008C040, asm, libultra/os/setglobalintmask]
+      - [0x0008C090, asm, libultra/io/aisetfreq]
+      - [0x0008C1E0, asm, libultra/gu/normalize]
+      - [0x0008C270, hasm, libultra/os/setcompare]
+      - [0x0008C280, hasm, libultra/libc/bcopy]
+      - [0x0008C590, asm, libultra/audio/copy]
+      - [0x0008C610, asm, libultra/os/resetglobalintmask]
+      - [0x0008C670, asm, libultra/io/pfsdeletefile]
+      - [0x0008C8E0, hasm, libultra/os/interrupt]
+      - [0x0008C970, asm, libultra/io/vi]
+      - [0x0008CAB0, asm, libultra/io/viswapcontext]
+      - [0x0008CDB0, asm, libultra/io/pigetcmdq]
+      - [0x0008CDE0, asm, libultra/gu/cosf]
+      - [0x0008CF50, asm, libultra/gu/coss]
+      - [0x0008CF80, asm, libultra/io/visetspecial]
+      - [0x0008D0E0, asm, libultra/io/visetevent]
+      - [0x0008D150, asm, libultra/audio/synaddplayer]
+      - [0x0008D1A0, asm, libultra/io/pfsnumfiles]
+      - [0x0008D2D0, asm, libultra/io/cartrominit]
+      - [0x0008D430, asm, libultra/io/pfsselectbank]
+      - [0x0008D4B0, hasm, libultra/os/setfpccsr]
+      - [0x0008D4C0, asm, libultra/io/pfsfilestate]
+      - [0x0008D6A0, asm, libultra/io/pfsinitpak]
+      - [0x0008D9B0, asm, libultra/io/pfschecker]
+      - [0x0008E350, asm, libultra/io/aigetlen]
+      - [0x0008E360, asm, libultra/io/piwrite]
+      - [0x0008E3A0, hasm, libultra/os/maptlbrdb]
+      - [0x0008E400, asm, libultra/os/yieldthread]
+      - [0x0008E450, asm, libultra/audio/synstartvoiceparam]
+      - [0x0008E530, hasm, libultra/os/getcause]
+      - [0x0008E540, asm, libultra/io/contramwrite]
+      - [0x0008E790, asm, libultra/io/contramread]
+      - [0x0008E9C0, asm, libultra/io/crc]
+      - [0x0008EB30, asm, libultra/io/epirawwrite]
+      - [0x0008EC90, asm, libultra/os/settimer]
+      - [0x0008ED70, asm, libultra/libc/xldtob]
+      - [0x0008F830, asm, libultra/libc/ldiv]
+      - [0x0008F9C0, asm, libultra/libc/xlitob]
+      - [0x0008FC60, asm, libultra/io/sirawwrite]
+      - [0x0008FCB0, asm, libultra/io/pirawwrite]
+      - [0x0008FD00, asm, libultra/io/spsetstat]
+      - [0x0008FD10, asm, libultra/io/spgetstat]
+      - [0x0008FD20, asm, libultra/io/vimgr]
+      - [0x00090030, asm, libultra/io/vigetcurrcontext]
+      - [0x00090040, hasm, libultra/os/writebackdcacheall]
+      - [0x00090070, asm, libultra/audio/heapalloc]
+      - [0x000900D0, asm, libultra/os/getcurrfaultthread]
+      - [0x000900E0, asm, libultra/gu/rotaterpy]
+      - [0x00090280, asm, libultra/libc/llcvt]
+      - [0x00090490, asm, libultra/os/startthread]
+      - [0x000905E0, asm, libultra/io/visetyscale]
+      - [0x00090640, asm, libultra/audio/synallocfx]
+      - [0x000906E0, asm, libultra/audio/synstopvoice]
+      - [0x00090760, asm, libultra/audio/syndelete]
+      - [0x00090770, asm, libultra/io/aisetnextbuf]
+      - [0x00090820, asm, libultra/io/ai]
+      - [0x00090850, asm, libultra/io/vigetcurrframebuf]
+      - [0x00090890, asm, libultra/io/spsetpc]
+      - [0x000908D0, bin] # RSP microcode
+
+      - [0x00090920, data]
+      - [0x00092B50, .data, gamestate]
+      - [0x00092E70, data, object]
+      - [0x00093750, data, 4D80]
+      - [0x00093B50, data] # Symbol D_80092F50
+      # - [0x00093B58, data, figure] # `camera_params_array` - maybe file split within `figure.s`?
+      - [0x00093EE0, data, figure]
+      - [0x00093F60, data, D270]
+      - [0x00093F70, .data, fade]
+      - [0x00094030, data, F960]
+      - [0x000948E0, data, 10100]
+      - [0x000948F0, data, DMAMgr]
+      - [0x00094920, data, 113D0]
+      - [0x00094940, data]
+      - [0x00096BD0, data, 19630]
+      # - [0x00097294, data, 19630]
+      # - [0x00096C48, data]
+      - [0x000972E0, data, crash_screen_init]
+      - [0x000976C0, .data, debug]
+      - [0x000976D0, data, save]
+      - [0x00097710, data]
+      - [0x000991D0, .data, enemy_list]
+      - [0x00099200, data, atari]
+      - [0x0009B670, .data, effect/fire]
+      - [0x0009B680, data]
+      - [0x0009B880, .data, effect/fire_sparkles]
+      - [0x0009B8B0, data]
+      - [0x0009B8D0, data, 56B60]
+      - [0x0009B8E0, data, 57050]
+      - [0x0009B900, data, 574C0]
+      - [0x0009B940, data, 5B620]
+      - [0x0009B950, data, 5B7E0]
+      - [0x0009B960, .data, effect_manager]
+      - [0x0009B970, data]
+      - [0x000A1BF0, data, libultra/os/initialize]
+      # - [0x000A1C14, data]
+      - [0x000A2D90, data, libultra/io/pimgr]
+      - [0x000A2DC0, data, libultra/io/contpfs]
+      - [0x000A2DD0, data, libultra/audio/drvrnew]
+      - [0x000A2F80, data, libultra/audio/env]
+      - [0x000A30C0, data, libultra/os/seteventmesg]
+      - [0x000A30D0, data, libultra/gu/random]
+      - [0x000A30E0, data, libultra/libc/xprintf]
+      - [0x000A3130, data, libultra/os/timerintr]
+      - [0x000A3140, data, libultra/io/vi]
+      - [0x000A31B0, data]
+      - [0x000A32A0, data, libultra/io/cartrominit]
+      - [0x000A32B0, data, libultra/io/contramread]
+      - [0x000A32C0, data, libultra/libc/xlitob]
+      - [0x000A32F0, data, libultra/io/vimgr]
+      - [0x000A3310, data, libultra/io/aisetnextbuf]
+
+      - [0x000A3320, rodata, 4D80]
+      - [0x000A3330, rodata, figure]
+      - [0x000A3390, rodata, D270]
+      - [0x000A33A0, rodata, DD70]
+      - [0x000A33B0, .rodata, fade]
+      - [0x000A33C0, rodata]
+      - [0x000A3410, rodata]
+      - [0x000A3430, rodata, 12900]
+      - [0x000A34A0, rodata, 17A00]
+      - [0x000A34F0, rodata, crash_screen_init]
+      - [0x000A3C80, .rodata, debug]
+      - [0x000A3CA0, rodata, save]
+      - [0x000A3D10, rodata]
+      - [0x000A41E0, rodata]
+      - [0x000A4310, rodata]
+      - [0x000A45A0, rodata]
+      - [0x000A4650, rodata]
+      - [0x000A4670, rodata]
+      - [0x000A49E0, rodata]
+      - [0x000A6A20, rodata]
+      - [0x000A6C40, rodata]
+      - [0x000A6CD0, rodata]
+      - [0x000A6E70, rodata]
+      - [0x000A6E90, rodata]
+      - [0x000A6EB0, rodata]
+      - [0x000A7000, rodata]
+      - [0x000A70E0, rodata]
+      - [0x000A7100, rodata]
+      - [0x000A7280, rodata]
+      - [0x000A72B0, rodata]
+      - [0x000A7360, rodata]
+      - [0x000A73A0, rodata]
+      - [0x000A73D0, rodata]
+      - [0x000A7400, rodata]
+      - [0x000A7420, rodata]
+      - [0x000A7480, rodata]
+      - [0x000A74C0, rodata]
+      - [0x000A7500, rodata]
+      - [0x000A75F0, rodata]
+      - [0x000A7790, rodata]
+      - [0x000A78C0, rodata]
+      - [0x000A78E0, rodata, libultra/gu/perspective]
+      - [0x000A78F0, rodata]
+      - [0x000A7970, rodata, libultra/gu/align]
+      - [0x000A7980, rodata, libultra/gu/sinf]
+      - [0x000A79D0, rodata, libultra/os/exceptasm]
+      - [0x000A7A20, rodata, libultra/gu/rotate]
+      - [0x000A7A30, rodata, libultra/io/devmgr]
+      - [0x000A7A50, rodata, libultra/audio/synthesizer]
+      - [0x000A7A60, rodata, libultra/audio/drvrnew]
+      - [0x000A7A80, rodata, libultra/audio/reverb]
+      - [0x000A7AB0, rodata, libultra/audio/env]
+      - [0x000A7B10, rodata, libultra/audio/resample]
+      - [0x000A7B50, rodata, libultra/libc/xprintf]
+      - [0x000A7C50, rodata, libultra/gu/position]
+      - [0x000A7C60, rodata, libultra/gu/cosf]
+      - [0x000A7CB0, rodata, libultra/gu/libm_vals]
+      - [0x000A7CC0, rodata, libultra/libc/xldtob]
+      - [0x000A7D20, rodata, libultra/gu/rotaterpy]
+      - [0x000A7D30, rodata, libultra/libc/llcvt]
+      - [0x000A7D40, rodata, 17040]
+      - [0x000A8160, rodata, audio/audioMgr]
+
+      - { start: 0x000A8420, type: .bss, vram: 0x800A7820, name: gamestate }
+      - { start: 0x000A8420, type: .bss, vram: 0x800A7830, name: object }
+      - { start: 0x000A8420, type: .bss, vram: 0x800A7840, name: object_0002 }  # Only contains ptr_Object_0002.
+      - { start: 0x000A8420, type: bss, vram: 0x800A7850, name: figure }
+      - { start: 0x000A8420, type: bss, vram: 0x800A78A0, name: F960 }
+      # - { start: 0x000A8420, type: bss, vram: 0x800D5E60, name: dma }
+      - { start: 0x000A8420, type: bss, vram: 0x800D5F20, name: 19630 }
+      - { start: 0x000A8420, type: bss, vram: 0x800D5F40, name: crash_screen_init }
+      - { start: 0x000A8420, type: .bss, vram: 0x800D7120, name: debug }
+      - { start: 0x000A8420, type: bss, vram: 0x800D7150, name: controller_pak }
+      - { start: 0x000A8420, type: .bss, vram: 0x800D7FC0, name: enemy_list }
+      - { start: 0x000A8420, type: bss, vram: 0x800D8150, name: atari }
+      - { start: 0x000A8420, type: .bss, vram: 0x800DD0D0, name: effect_manager }
+      - { start: 0x000A8420, type: bss, vram: 0x800DD0E0 }  # Used in `func_80066400`
+      - { start: 0x000A8420, type: bss, vram: 0x801229B0, name: libultra/io/motor }
+      - { start: 0x000A8420, type: bss, vram: 0x80122AB0, name: libultra/io/pfsisplug }
+      - { start: 0x000A8420, type: bss, vram: 0x80122AF0, name: libultra/io/pimgr }
+      - { start: 0x000A8420, type: bss, vram: 0x80123DB0, name: libultra/io/contpfs }
+      - { start: 0x000A8420, type: bss, vram: 0x80123EB0, name: libultra/os/seteventmesg }
+      - { start: 0x000A8420, type: bss, vram: 0x80123F30, name: libultra/gu/position }
+      - { start: 0x000A8420, type: bss, vram: 0x80123F40, name: libultra/os/timerintr }
+      - { start: 0x000A8420, type: bss, vram: 0x80123F80, name: libultra/io/cartrominit }
+      - { start: 0x000A8420, type: bss, vram: 0x80124000, name: libultra/io/vimgr }
+      - { start: 0x000A8420, type: bss, vram: 0x80125220, name: libultra/gu/rotaterpy }
+
+  - name: common
+    type: code
+    start: 0x000A8420
+    vram: 0x80125230
+    follows_vram: main
+    bss_size: 0x20C0
+    subsegments:
+      - [0x000A8420, c, common/interactables]
+      - [0x000A9560, c, common/interactables_helpers]
+      - [0x000AA130, c, common/cutscene_manager]
+      - [0x000AA6E0, asm, common/cutscene_trigger]
+      - [0x000AB0F0, asm, common/cutscene]   # Also contains initNewGame() and player_status_init()
+      - [0x000AD710, c, common/stage_select]
+      - [0x000AE120, asm, common/textbox_object]
+      - [0x000AFD00, asm, common/textbox]
+      - [0x000B5720, asm, common/lens]
+      - [0x000B9900, c, common/gameplay_menu_manager]
+      - [0x000BA6F0, asm, common/hud]
+      - [0x000BC530, c, common/hud_params]  # HUD_params is an struct associated to the HUD object
+      - [0x000BC6D0, asm, common/renon_shop]
+      - [0x000BDFE0, asm]
+      - [0x000BE4B0, c, common/menu_alloc_struct]  # Contains functions for allocating menu-related structs
+      - [0x000BE740, c, common/gameplay_common_textbox]
+      - [0x000BEF40, asm, common/item]   # Contains item / inventory handling code, as well as code for handling displaying these
+      - [0x000BFFB0, c, common/mini_scroll_setup]
+      - [0x000C0120, asm]   # Contains some functions for creating and managing `GameNoteErrorHandler`
+      - [0x000C01A0, asm, common/distortion]
+      - [0x000C2770, asm]   # Contains object 0x0167's code
+      - [0x000C2CB0, asm]   # Contains code related to creating many menu-related structs + code for slashGfx
+      - [0x000C4190, asm]   # Contains Menu and fileSelectController's code
+      - [0x000C65E0, asm, common/options_controller]
+      - [0x000C7160, asm, common/file_select]
+      - [0x000CB5A0, asm, common/scroll]
+      - [0x000D1A20, c, common/necronomicon]   # Handles the book seen in the Data screen
+      - [0x000D25F0, c, common/necro_work]
+      - [0x000D26A0, c, common/page]    # Handles a Necronomicon's page
+      - [0x000D2A50, c, common/page_work]
+      - [0x000D2B10, asm, common/mark]
+      - [0x000D2E90, asm, common/mark_work]
+      - [0x000D2FE0, asm, common/glance]
+      - [0x000D46B0, asm]
+      - [0x000D5250, asm, common/map_manager]
+      - [0x000D6C30, asm]   # Contains object 0x0169's code
+      - [0x000D7DF0, asm, common/map]    # Contains map-handling code that's not part of mapMgr
+      - [0x000D94B0, asm, common/loading_zone]
+      - [0x000DA150, asm, common/squash_point]
+      - [0x000DA820, asm]   # Contains the code for the decorativeElements object?
+      - [0x000DC5A0, asm]
+      - [0x000DD470, asm]
+      - [0x000DD8E0, asm]
+      - [0x000DF0F0, c, common/skybox_common_actors]  # Non-functional and early skybox-related elements
+      - [0x000DF780, asm]
+      - [0x000DFE00, asm, common/room]
+      - [0x000E14E0, asm, common/door]
+      - [0x000E3290, asm, common/lever]
+      - [0x000E3820, asm, common/river_water]   # Contains code for the river water seen in Forest of Silence
+      - [0x000E3CA0, asm]
+      - [0x000E41F0, c, common/object_017C]
+      - [0x000E4350, asm]
+      - [0x000E4DC0, asm, common/elevator]
+      - [0x000E5980, asm]
+      - [0x000E6350, asm, common/candle]
+      - [0x000E9490, asm, common/sound_range]
+      - [0x000E9800, asm]   # Also contains code for the `rain` object
+      - [0x000EA9B0, asm, common/actor_creator]
+      - [0x000EB700, asm]   # Contains object 0x00BA's code
+      - [0x000EDA60, .data, common/interactables_tables]
+      - [0x000EE750, .data, common/interactables]
+      - [0x000EE770, .data, common/cutscene_manager]
+      - [0x000EE790, data, common/cutscene_trigger]
+      - [0x000EE7B0, data]
+      - [0x000EFA80, data]
+      - [0x000EFAD0, .data, common/stage_select]
+      - [0x000EFC70, data]
+      - [0x000F0290, data]
+      - [0x00103650, .data, common/gameplay_menu_manager]
+      - [0x00103680, data, common/hud]
+      - [0x00103720, data, common/renon_shop]
+      - [0x00103E10, .data, common/gameplay_common_textbox]
+      - [0x00103F00, data, common/distortion]
+      - [0x001040F0, data]
+      - [0x00104190, data]
+      - [0x001042A0, data]
+      - [0x00104550, data]
+      - [0x00104660, data]
+      - [0x00104790, .data, common/necronomicon]
+      - [0x001047B0, .data, common/page]
+      - [0x001049A0, data]
+      - [0x001049C0, data]
+      - [0x00104AD0, data]
+      - [0x00104B40, data]
+      - [0x00104B60, data]
+      - [0x001084D0, data]
+      - [0x00109900, data]
+      - [0x0010A5F0, .data, common/skybox_common_actors]
+      - [0x0010A660, data]
+      - [0x0010A730, data]
+      - [0x0010A800, data]
+      - [0x0010BAD0, .data, common/object_017C]
+      - [0x0010BB60, data]
+      - [0x0010D8E0, data]
+      - [0x0010D900, data]
+      - [0x0010DC60, data]
+      - [0x0010DD50, .rodata, common/interactables]
+      - [0x0010DD70, .rodata, common/interactables_helpers]
+      - [0x0010DDF0, rodata, common/cutscene_trigger]
+      - [0x0010E070, .rodata, common/stage_select]
+      - [0x0010E0F0, rodata]
+      - [0x0010E1E0, rodata]
+      - [0x0010E410, rodata, common/lens]
+      - [0x0010E4E0, rodata, common/gameplay_menu_manager]
+      - [0x0010E610, rodata, common/hud]
+      - [0x0010E650, rodata, common/renon_shop]
+      - [0x0010E8A0, rodata]
+      - [0x0010E8F0, rodata]
+      - [0x0010EFC0, .rodata, common/necronomicon]
+      - [0x0010EFD0, .rodata, common/necro_work]
+      - [0x0010EFE0, .rodata, common/page_work]
+      - [0x0010EFF0, rodata]
+      - [0x0010F010, rodata]
+      - [0x0010F020, rodata]
+      - [0x0010F090, rodata]
+      - [0x0010F190, rodata]
+      - [0x0010F290, rodata]
+      - [0x0010F7D0, rodata]
+      - [0x0010F810, rodata]
+      - [0x0010F840, .rodata, common/skybox_common_actors]
+      - [0x0010F850, rodata]
+      - [0x0010F920, rodata]
+      - [0x0010F9D0, rodata]
+      - [0x0010F9F0, rodata]
+      - [0x0010FA20, rodata]
+      - [0x0010FA60, rodata]
+      - [0x0010FB60, rodata]
+      - { start: 0x0010FC40, type: .bss, vram: 0x8018CA50, name: common/gameplay_menu_manager }
+      - { start: 0x0010FC40, type: bss, vram: 0x8018CA60, name: common/file_select }
+      - { start: 0x0010FC40, type: bss, vram: 0x8018CA80, name: common/map_manager }
+      - { start: 0x0010FC40, type: bss, vram: 0x8018CDF0, name: D6C30 }
+      - { start: 0x0010FC40, type: bss, vram: 0x8018CE40, name: common/map }
+
+  - name: assets_10FC40                         # Related to audio?
+    type: bin
+    start: 0x0010FC40
+    vram: 0x80389F10
+    subsegments:
+      - [0x0010FC40, bin]
+
+  - name: soundfonts_ctl
+    type: bin
+    start: 0x00116210
+    subsegments:
+      - [0x00116210, bin, soundfont1.ctl]         # Bank: Instruments
+      - [0x0011BA20, bin, soundfont2.ctl]         # Bank: Most sound effects, character voices
+      - [0x00123AA0, bin, soundfont3.ctl]         # Bank: Opening piano / violin, narrator and Malus voice
+
+  - name: soundfonts_tbl
+    type: bin
+    start: 0x00126590
+    subsegments:
+      - [0x00126590, bin, soundfont1.tbl]         # Raw sounds: Instruments
+      - [0x002FB290, bin, soundfont2.tbl]         # Raw sounds: Most sound effects, character voices
+      - [0x00532130, bin, soundfont3.tbl]         # Raw sounds: Opening piano / violin, narrator and Malus voice
+
+  - name: sequences
+    type: bin
+    start: 0x0064FED0
+    subsegments:
+      - [0x0064FED0, bin]
+      - [0x006503B0, bin]
+      - [0x00650C80, bin]
+      - [0x00651470, bin]
+      - [0x00651690, bin]
+      - [0x006517E0, bin]
+      - [0x006517E0, bin]
+      - [0x00652480, bin]
+      - [0x00652950, bin]
+      - [0x00652CC0, bin]
+      - [0x00653100, bin]
+      - [0x006536F0, bin]
+      - [0x00653D50, bin]
+      - [0x00653E40, bin]
+      - [0x00654380, bin]
+      - [0x00654620, bin]
+      - [0x006549A0, bin]
+      - [0x00654AD0, bin]
+      - [0x00654D50, bin]
+      - [0x00654FF0, bin]
+      - [0x006552B0, bin]
+      - [0x00655420, bin]
+      - [0x00655630, bin]
+      - [0x006558E0, bin]
+      - [0x00656220, bin]
+      - [0x00656650, bin]
+      - [0x00656B90, bin]
+      - [0x00656F30, bin]
+      - [0x00657200, bin]
+      - [0x00657520, bin]
+      - [0x00657AD0, bin]
+      - [0x00657DD0, bin]
+      - [0x00658080, bin]
+      - [0x006584A0, bin]
+      - [0x00658740, bin]
+      - [0x006589F0, bin]
+      - [0x00659930, bin]
+      - [0x00659970, bin]
+      - [0x00659E30, bin]
+      - [0x0065A250, bin]
+      - [0x0065A8C0, bin]
+      - [0x0065AB40, bin]
+      - [0x0065AD00, bin]
+      - [0x0065B100, bin]
+      - [0x0065B780, bin]
+      - [0x0065B870, bin]
+      - [0x0065B9A0, bin]
+      - [0x0065BC80, bin]
+      - [0x0065C090, bin]
+      - [0x0065C390, bin]
+      - [0x0065CC20, bin]
+      - [0x0065D090, bin]
+      - [0x0065D690, bin]
+      - [0x0065DC90, bin]
+      - [0x0065E1D0, bin]
+      - [0x0065E500, bin]
+      - [0x0065E670, bin]
+      - [0x0065EDD0, bin]
+      - [0x0065F2F0, bin]
+      - [0x0065F400, bin]
+      - [0x0065F5B0, bin]
+      - [0x0065F740, bin]
+      - [0x0065F8D0, bin]
+      - [0x0065FA70, bin]
+      - [0x00660090, bin]
+      - [0x00660670, bin]
+      - [0x00660C50, bin]
+      - [0x00660F80, bin]
+      - [0x00661320, bin]
+      - [0x00662040, bin]
+      - [0x006621D0, bin]
+      - [0x00662760, bin]
+      - [0x00662B80, bin]
+      - [0x006630B0, bin]
+      - [0x006633F0, bin]
+      - [0x006639F0, bin]
+      - [0x00663C60, bin]
+      - [0x00664000, bin]
+      - [0x00664320, bin]
+      - [0x00664670, bin]
+      - [0x00664910, bin]
+      - [0x006650B0, bin]
+      - [0x006658D0, bin]
+      - [0x00665FB0, bin]
+      - [0x006664F0, bin]
+      - [0x006666B0, bin]
+      - [0x006668D0, bin]
+      - [0x00666A80, bin]
+      - [0x00666C80, bin]
+      - [0x006670E0, bin]
+      - [0x00667770, bin]
+      - [0x00668490, bin]
+      - [0x00668B80, bin]
+      - [0x00668BF0, bin]
+      - [0x00668DA0, bin]
+      - [0x00669390, bin]
+      - [0x006695B0, bin]
+      - [0x006697C0, bin]
+      - [0x006698A0, bin]
+      - [0x0066A8C0, bin]
+      - [0x0066AD00, bin]
+      - [0x0066B1B0, bin]
+      - [0x0066B380, bin]
+      - [0x0066B450, bin]
+      - [0x0066BF60, bin]
+      - [0x0066C110, bin]
+
+  - name: npc_animations
+    type: bin
+    start: 0x0066C3D0
+    vram: 0x803A6770
+    subsegments:
+      - [0x0066C3D0, bin]
+
+  - name: player_animations
+    type: bin
+    start: 0x0067D7B0
+    vram: 0x803B7B50
+    subsegments:
+      - [0x0067D7B0, bin]
+
+  # Uncompressed overlays
+  - name: reinhardt
+    type: code
+    start: 0x00697040
+    vram: 0x803D13E0
+    exclusive_ram_id: ovl_player
+    subsegments:
+      - [0x00697040, asm, overlay/reinhardt]
+      - [0x006A25E0, asm, overlay/reinhardt_scarf]
+      - [0x006A2B50, data, overlay/reinhardt]
+      - [0x006A4100, data, overlay/reinhardt_scarf]
+
+  - name: carrie
+    type: code
+    start: 0x006A42D0
+    vram: 0x803D13E0
+    exclusive_ram_id: ovl_player
+    subsegments:
+      - [0x006A42D0, asm, overlay/carrie]
+      - [0x006AF090, asm, overlay/carrie_skirt]
+      - [0x006AFEA0, asm, overlay/carrie_rightstrip]
+      - [0x006B0210, asm, overlay/carrie_leftstrip]
+      - [0x006B0590, data, overlay/carrie]
+      - [0x006B0B20, data, overlay/carrie_skirt]
+      - [0x006B0E80, data, overlay/carrie_rightstrip]
+      - [0x006B1110, data, overlay/carrie_leftstrip]
+
+  - name: gamenote_delete
+    type: code
+    start: 0x006B12F0
+    vram: 0x801CC000
+    exclusive_ram_id: ovl_gamenote_delete
+    subsegments:
+      - [0x006B12F0, asm, overlay/gamenote_delete]
+      - [0x006B4850, data, overlay/gamenote_delete]
+      - [0x006B4F60, rodata, overlay/gamenote_delete]
+
+  - name: konami_kcek_logos
+    type: code
+    start: 0x006B4FC0
+    vram: 0x801CFCD0
+    exclusive_ram_id: ovl_konami_kcek_logos
+    subsegments:
+      - [0x006B4FC0, c, overlay/konami_kcek_logos]
+      - [0x006B5450, .data, overlay/konami_kcek_logos]
+      - [0x006B5470, .rodata, overlay/konami_kcek_logos]
+
+  - name: MORI # Forest
+    type: code
+    start: 0x006B5480
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006B5480, asm, overlay/map/mori]
+      - [0x006BA620, data, overlay/map/mori]
+      - [0x006BAA40, rodata, overlay/map/mori]
+
+  - name: TOU # Tower
+    type: code
+    start: 0x006BAB80
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006BAB80, asm, overlay/map/tou]
+      - [0x006BF7E0, data, overlay/map/tou]
+      - [0x006BFB40, rodata, overlay/map/tou]
+
+  - name: TOUOKUJI # Tower Roof
+    type: code
+    start: 0x006BFBF0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006BFBF0, asm, overlay/map/touokuji]
+      - [0x006C12F0, data, overlay/map/touokuji]
+      - [0x006C13D0, rodata, overlay/map/touokuji]
+
+  - name: NAKANIWA # Inner Garden
+    type: code
+    start: 0x006C1460
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C1460, asm, overlay/map/nakaniwa]
+      - [0x006C2D30, data, overlay/map/nakaniwa]
+      - [0x006C2F00, rodata, overlay/map/nakaniwa]
+
+  - name: BEKKAN_1F # Annex 1F
+    type: code
+    start: 0x006C2F20
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C2F20, c, overlay/map/bekkan_1f]
+      - [0x006C32E0, .data, overlay/map/bekkan_1f]
+
+  - name: BEKKAN_2F # Annex 2F
+    type: code
+    start: 0x006C3300
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C3300, asm, overlay/map/6C3300]
+      - [0x006C3B50, asm, overlay/map/6C3B50]
+      - [0x006C4D70, data, overlay/map/6C3300]
+      - [0x006C4FE0, data, overlay/map/6C3B50]
+      - [0x006C5040, rodata, overlay/map/6C3B50]
+
+  - name: MEIRO_TEIEN # Maze Garden
+    type: code
+    start: 0x006C50E0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C50E0, c, overlay/map/meiro_teien]
+
+  - name: CHIKA_KODO # Underground Mining Tunnel
+    type: code
+    start: 0x006C5110
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C5110, asm, overlay/map/chika_kodo]
+      - [0x006C74A0, data, overlay/map/chika_kodo]
+
+  - name: CHIKA_SUIRO # Underground Waterway
+    type: code
+    start: 0x006C77D0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C77D0, asm, overlay/map/chika_suiro]
+      - [0x006C85A0, data, overlay/map/chika_suiro]
+      - [0x006C8670, rodata, overlay/map/chika_suiro]
+
+  - name: HONMARU_B1F # Castle Center B1F
+    type: code
+    start: 0x006C86A0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C86A0, asm, overlay/map/honmaru_b1f]
+      - [0x006C9B00, data, overlay/map/honmaru_b1f]
+      - [0x006C9BC0, rodata, overlay/map/honmaru_b1f]
+
+  - name: HONMARU_1F # Castle Center 1F
+    type: code
+    start: 0x006C9BF0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006C9BF0, c, overlay/map/honmaru_1f]
+      - [0x006CB780, .data, overlay/map/honmaru_1f]
+      - [0x006CB820, .rodata, overlay/map/honmaru_1f]
+
+  - name: HONMARU_2F # Castle Center 2F
+    type: code
+    start: 0x006CB850
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      # - [0x006CB850, asm, overlay/map/honmaru_2f]
+      - [0x006CB850, asm, overlay/map/honmaru_2f]
+      - [0x006CCDE0, data, overlay/map/honmaru_2f]
+      - [0x006CCFA0, rodata, overlay/map/honmaru_2f]
+
+  - name: HONMARU_3F_MINAMI # Castle Center South 3F
+    type: code
+    start: 0x006CD050
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006CD050, asm, overlay/map/honmaru_3f_minami]
+      - [0x006CD640, data, overlay/map/honmaru_3f_minami]
+      - [0x006CD720, rodata, overlay/map/honmaru_3f_minami]
+
+  - name: HONMARU_4F_MINAMI # Castle Center South 4F
+    type: code
+    start: 0x006CD740
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006CD740, asm, overlay/map/honmaru_4f_minami]
+      - [0x006CE350, data, overlay/map/honmaru_4f_minami]
+      - [0x006CE470, rodata, overlay/map/honmaru_4f_minami]
+
+  - name: HONMARU_3F_KITA # Castle Center North 3F
+    type: code
+    start: 0x006CE4B0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006CE4B0, asm, overlay/map/honmaru_3f_kita]
+      - [0x006CE8F0, data, overlay/map/honmaru_3f_kita]
+      - [0x006CE980, rodata, overlay/map/honmaru_3f_kita]
+
+  - name: HONMARU_5F # Castle Center 5F
+    type: code
+    start: 0x006CE9A0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006CE9A0, c, overlay/map/honmaru_5f]
+      - [0x006CF3B0, .data, overlay/map/honmaru_5f]
+      - [0x006CF3F0, .rodata, overlay/map/honmaru_5f]
+
+  - name: SHOKEI_TOU # Tower of Execution
+    type: code
+    start: 0x006CF420
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006CF420, asm, overlay/map/6CF420]
+      - [0x006D2840, asm, overlay/map/6D2840]
+      - [0x006D30C0, data, overlay/map/6CF420]
+      - [0x006D3530, data, overlay/map/6D2840]
+      # - [0x006D3584, rodata, overlay/map/6CF420]
+
+  - name: MAHOU_TOU # Tower of Sorcery
+    type: code
+    start: 0x006D35A0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      # - [0x006D35A0, asm, overlay/map/mahou_tou]
+      - [0x006D35A0, asm, overlay/map/mahou_tou]
+      - [0x006D7170, data, overlay/map/mahou_tou]
+      # - [0x006D7478, rodata, overlay/map/mahou_tou]
+      - [0x006D7490, rodata, overlay/map/mahou_tou]
+
+  - name: KAGAKU_TOU # Tower of Science
+    type: code
+    start: 0x006D74F0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      # - [0x006D74F0, asm, overlay/map/6D74F0]
+      - [0x006D74F0, asm, overlay/map/6D74F0]
+      # - [0x006E1FC0, asm, overlay/map/6E1FC0]
+      - [0x006E1FC0, asm, overlay/map/6E1FC0]
+      - [0x006E2150, data, overlay/map/6D74F0]
+      - [0x006E31C0, data, overlay/map/6E1FC0]
+
+  - name: KETTOU_TOU # Duel Tower
+    type: code
+    start: 0x006E31D0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      # - [0x006E31D0, asm, overlay/map/kettou_tou]
+      - [0x006E31D0, asm, overlay/map/kettou_tou]
+      - [0x006E7F20, data, overlay/map/kettou_tou]
+      - [0x006E8550, rodata, overlay/map/kettou_tou]
+
+  - name: TURO_TOKEITOU # Castle Keep (Exterior)
+    type: code
+    start: 0x006E86B0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006E86B0, asm, overlay/map/6E86B0]
+      - [0x006E96D0, asm, overlay/map/6E96D0]
+      - [0x006EA1D0, data, overlay/map/6E86B0]
+      - [0x006EA3B0, data, overlay/map/6E96D0]
+      - [0x006EA460, rodata, overlay/map/6E86B0] # Not sure if this rodata belongs to the first/second translation unit
+      # - [0x006EA460, rodata, overlay/map/6E96D0]
+
+  - name: TENSHU # Castle Keep
+    type: code
+    start: 0x006EA480
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006EA480, asm, overlay/map/tenshu]
+      - [0x006EBBD0, data, overlay/map/tenshu]
+      - [0x006EBCE0, rodata, overlay/map/tenshu]
+
+  - name: TOKEITOU_NAI # Clock Tower
+    type: code
+    start: 0x006EBD90
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006EBD90, asm, overlay/map/6EBD90] # This needs more eyes to figure out the splits
+      - [0x006EF000, asm, overlay/map/6EF000]
+      - [0x006EFBD0, data, overlay/map/6EBD90]
+
+  - name: DRACULA # Dracula
+    type: code
+    start: 0x006F0150
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006F0150, asm, overlay/map/dracula]
+      - [0x006F09E0, data, overlay/map/dracula]
+      - [0x006F0A20, rodata, overlay/map/dracula]
+
+  - name: ROSE # Rose
+    type: code
+    start: 0x006F0A50
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006F0A50, c, overlay/map/rose]
+      - [0x006F1150, .data, overlay/map/rose]
+      - [0x006F1170, .rodata, overlay/map/rose]
+
+  - name: BEKKAN_BOSS # Annex Boss
+    type: code
+    start: 0x006F11B0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006F11B0, asm, overlay/map/bekkan_boss]
+      - [0x006F1B00, data, overlay/map/bekkan_boss]
+      - [0x006F1B40, rodata, overlay/map/bekkan_boss]
+
+  - name: TOU_TURO # Room of Clocks
+    type: code
+    start: 0x006F1B80
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      - [0x006F1B80, c, overlay/map/tou_turo]
+      - [0x006F2160, .data, overlay/map/tou_turo]
+      - [0x006F2190, .rodata, overlay/map/tou_turo]
+
+  - name: ENDING # Ending
+    type: code
+    start: 0x006F21D0
+    vram: 0x8018EB10
+    exclusive_ram_id: ovl_map_objects
+    subsegments:
+      # - [0x006F21D0, asm, overlay/map/ending]
+      - [0x006F21D0, asm, overlay/map/ending]
+      - [0x006F39C0, data, overlay/map/ending]
+      - [0x006F3B80, rodata, overlay/map/ending]
+  # End of uncompressed overlays
+
+  # Compressed (Nisitenma-Ichigo) files
+  - name: ni_6F3BD0
+    type: code
+    start: 0x006F3BD0
+    vram: 0x03000000
+    exclusive_ram_id: nisitenma_ichigo_assets_6F3BD0
+    subsegments:
+      - [0x006F3BD0, .data, assets/ni_6F3BD0/ni_6F3BD0]
+
+  - name: ni_debug_font_texture         # Officially known as "ascii_seg"
+    type: bin
+    # start: 0x006F3CB6
+    start: 0x006F3F80
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_reinhardt
+    type: bin
+    # start: 0x006F4070
+    start: 0x006F4780
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_reinhardt_alt
+    type: bin
+    # start: 0x006F8C94
+    start: 0x006FC730
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_whip
+    type: bin
+    # start: 0x006FE138
+    start: 0x00705520
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_carrie
+    type: bin
+    # start: 0x006FE308
+    start: 0x00705AB0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_carrie_alt
+    type: bin
+    # start: 0x00702456
+    start: 0x0070CF60
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_enemy_target_graphic
+    type: bin
+    # start: 0x00705C72
+    start: 0x00713550
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_beta_3_head_wolf
+    type: bin
+    # start: 0x00705DCE
+    start: 0x00713980
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cerberus
+    type: bin
+    # start: 0x00709292
+    start: 0x00718950
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_white_dragon
+    type: bin
+    # start: 0x0070BDF8
+    start: 0x0071D0D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_gardener
+    type: bin
+    # start: 0x0070D0D8
+    start: 0x0071FF10
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_stone_dog
+    type: bin
+    # start: 0x0070FD94
+    start: 0x007245D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_behemoth
+    type: bin
+    # start: 0x0071216E
+    start: 0x00727BA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_weretiger
+    type: bin
+    # start: 0x0071B05E
+    start: 0x00737290
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_werewolf
+    type: bin
+    # start: 0x0071EF92
+    start: 0x0073CBE0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_hell_knight
+    type: bin
+    # start: 0x00721EDA
+    start: 0x00740B00
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_ghost
+    type: bin
+    # start: 0x00724B60
+    start: 0x00745990
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_iceman_puddle
+    type: bin
+    # start: 0x007267DE
+    start: 0x00748900
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_728A42
+    type: bin
+    # start: 0x00728A42
+    start: 0x0074D710
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_72A16C
+    type: bin
+    # start: 0x0072A16C
+    start: 0x0074FA80
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_iceman
+    type: bin
+    # start: 0x0072B974
+    start: 0x00752D30
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_fire_bat
+    type: bin
+    # start: 0x0072D4C2
+    start: 0x007556B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_flying_skull
+    type: bin
+    # start: 0x0072DE16
+    start: 0x007564E0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_bat
+    type: bin
+    # start: 0x0072E874
+    start: 0x00756FF0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_medusa_head
+    type: bin
+    # start: 0x0072F0E6
+    start: 0x00757E00
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_pillar_of_bones
+    type: bin
+    # start: 0x0073001E
+    start: 0x007594E0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_undead_maiden
+    type: bin
+    # start: 0x007312E6
+    start: 0x0075B280
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_vampire_maid
+    type: bin
+    # start: 0x007353A8
+    start: 0x00761CE0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_vampire_villager
+    type: bin
+    # start: 0x00737F76
+    start: 0x00767030
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_vampire_butler
+    type: bin
+    # start: 0x0073C72E
+    start: 0x0076E120
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_vincent
+    type: bin
+    # start: 0x0073F74E
+    start: 0x007738C0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_werejaguar
+    type: bin
+    # start: 0x00743316
+    start: 0x007799C0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_spider_centaur
+    type: bin
+    # start: 0x00746BD4
+    start: 0x0077F120
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_lizard_man
+    type: bin
+    # start: 0x00749070
+    start: 0x00783EC0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_skeleton_warrior
+    type: bin
+    # start: 0x0074E9D8
+    start: 0x0078BDA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_glass_knight
+    type: bin
+    # start: 0x007518E0
+    start: 0x0078FCA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_king_skeleton
+    type: bin
+    # start: 0x00752D2C
+    start: 0x007927B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_skeleton_biker
+    type: bin
+    # start: 0x007565B0
+    start: 0x00797650
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_true_dracula
+    type: bin
+    # start: 0x0075B65C
+    start: 0x0079FDA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_malus
+    type: bin
+    # start: 0x007604A0
+    start: 0x007AA2D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_malus_horse
+    type: bin
+    # start: 0x00764A48
+    start: 0x007B2BD0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_demon_dracula
+    type: bin
+    # start: 0x007684FC
+    start: 0x007BA080
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_dracula_cape
+    type: bin
+    # start: 0x0076EE3A
+    start: 0x007C9AD0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_renon
+    type: bin
+    # start: 0x007750DE
+    start: 0x007D5B50
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_demon_renon
+    type: bin
+    # start: 0x00778232
+    start: 0x007DC070
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_death
+    type: bin
+    # start: 0x0077D3D2
+    start: 0x007E61B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_demonic_fish
+    type: bin
+    # start: 0x007816E8
+    start: 0x007ED780
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_rosa
+    type: bin
+    # start: 0x00784F22
+    start: 0x007F28C0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_rosa_petals
+    type: bin
+    # start: 0x00788720
+    start: 0x007F9CA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_camilla
+    type: bin
+    # start: 0x007887AE
+    start: 0x007F9D80
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_actrise
+    type: bin
+    # start: 0x0078BCD6
+    start: 0x00800520
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_actrise_camilla_fight
+    type: bin
+    # start: 0x0078FA5C
+    start: 0x00808030
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_790D08
+    type: bin
+    # start: 0x00790D08
+    start: 0x0080A980
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_793C0C
+    type: bin
+    # start: 0x00793C0C
+    start: 0x0080F190
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_common_gameplay_effects
+    type: bin
+    # start: 0x007940E2
+    start: 0x0080FA80
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_7A2B30
+    type: bin
+    # start: 0x007A2B30
+    start: 0x008426F0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_7A38EC
+    type: bin
+    # start: 0x007A38EC
+    start: 0x00843DA0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_7A4DFC
+    type: bin
+    # start: 0x007A4DFC
+    start: 0x00847080
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_7A5352
+    type: bin
+    # start: 0x007A5352
+    start: 0x008482D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_MORI
+    type: bin
+    # start: 0x007A6DF4
+    start: 0x0084D950
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TOU
+    type: bin
+    # start: 0x007C9136
+    start: 0x0088C760
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TOUOKUJI
+    type: bin
+    # start: 0x007E306A
+    start: 0x008B5CE0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_NAKANIWA
+    type: bin
+    # start: 0x007FA1DA
+    start: 0x008DB7B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_BEKKAN_1F
+    type: bin
+    # start: 0x0080A0F4
+    start: 0x008F6E70
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_BEKKAN_2F
+    type: bin
+    # start: 0x0081FACA
+    start: 0x0091B1B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_MEIRO_TEIEN
+    type: bin
+    # start: 0x0083B95A
+    start: 0x00949B60
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_CHIKA_KODO
+    type: bin
+    # start: 0x00851944
+    start: 0x0096F8A0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_CHIKA_SUIRO
+    type: bin
+    # start: 0x0086E98E
+    start: 0x009A3640
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_B1F
+    type: bin
+    # start: 0x0087F218
+    start: 0x009C1980
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_1F
+    type: bin
+    # start: 0x00898E60
+    start: 0x009E9280
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_2F
+    type: bin
+    # start: 0x008A762A
+    start: 0x00A01F90
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_3F_MINAMI
+    type: bin
+    # start: 0x008C4F12
+    start: 0x00A2E9E0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_4F_MINAMI
+    type: bin
+    # start: 0x008DFE8E
+    start: 0x00A58D90
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_3F_KITA
+    type: bin
+    # start: 0x008F18D2
+    start: 0x00A783E0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_HONMARU_5F
+    type: bin
+    # start: 0x00910652
+    start: 0x00AA9A80
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_SHOKEI_TOU
+    type: bin
+    # start: 0x009180FE
+    start: 0x00AB6110
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_MAHOU_TOU
+    type: bin
+    # start: 0x00929D4A
+    start: 0x00AD1EF0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_KAGAKU_TOU
+    type: bin
+    # start: 0x0093B202
+    start: 0x00AEDA10
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_KETTOU_TOU
+    type: bin
+    # start: 0x00955C62
+    start: 0x00B1D0A0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TURO_TOKEITOU
+    type: bin
+    # start: 0x009630C2
+    start: 0x00B335C0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TENSHU
+    type: bin
+    # start: 0x00977B28
+    start: 0x00B52F20
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_ENDING_DUMMY
+    type: bin
+    # start: 0x009856C4
+    start: 0x00B664B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TOKEITOU_NAI
+    type: bin
+    # start: 0x00985742
+    start: 0x00B66560
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_DRACULA
+    type: bin
+    # start: 0x0099C45E
+    start: 0x00B8B880
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_ROSE
+    type: bin
+    # start: 0x009A22C2
+    start: 0x00B96DF0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_BEKKAN_BOSS
+    type: bin
+    # start: 0x009A66E8
+    start: 0x00B9D2B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TOU_TURO
+    type: bin
+    # start: 0x009ACFD0
+    start: 0x00BA7780
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_ENDING
+    type: bin
+    # start: 0x009B52C4
+    start: 0x00BB3920
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_pickable_items
+    type: bin
+    # start: 0x009C5310
+    start: 0x00BCE4D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_skybox
+    type: bin
+    # start: 0x009C9038
+    start: 0x00BD4F10
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: NI_ASSETS_TEST_GRID
+    type: bin
+    # start: 0x009CAD2A
+    start: 0x00BD8EC0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+    subsegments:
+      - { start: 0x00BD8EC0, type: ci4, name: map/test_grid/img/test_grid_txt.ci4, palette: map/test_grid/img/test_grid_tlut.rgba16, width: 64, height: 64 }
+      - { start: 0x00BD96C0, type: palette, name: map/test_grid/img/test_grid_tlut.rgba16, size: 0x20 }
+
+      - { start: 0x00BD96E0, type: vtx, data_only: true, name: map/test_grid/vertices/test_grid_vtx }
+
+      - { start: 0x00BD9E60, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_1 }
+      - { start: 0x00BD9F98, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_2 }
+      - { start: 0x00BDA0B0, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_3 }
+      - { start: 0x00BDA1C8, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_4 }
+      - { start: 0x00BDA2A0, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_5 }
+      - { start: 0x00BDA3B8, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_6 }
+      - { start: 0x00BDA4B0, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_7 }
+      - { start: 0x00BDA5A8, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_8 }
+      - { start: 0x00BDA680, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_9 }
+      - { start: 0x00BDA798, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_10 }
+      - { start: 0x00BDA890, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_11 }
+      - { start: 0x00BDA988, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_12 }
+      - { start: 0x00BDAA60, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_13 }
+      - { start: 0x00BDAB38, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_14 }
+      - { start: 0x00BDAC10, type: gfx, data_only: true, name: map/test_grid/dlists/test_grid_15 }
+
+  - name: ni_konami_kcek_logos
+    type: bin
+    # start: 0x009CB170
+    start: 0x00BDACF0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_scroll
+    type: bin
+    # start: 0x009CDF24
+    start: 0x00BF1210
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_63
+    type: bin
+    # start: 0x009D0AEA
+    start: 0x00BF5460
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_pause_menu
+    type: bin
+    # start: 0x009D9180
+    start: 0x00C1C5F0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_necronomicon_book
+    type: bin
+    # start: 0x009E5980
+    start: 0x00C374F0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_character_select
+    type: bin
+    # start: 0x009ED33A
+    start: 0x00C434B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_gameplay_hud
+    type: bin
+    # start: 0x009F016A
+    start: 0x00C482A0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_game_over
+    type: bin
+    # start: 0x009FA8BE
+    start: 0x00C5D610
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_file_select
+    type: bin
+    # start: 0x009FE61A
+    start: 0x00C672A0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_controller_buttons
+    type: bin
+    # start: 0x009FEBB8
+    start: 0x00C68580
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_renon_briefcase
+    type: bin
+    # start: 0x009FF252
+    start: 0x00C6AC70
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cs_film_reel
+    type: bin
+    # start: 0x00A008AA
+    start: 0x00C6D9B0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_01_10_27
+    type: bin
+    # start: 0x00A0094C
+    start: 0x00C6DC50
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_02
+    type: bin
+    # start: 0x00A0DD76
+    start: 0x00C87010
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_2B
+    type: bin
+    # start: 0x00A0E804
+    start: 0x00C87DC0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_2C
+    type: bin
+    # start: 0x00A0EE1C
+    start: 0x00C88FE0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_2E
+    type: bin
+    # start: 0x00A0FCFE
+    start: 0x00C8A8D0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_3F
+    type: bin
+    # start: 0x00A10182
+    start: 0x00C8B170
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_2C_2D
+    type: bin
+    # start: 0x00A104F6
+    start: 0x00C8BAE0
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_cutscene_0A
+    type: bin
+    # start: 0x00A1476E
+    start: 0x00C93810
+    vram: 0x06000000
+    exclusive_ram_id: nisitenma_ichigo_assets
+
+  - name: ni_smiley_face
+    type: bin
+    # start: 0x00A1520C
+    start: 0x00C944A0
+    vram: 0x08000000
+    exclusive_ram_id: nisitenma_ichigo_assets_smiley_face
+
+  - name: ni_ovl_cerberus
+    type: bin
+    # start: 0x00A1560C
+    start: 0x00C95BA0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_white_dragon
+    type: bin
+    # start: 0x00A20348
+    start: 0x00CA39F0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_gardener
+    type: bin
+    # start: 0x00A253B6
+    start: 0x00CAD050
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_stone_dog
+    type: bin
+    # start: 0x00A2945C
+    start: 0x00CB2650
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_malus
+    type: bin
+    # start: 0x00A2DE52
+    start: 0x00CB8C00
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_behemoth
+    type: bin
+    # start: 0x00A31B06
+    start: 0x00CC00B0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_weretiger
+    type: bin
+    # start: 0x00A41292
+    start: 0x00CD6550
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_werewolf
+    type: bin
+    # start: 0x00A45FFA
+    start: 0x00CDCB40
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_hell_knight
+    type: bin
+    # start: 0x00A4C58C
+    start: 0x00CE4C30
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_ghost
+    type: bin
+    # start: 0x00A52788
+    start: 0x00CECE90
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_iceman
+    type: bin
+    # start: 0x00A54ABA
+    start: 0x00CEFC10
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_icemanAssetsLoader
+    type: code
+    # start: 0x00A5914A
+    start: 0x00CF5ED0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00CF5ED0, c, overlay/icemanAssetsLoader]
+      - [0x00CF6030, .data, overlay/icemanAssetsLoader]
+
+  - name: ni_ovl_opening_bat
+    type: code
+    # start: 0x00A591D6
+    start: 0x00CF6040
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00CF6040, c, overlay/opening_bat]
+      - [0x00CF6470, .data, overlay/opening_bat]
+
+  - name: ni_ovl_flying_skull
+    type: bin
+    # start: 0x00A59542
+    start: 0x00CF64F0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_bat
+    type: bin
+    # start: 0x00A5B666
+    start: 0x00CF8F50
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_medusa_head
+    type: bin
+    # start: 0x00A5E06C
+    start: 0x00CFC360
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_pillar_of_bones
+    type: bin
+    # start: 0x00A5F57E
+    start: 0x00CFDD90
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_vampires
+    type: bin
+    # start: 0x00A62486
+    start: 0x00D01E00
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_vincent_npc
+    type: bin
+    # start: 0x00A7A708
+    start: 0x00D235F0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_A7C0FE
+    type: bin
+    # start: 0x00A7C0FE
+    start: 0x00D25CA0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_A7C8C4
+    type: bin
+    # start: 0x00A7C8C4
+    start: 0x00D26970
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_A7D81A
+    type: bin
+    # start: 0x00A7D81A
+    start: 0x00D281A0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_A7DBB0
+    type: bin
+    # start: 0x00A7DBB0
+    start: 0x00D28600
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_A7E2DA
+    type: bin
+    # start: 0x00A7E2DA
+    start: 0x00D28FE0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_spider_centaur
+    type: bin
+    # start: 0x00A7E37A
+    start: 0x00D292A0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_heavy_lizard_man
+    type: bin
+    # start: 0x00A86CA6
+    start: 0x00D35E60
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_skeleton_warrior
+    type: bin
+    # start: 0x00A92912
+    start: 0x00D46850
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_king_skeleton
+    type: bin
+    # start: 0x00A9B874
+    start: 0x00D53570
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_skeleton_biker
+    type: bin
+    # start: 0x00AA39BA
+    start: 0x00D5DC90
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_true_dracula
+    type: bin
+    # start: 0x00AA8B64
+    start: 0x00D65290
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_AB029E
+    type: bin
+    # start: 0x00AB029E
+    start: 0x00D6F6D0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_AB10D4
+    type: bin
+    # start: 0x00AB10D4
+    start: 0x00D70CA0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_cutscene_02
+    type: bin
+    # start: 0x00AB6C90
+    start: 0x00D780E0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_malus_horse
+    type: bin
+    # start: 0x00ABAB3E
+    start: 0x00D7E960
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_demon_dracula
+    type: bin
+    # start: 0x00ABD154
+    start: 0x00D81D90
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_demon_dracula_assets_loader
+    type: code
+    # start: 0x00AD7B1C
+    start: 0x00DA6B60
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00DA6B60, c, overlay/demon_dracula_assets_loader]
+
+  - name: ni_AD7B28
+    type: bin
+    # start: 0x00AD7B28
+    start: 0x00DA6B70
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_AE04FC
+    type: bin
+    # start: 0x00AE04FC
+    start: 0x00DB1C90
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_gilles_de_rais_boss
+    type: bin
+    # start: 0x00AE615A
+    start: 0x00DB91F0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_AF1332
+    type: bin
+    # start: 0x00AF1332
+    start: 0x00DCA500
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_demon_renon
+    type: bin
+    # start: 0x00AF3D12
+    start: 0x00DCE070
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_death
+    type: bin
+    # start: 0x00B04E80
+    start: 0x00DE5760
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B175D4
+    type: bin
+    # start: 0x00B175D4
+    start: 0x00E00200
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_rosa_boss
+    type: bin
+    # start: 0x00B1B050
+    start: 0x00E05600
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_camilla_boss
+    type: bin
+    # start: 0x00B27886
+    start: 0x00E166E0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_actrise_boss
+    type: bin
+    # start: 0x00B31224
+    start: 0x00E22AA0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B3A734
+    type: bin
+    # start: 0x00B3A734
+    start: 0x00E2EB00
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B42D50
+    type: bin
+    # start: 0x00B42D50
+    start: 0x00E395E0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B44694
+    type: bin
+    # start: 0x00B44694
+    start: 0x00E3B5B0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B449CE
+    type: bin
+    # start: 0x00B449CE
+    start: 0x00E3BA60
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B47542
+    type: bin
+    # start: 0x00B47542
+    start: 0x00E3ED50
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_hell_knight_static
+    type: bin
+    # start: 0x00B484B2
+    start: 0x00E40080
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_gondola_pathway_data_loader
+    type: bin
+    # start: 0x00B48BE0
+    start: 0x00E40A30
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_mini_scroll
+    type: bin
+    # start: 0x00B4F7DC
+    start: 0x00E4DD00
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B50812
+    type: bin
+    # start: 0x00B50812
+    start: 0x00E4F320
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B5140E
+    type: bin
+    # start: 0x00B5140E
+    start: 0x00E509C0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_title_screen
+    type: bin
+    # start: 0x00B5166E
+    start: 0x00E50D40
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B528BA
+    type: bin
+    # start: 0x00B528BA
+    start: 0x00E52700
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B52BE4
+    type: bin
+    # start: 0x00B52BE4
+    start: 0x00E52C10
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_title_demo
+    type: code
+    # start: 0x00B52F02
+    start: 0x00E53110
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E53110, c, overlay/title_demo]
+      - [0x00E53780, .data, overlay/title_demo]
+      - [0x00E55560, .rodata, overlay/title_demo]
+
+  - name: ni_ovl_credits_manager
+    type: code
+    # start: 0x00B541E0
+    start: 0x00E55570
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E55570, c, overlay/credits_manager]
+      - [0x00E557A0, .data, overlay/credits_manager]
+
+  - name: ni_ovl_pause_menu
+    type: code
+    # start: 0x00B543C0
+    start: 0x00E557B0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E557B0, c, overlay/pause_menu]
+      - [0x00E57840, .data, overlay/pause_menu]
+      - [0x00E58780, .rodata, overlay/pause_menu]
+
+  - name: ni_ovl_difficulty_and_character_select
+    type: code
+    # start: 0x00B56516
+    start: 0x00E58990
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E58990, c, overlay/difficulty_and_character_select]
+      - [0x00E59BD0, .data, overlay/difficulty_and_character_select]
+      - [0x00E59CA0, .rodata, overlay/difficulty_and_character_select]
+
+  - name: ni_ovl_game_over
+    type: bin
+    # start: 0x00B57480
+    start: 0x00E59CF0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_save_game_results
+    type: bin
+    # start: 0x00B5892A
+    start: 0x00E5C1D0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_B59058
+    type: bin
+    # start: 0x00B59058
+    start: 0x00E5CF30
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_save_game
+    type: bin
+    # start: 0x00B594F2
+    start: 0x00E5D4D0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_textbox_advance_arrow
+    type: code
+    # start: 0x00B5A130
+    start: 0x00E5F2A0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E5F2A0, c, overlay/textbox_advance_arrow]
+      - [0x00E5F640, .data, overlay/textbox_advance_arrow]
+      - [0x00E5F640, .rodata, overlay/textbox_advance_arrow]
+
+  - name: ni_ovl_button_config
+    type: bin
+    # start: 0x00B5A448
+    start: 0x00E5F660
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_entrance_map_name_display
+    type: code
+    # start: 0x00B5ADC8
+    start: 0x00E60300
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E60300, c, overlay/entrance_map_name_display]
+      - [0x00E60A70, .data, overlay/entrance_map_name_display]
+      - [0x00E60DA0, .rodata, overlay/entrance_map_name_display]
+
+  - name: ni_B5B5D0
+    type: bin
+    # start: 0x00B5B5D0
+    start: 0x00E60DB0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+
+  - name: ni_ovl_renon_briefcase
+    type: code
+    # start: 0x00B5BA28
+    start: 0x00E612A0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E612A0, c, overlay/renon_briefcase]
+      - [0x00E618B0, .data, overlay/renon_briefcase]
+      - [0x00E618F0, .rodata, overlay/renon_briefcase]
+
+  - name: ni_ovl_overlay_BA
+    type: code
+    # start: 0x00B5BF68
+    start: 0x00E61930
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E61930, c, overlay/overlay_BA]
+      - [0x00E61AD0, .data, overlay/overlay_BA]
+
+  - name: ni_ovl_easy_mode_ending_msg
+    type: code
+    # start: 0x00B5C092
+    start: 0x00E61AE0
+    vram: 0x0F000000
+    exclusive_ram_id: nisitenma_ichigo_overlays
+    subsegments:
+      - [0x00E61AE0, c, overlay/easy_mode_ending_msg]
+      - [0x00E61E30, .data, overlay/easy_mode_ending_msg]
+
+  - name: ni_ovl_library_puzzle_textbox
+    type: code
+    # start: 0x00B5C426
+    start: 0x00E61F30
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E61F30, c, overlay/textbox/library_puzzle]
+      - [0x00E62B90, .data, overlay/textbox/library_puzzle]
+
+  - name: ni_ovl_nitro_mandragora_display
+    type: bin
+    # start: 0x00B5CDDA
+    start: 0x00E62BB0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_mandragora_textbox
+    type: code
+    # start: 0x00B5D180
+    start: 0x00E63080
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E63080, c, overlay/textbox/mandragora]
+      - [0x00E63500, .data, overlay/textbox/mandragora]
+
+  - name: ni_ovl_nitro_textbox
+    type: code
+    # start: 0x00B5D504
+    start: 0x00E63520
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E63520, c, overlay/textbox/nitro]
+      - [0x00E639C0, .data, overlay/textbox/nitro]
+      - [0x00E639E0, .rodata, overlay/textbox/nitro]
+
+  - name: ni_ovl_nitro_disposal_textbox
+    type: code
+    # start: 0x00B5D8B2
+    start: 0x00E639F0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E639F0, c, overlay/textbox/nitro_disposal]
+      - [0x00E63DF0, .data, overlay/textbox/nitro_disposal]
+
+  - name: ni_explosive_wall_spot
+    type: code
+    # start: 0x00B5DBAE
+    start: 0x00E63E10
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E63E10, c, overlay/textbox/explosive_wall_spot]
+      - [0x00E649A0, .data, overlay/textbox/explosive_wall_spot]
+
+  - name: ni_ovl_bottom_elevator_activator_textbox
+    type: code
+    # start: 0x00B5E214
+    start: 0x00E649E0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E649E0, c, overlay/textbox/bottom_elevator_activator]
+      - [0x00E64DE0, .data, overlay/textbox/bottom_elevator_activator]
+
+  - name: ni_ovl_cs_film_reel_effect
+    type: code
+    # start: 0x00B5E4DC
+    start: 0x00E64E00
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00E64E00, c, overlay/cs_film_reel]
+      - [0x00E65450, .data, overlay/cs_film_reel]
+
+  - name: ni_ovl_cutscene_01
+    type: bin
+    # start: 0x00B5EA7E
+    start: 0x00E65460
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_03
+    type: bin
+    # start: 0x00B625C0
+    start: 0x00E6B870
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_04
+    type: bin
+    # start: 0x00B63994
+    start: 0x00E6D130
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_05
+    type: bin
+    # start: 0x00B64CCA
+    start: 0x00E6E790
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_06
+    type: bin
+    # start: 0x00B65D52
+    start: 0x00E6FDA0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_07
+    type: bin
+    # start: 0x00B66CFC
+    start: 0x00E71150
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_08
+    type: bin
+    # start: 0x00B67660
+    start: 0x00E71F00
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_09
+    type: bin
+    # start: 0x00B67EF2
+    start: 0x00E72A20
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0A
+    type: bin
+    # start: 0x00B68BF8
+    start: 0x00E739E0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0B
+    type: bin
+    # start: 0x00B6A4E0
+    start: 0x00E759D0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0C
+    type: bin
+    # start: 0x00B6B610
+    start: 0x00E77290
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0D
+    type: bin
+    # start: 0x00B6D082
+    start: 0x00E79940
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0E
+    type: bin
+    # start: 0x00B6FF42
+    start: 0x00E7D4D0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_0F
+    type: bin
+    # start: 0x00B71334
+    start: 0x00E7F650
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_10
+    type: bin
+    # start: 0x00B723FC
+    start: 0x00E80C90
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_11
+    type: bin
+    # start: 0x00B73F66
+    start: 0x00E830F0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_12
+    type: bin
+    # start: 0x00B7534C
+    start: 0x00E84AE0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_13
+    type: bin
+    # start: 0x00B75C54
+    start: 0x00E85760
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_14
+    type: bin
+    # start: 0x00B776DC
+    start: 0x00E87900
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_15
+    type: bin
+    # start: 0x00B79BFA
+    start: 0x00E8AB10
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_16
+    type: bin
+    # start: 0x00B7B1FE
+    start: 0x00E8C9C0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_17
+    type: bin
+    # start: 0x00B7C486
+    start: 0x00E8E980
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_18
+    type: bin
+    # start: 0x00B7DC7E
+    start: 0x00E90DA0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_19
+    type: bin
+    # start: 0x00B7E698
+    start: 0x00E91A70
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_1A
+    type: bin
+    # start: 0x00B7FBE8
+    start: 0x00E93800
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_1B
+    type: bin
+    # start: 0x00B8031A
+    start: 0x00E94170
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_1C
+    type: bin
+    # start: 0x00B82134
+    start: 0x00E96D50
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_1E
+    type: bin
+    # start: 0x00B8324E
+    start: 0x00E98490
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_1F
+    type: bin
+    # start: 0x00B83E5C
+    start: 0x00E995F0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_21
+    type: bin
+    # start: 0x00B84D3E
+    start: 0x00E9A950
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_22
+    type: bin
+    # start: 0x00B86EBC
+    start: 0x00E9DB10
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_23
+    type: bin
+    # start: 0x00B8A5F0
+    start: 0x00EA2660
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_24
+    type: bin
+    # start: 0x00B8BD92
+    start: 0x00EA4460
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_25
+    type: bin
+    # start: 0x00B8CC7A
+    start: 0x00EA5830
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_26
+    type: bin
+    # start: 0x00B8E04C
+    start: 0x00EA76E0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_27
+    type: bin
+    # start: 0x00B91A06
+    start: 0x00EAC470
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_28
+    type: bin
+    # start: 0x00B94830
+    start: 0x00EAFBF0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_29
+    type: bin
+    # start: 0x00B94FB0
+    start: 0x00EB04C0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_2A
+    type: bin
+    # start: 0x00B954FA
+    start: 0x00EB0B10
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_2B
+    type: bin
+    # start: 0x00B963CA
+    start: 0x00EB2010
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_2C
+    type: bin
+    # start: 0x00B97AE4
+    start: 0x00EB3DB0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_2D
+    type: bin
+    # start: 0x00B9A01A
+    start: 0x00EB6D10
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_2E
+    type: bin
+    # start: 0x00B9C88A
+    start: 0x00EBA860
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_32
+    type: code
+    # start: 0x00B9FDF4
+    start: 0x00EBFB40
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00EBFB40, c, overlay/cutscene/demo50/demo50]
+      - [0x00EC0260, .data, overlay/cutscene/demo50/demo50]
+      - [0x00EC0280, .rodata, overlay/cutscene/demo50/demo50]
+
+  - name: ni_ovl_cutscene_33
+    type: bin
+    # start: 0x00BA044A
+    start: 0x00EC0340
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_34
+    type: bin
+    # start: 0x00BA1698
+    start: 0x00EC1B50
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_35
+    type: bin
+    # start: 0x00BA2848
+    start: 0x00EC31E0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_3C
+    type: code
+    # start: 0x00BA2E70
+    start: 0x00EC3950
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+    subsegments:
+      - [0x00EC3950, c, overlay/cutscene/demo60/demo60]
+      - [0x00EC4130, .data, overlay/cutscene/demo60/demo60]
+      - [0x00EC4AE0, .rodata, overlay/cutscene/demo60/demo60]
+
+  - name: ni_ovl_cutscene_3D
+    type: bin
+    # start: 0x00BA3DF4
+    start: 0x00EC4C30
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_3E
+    type: bin
+    # start: 0x00BA5B38
+    start: 0x00EC74B0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_3F
+    type: bin
+    # start: 0x00BA6A4A
+    start: 0x00EC8940
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_44
+    type: bin
+    # start: 0x00BA83A2
+    start: 0x00ECACC0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_45
+    type: bin
+    # start: 0x00BAB4F4
+    start: 0x00ECFA00
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_52
+    type: bin
+    # start: 0x00BAC4A2
+    start: 0x00ED0E40
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_54
+    type: bin
+    # start: 0x00BAD290
+    start: 0x00ED2280
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_55
+    type: bin
+    # start: 0x00BAE680
+    start: 0x00ED3FD0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_56
+    type: bin
+    # start: 0x00BAF718
+    start: 0x00ED54C0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_57
+    type: bin
+    # start: 0x00BB0712
+    start: 0x00ED6BA0
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+
+  - name: ni_ovl_cutscene_63
+    type: bin
+    # start: 0x00BB1352
+    start: 0x00ED7B80
+    vram: 0x0E000000
+    exclusive_ram_id: nisitenma_ichigo_cutscenes
+  # End of compressed files
+
+  # - [0x00BB2D88] # Padding start
+  - [0x00EDA5B0] # Padding start
+  # - [0x00C00000] # Padding end
+  - [0x01000000] # Padding end

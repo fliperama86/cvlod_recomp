@@ -1,0 +1,9 @@
+[input]
+elf_path = "build/castlevania2.elf"
+output_func_path = "recompiled/functions"
+entrypoint = 2147484672
+directory = "recompiled"
+use_lookup_for_all_function_calls = true
+
+[output]
+output_dir = "recompiled/build"

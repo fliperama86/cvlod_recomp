@@ -1,0 +1,765 @@
+debconf: delaying package configuration, since apt-utils is not installed
+Patched 2 lines in asm/E0A90.s
+Patched 3 lines in asm/C62D0.s
+Patched 2 lines in asm/DDE40.s
+Patched 3 lines in asm/C3740.s
+Patched 2 lines in asm/E2DA0.s
+Patched 5 lines in asm/EED20.s
+Patched 3 lines in asm/C77B0.s
+Patched 4 lines in asm/E8FA0.s
+Patched 8 lines in asm/E7970.s
+Patched 1 lines in asm/DFBC0.s
+Patched 1 lines in asm/E72C0.s
+Patched 2 lines in asm/common/river_water.s
+Patched 2 lines in asm/common/necro_work.s
+Patched 1 lines in asm/common/actor_creator.s
+Patched 10 lines in asm/common/page.s
+Patched 1 lines in asm/common/room.s
+Patched 7 lines in asm/common/lever.s
+Patched 2 lines in asm/common/object_017C.s
+Patched 5 lines in asm/common/scroll.s
+Patched 6 lines in asm/common/mark.s
+Patched 1 lines in asm/common/map.s
+Patched 2 lines in asm/common/item.s
+Patched 1 lines in asm/common/sound_range.s
+Patched 4 lines in asm/common/loading_zone.s
+Patched 2 lines in asm/common/skybox_common_actors.s
+Patched 1 lines in asm/common/candle.s
+Patched 8 lines in asm/common/elevator.s
+Patched 4 lines in asm/common/mini_scroll_setup.s
+Patched 1 lines in asm/common/door.s
+Patched 6 lines in asm/common/necronomicon.s
+Patched 5 lines in asm/common/page_work.s
+Patched 116 lines in asm/common/stage_select.s
+Patched 1 lines in asm/common/file_select.s
+Patched 2 lines in asm/common/map_manager.s
+Patched 2 lines in asm/common/distortion.s
+Total: Patched 226 lines in 35 files.
+Stubbed func_800AADA8 in asm/1060.s
+asm/data/A75F0.data.s: Assembler messages:
+asm/data/A75F0.data.s:55: Warning: .ent or .aent not in text section
+asm/data/A75F0.data.s: Warning: missing .end at end of assembly
+asm/data/90920.data.s: Assembler messages:
+asm/data/90920.data.s:17: Warning: .ent or .aent not in text section
+asm/data/A4310.data.s: Assembler messages:
+asm/data/A4310.data.s:45: Warning: .ent or .aent not in text section
+asm/data/9B970.data.s: Assembler messages:
+asm/data/9B970.data.s:5448: Warning: .ent or .aent not in text section
+asm/data/9B970.data.s: Warning: missing .end at end of assembly
+asm/data/A4650.data.s: Assembler messages:
+asm/data/A4650.data.s:9: Warning: .ent or .aent not in text section
+asm/data/A4650.data.s: Warning: missing .end at end of assembly
+asm/data/atari.data.s: Assembler messages:
+asm/data/atari.data.s:914: Warning: .ent or .aent not in text section
+asm/data/atari.data.s: Warning: missing .end at end of assembly
+asm/data/97710.data.s: Assembler messages:
+asm/data/97710.data.s:436: Warning: .ent or .aent not in text section
+asm/data/97710.data.s:553: Warning: .ent or .aent not in text section
+asm/data/97710.data.s: Warning: missing .end at end of assembly
+mips-linux-gnu-ld: build/asm/3550.o: in function `func_80003E34':
+(.text+0x152c): undefined reference to `.L80004064'
+mips-linux-gnu-ld: (.text+0x15b8): undefined reference to `.L80004064'
+mips-linux-gnu-ld: build/asm/4BC0.o: in function `func_80004078':
+(.text+0x100): undefined reference to `.L80004310'
+mips-linux-gnu-ld: (.text+0x18c): undefined reference to `.L80004310'
+mips-linux-gnu-ld: build/asm/D270.o: in function `func_8000CDCC':
+(.text+0x7e4): undefined reference to `func_80096A50'
+mips-linux-gnu-ld: (.text+0xa10): undefined reference to `.L8000D29C'
+mips-linux-gnu-ld: (.text+0xafc): undefined reference to `.L8000D1A4'
+mips-linux-gnu-ld: build/asm/F960.o: in function `func_8000F4B4':
+(.text+0x778): undefined reference to `.L8000F544'
+mips-linux-gnu-ld: (.text+0x794): undefined reference to `.L8000F514'
+mips-linux-gnu-ld: build/asm/10100.o: in function `func_8000F500':
+(.text+0x3c): undefined reference to `.L8000F4E4'
+mips-linux-gnu-ld: (.text+0xb0): undefined reference to `.L8000F628'
+mips-linux-gnu-ld: (.text+0xbc): undefined reference to `.L8000F5D4'
+mips-linux-gnu-ld: build/asm/dma_manager.o: in function `func_8000F5C0':
+(.text+0x60): undefined reference to `.L8000F5BC'
+mips-linux-gnu-ld: (.text+0x1050): undefined reference to `.L800107E0'
+mips-linux-gnu-ld: (.text+0x1060): undefined reference to `.L800107E0'
+mips-linux-gnu-ld: build/asm/113D0.o: in function `func_8001123C':
+(.text+0xaac): undefined reference to `.L8001134C'
+mips-linux-gnu-ld: (.text+0xab8): undefined reference to `.L8001134C'
+mips-linux-gnu-ld: (.text+0xad0): undefined reference to `.L80011350'
+mips-linux-gnu-ld: build/asm/vec3f.o: in function `func_800119CC':
+(.text+0x7c8): undefined reference to `.L80011B30'
+mips-linux-gnu-ld: (.text+0x7e0): undefined reference to `.L80011BE4'
+mips-linux-gnu-ld: (.text+0x7e8): undefined reference to `.L80011B30'
+mips-linux-gnu-ld: build/asm/12900.o: in function `func_80014E14':
+(.text+0x319c): undefined reference to `.L80014EF4'
+mips-linux-gnu-ld: build/asm/main.o: in function `func_80014EE0':
+(.text+0x8): undefined reference to `.L80014EA4'
+mips-linux-gnu-ld: (.text+0x150): undefined reference to `.L800150E0'
+mips-linux-gnu-ld: (.text+0x168): undefined reference to `.L800150D8'
+mips-linux-gnu-ld: (.text+0x184): undefined reference to `.L800150C4'
+mips-linux-gnu-ld: (.text+0x194): undefined reference to `.L800150A4'
+mips-linux-gnu-ld: (.text+0x19c): undefined reference to `.L80015094'
+mips-linux-gnu-ld: build/asm/scheduler.o: in function `func_800163E4':
+(.text+0x998): undefined reference to `.L80016444'
+mips-linux-gnu-ld: build/asm/controller.o: in function `func_80016DD8':
+(.text+0x390): undefined reference to `.L80016E38'
+mips-linux-gnu-ld: build/asm/18430.o: in function `func_800178D0':
+(.text+0x150): undefined reference to `.L80017994'
+mips-linux-gnu-ld: build/asm/186E0.o: in function `func_80017EC0':
+(.text+0x420): undefined reference to `.L80018360'
+mips-linux-gnu-ld: (.text+0x42c): undefined reference to `.L80018360'
+mips-linux-gnu-ld: (.text+0x434): undefined reference to `.L80018364'
+mips-linux-gnu-ld: build/asm/18E40.o: in function `func_80018240':
+(.text+0x4): undefined reference to `.L800181C0'
+mips-linux-gnu-ld: build/asm/19570.o: in function `func_80018970':
+(.text+0x20): undefined reference to `func_80096760'
+mips-linux-gnu-ld: build/asm/19620.o: in function `func_80018A20':
+(.text+0x4): undefined reference to `.L80018A60'
+mips-linux-gnu-ld: build/asm/19630.o: in function `func_80018A30':
+(.text+0x14): undefined reference to `func_800A23B0'
+mips-linux-gnu-ld: (.text+0x74): undefined reference to `func_80096760'
+mips-linux-gnu-ld: (.text+0xac): undefined reference to `func_80096760'
+mips-linux-gnu-ld: (.text+0xc4): undefined reference to `func_80096760'
+mips-linux-gnu-ld: (.text+0xcc): undefined reference to `.L80018A0C'
+mips-linux-gnu-ld: (.text+0x29c): undefined reference to `func_80096760'
+mips-linux-gnu-ld: (.text+0x2bc): undefined reference to `func_80096760'
+mips-linux-gnu-ld: (.text+0x468): undefined reference to `func_80096760'
+mips-linux-gnu-ld: build/asm/crash_screen_init.o: in function `func_800199C0':
+(.text+0x4e4): undefined reference to `.L80019F28'
+mips-linux-gnu-ld: (.text+0x564): undefined reference to `.L80019F2C'
+mips-linux-gnu-ld: (.text+0x57c): undefined reference to `.L80019C64'
+mips-linux-gnu-ld: (.text+0x588): undefined reference to `.L80019C5C'
+mips-linux-gnu-ld: (.text+0x5e0): undefined reference to `.L80019C4C'
+mips-linux-gnu-ld: (.text+0x608): undefined reference to `.L80019C50'
+mips-linux-gnu-ld: (.text+0x620): undefined reference to `.L80019C4C'
+mips-linux-gnu-ld: (.text+0x650): undefined reference to `.L80019C50'
+mips-linux-gnu-ld: (.text+0x65c): undefined reference to `.L80019BCC'
+mips-linux-gnu-ld: build/asm/debug.o: in function `func_80019BC0':
+(.text+0x94): undefined reference to `.L80019AF4'
+mips-linux-gnu-ld: (.text+0x35c): undefined reference to `.L80019A50'
+mips-linux-gnu-ld: build/asm/save.o: in function `func_8001BB3C':
+(.text+0xf7c): undefined reference to `.L8001BC54'
+mips-linux-gnu-ld: (.text+0xf84): undefined reference to `.L8001BC54'
+mips-linux-gnu-ld: (.text+0xf90): undefined reference to `.L8001BC54'
+mips-linux-gnu-ld: (.text+0xfb8): undefined reference to `.L8001BC54'
+mips-linux-gnu-ld: (.text+0x1008): undefined reference to `.L8001BC54'
+mips-linux-gnu-ld: build/asm/save.o:(.text+0x102c): more undefined references to `.L8001BC54' follow
+mips-linux-gnu-ld: build/asm/1C830.o: in function `func_8001D178':
+(.text+0x1584): undefined reference to `func_800968B0'
+mips-linux-gnu-ld: build/asm/22350.o: in function `func_8002520C':
+(.text+0x3b54): undefined reference to `.L8002553C'
+mips-linux-gnu-ld: (.text+0x3bd8): undefined reference to `.L8002553C'
+mips-linux-gnu-ld: (.text+0x3c00): undefined reference to `.L800253A0'
+mips-linux-gnu-ld: build/asm/25F80.o: in function `func_8002A998':
+(.text+0x5650): undefined reference to `.L8002B524'
+mips-linux-gnu-ld: (.text+0x5adc): undefined reference to `.L8002B288'
+mips-linux-gnu-ld: (.text+0x5b00): undefined reference to `.L8002B28C'
+mips-linux-gnu-ld: (.text+0x5b10): undefined reference to `.L8002B288'
+mips-linux-gnu-ld: (.text+0x5b9c): undefined reference to `.L8002B28C'
+mips-linux-gnu-ld: (.text+0x5c5c): undefined reference to `.L8002B1A4'
+mips-linux-gnu-ld: build/asm/2D5D0.o: in function `func_8002EC28':
+(.text+0x22bc): undefined reference to `.L8002EF40'
+mips-linux-gnu-ld: (.text+0x2448): undefined reference to `.L8002EF0C'
+mips-linux-gnu-ld: build/asm/2FA90.o: in function `func_80032760':
+(.text+0x3900): undefined reference to `.L800327F4'
+mips-linux-gnu-ld: (.text+0x395c): undefined reference to `.L800328FC'
+mips-linux-gnu-ld: build/asm/39330.o: in function `func_8003E5D8':
+(.text+0x5f10): undefined reference to `.L8003E92C'
+mips-linux-gnu-ld: (.text+0x5f24): undefined reference to `.L8003E928'
+mips-linux-gnu-ld: build/asm/enemy_list.o: in function `func_8003E800':
+(.text+0x20): undefined reference to `.L8003E660'
+mips-linux-gnu-ld: (.text+0x1ac): undefined reference to `.L8003EC94'
+mips-linux-gnu-ld: (.text+0x1c0): undefined reference to `.L8003EC94'
+mips-linux-gnu-ld: (.text+0x420): undefined reference to `.L8003EC98'
+mips-linux-gnu-ld: (.text+0x430): undefined reference to `.L8003EC98'
+mips-linux-gnu-ld: (.text+0x46c): undefined reference to `.L8003EC80'
+mips-linux-gnu-ld: build/asm/atari.o: in function `func_800444FC':
+(.text+0x3fb0): undefined reference to `.L800445C8'
+mips-linux-gnu-ld: (.text+0x3fd0): undefined reference to `.L800445C8'
+mips-linux-gnu-ld: (.text+0x3fe8): undefined reference to `.L800445C8'
+mips-linux-gnu-ld: (.text+0x4000): undefined reference to `.L800445C8'
+mips-linux-gnu-ld: (.text+0x4010): undefined reference to `.L800445C4'
+mips-linux-gnu-ld: (.text+0x4018): undefined reference to `.L800445C4'
+mips-linux-gnu-ld: (.text+0x4048): undefined reference to `.L800445C8'
+mips-linux-gnu-ld: build/asm/45C80.o: in function `func_80045388':
+(.text+0x428): undefined reference to `.L80045554'
+mips-linux-gnu-ld: (.text+0x498): undefined reference to `.L80045550'
+mips-linux-gnu-ld: (.text+0x4b8): undefined reference to `.L80045554'
+mips-linux-gnu-ld: build/asm/47FD0.o: in function `func_80047720':
+(.text+0x3c4): undefined reference to `.L800477A8'
+mips-linux-gnu-ld: build/asm/48780.o: in function `func_80047C68':
+(.text+0x164): undefined reference to `.L80048028'
+mips-linux-gnu-ld: (.text+0x32c): undefined reference to `.L80047FD8'
+mips-linux-gnu-ld: build/asm/48B40.o: in function `func_8004842C':
+(.text+0x534): undefined reference to `.L8004898C'
+mips-linux-gnu-ld: (.text+0x54c): undefined reference to `.L8004898C'
+mips-linux-gnu-ld: (.text+0x57c): undefined reference to `.L8004898C'
+mips-linux-gnu-ld: (.text+0x58c): undefined reference to `.L8004898C'
+mips-linux-gnu-ld: (.text+0x5b4): undefined reference to `.L8004898C'
+mips-linux-gnu-ld: (.text+0x5bc): undefined reference to `.L8004850C'
+mips-linux-gnu-ld: build/asm/49100.o: in function `func_80048AF4':
+(.text+0x980): undefined reference to `.L800497B0'
+mips-linux-gnu-ld: (.text+0x9e4): undefined reference to `.L80049770'
+mips-linux-gnu-ld: (.text+0x9f0): undefined reference to `.L80049770'
+mips-linux-gnu-ld: (.text+0xab4): undefined reference to `.L800497DC'
+mips-linux-gnu-ld: (.text+0xaf4): undefined reference to `.L800497B4'
+mips-linux-gnu-ld: (.text+0xb34): undefined reference to `.L80049244'
+mips-linux-gnu-ld: (.text+0xb40): undefined reference to `.L80049244'
+mips-linux-gnu-ld: (.text+0xb4c): undefined reference to `.L80049218'
+mips-linux-gnu-ld: (.text+0xb78): undefined reference to `.L800491F4'
+mips-linux-gnu-ld: (.text+0xb8c): undefined reference to `.L800491F4'
+mips-linux-gnu-ld: (.text+0xba4): undefined reference to `.L800491C0'
+mips-linux-gnu-ld: (.text+0xc50): undefined reference to `.L800491C0'
+mips-linux-gnu-ld: build/asm/49D80.o: in function `func_80049180':
+(.text+0x29c): undefined reference to `.L800497DC'
+mips-linux-gnu-ld: (.text+0x55c): undefined reference to `.L8004975C'
+mips-linux-gnu-ld: build/asm/4B630.o: in function `func_8004AF1C':
+(.text+0x5f8): undefined reference to `.L8004BC84'
+mips-linux-gnu-ld: (.text+0x6d0): undefined reference to `.L8004BC84'
+mips-linux-gnu-ld: (.text+0x778): undefined reference to `.L8004BC84'
+mips-linux-gnu-ld: (.text+0x9b8): undefined reference to `.L8004B53C'
+mips-linux-gnu-ld: (.text+0xa10): undefined reference to `.L8004B4DC'
+mips-linux-gnu-ld: (.text+0xa38): undefined reference to `.L8004B4DC'
+mips-linux-gnu-ld: (.text+0xa40): undefined reference to `.L8004B4C8'
+mips-linux-gnu-ld: build/asm/4C0A0.o: in function `func_8004B4A0':
+(.text+0x1c4): undefined reference to `.L8004BBE4'
+mips-linux-gnu-ld: (.text+0x670): undefined reference to `.L8004BBCC'
+mips-linux-gnu-ld: (.text+0x6f4): undefined reference to `.L8004BBBC'
+mips-linux-gnu-ld: build/asm/4C7A0.o: in function `func_8004C1C0':
+(.text+0x634): undefined reference to `.L8004C1E4'
+mips-linux-gnu-ld: (.text+0x63c): undefined reference to `.L8004C1EC'
+mips-linux-gnu-ld: build/asm/4CDE0.o: in function `func_8004C7EC':
+(.text+0x620): undefined reference to `.L8004C8F4'
+mips-linux-gnu-ld: (.text+0x630): undefined reference to `.L8004C8F0'
+mips-linux-gnu-ld: (.text+0x678): undefined reference to `.L8004C874'
+mips-linux-gnu-ld: (.text+0x688): undefined reference to `.L8004C8A4'
+mips-linux-gnu-ld: build/asm/4D470.o: in function `func_8004CED0':
+(.text+0x688): undefined reference to `.L8004CF60'
+mips-linux-gnu-ld: (.text+0x690): undefined reference to `.L8004CF48'
+mips-linux-gnu-ld: (.text+0x69c): undefined reference to `.L8004CF48'
+mips-linux-gnu-ld: (.text+0x6ac): undefined reference to `.L8004CF48'
+mips-linux-gnu-ld: build/asm/effect/fire.o: in function `func_8004CF98':
+(.text+0x124): undefined reference to `.L8004E34C'
+mips-linux-gnu-ld: (.text+0x388): undefined reference to `.L8004D2D0'
+mips-linux-gnu-ld: build/asm/4DEC0.o: in function `func_8004E640':
+(.text+0x14a8): undefined reference to `.L8004E9E8'
+mips-linux-gnu-ld: (.text+0x14e4): undefined reference to `.L8004E7C4'
+mips-linux-gnu-ld: (.text+0x14fc): undefined reference to `.L8004E9E8'
+mips-linux-gnu-ld: build/asm/4F3C0.o: in function `func_8004E7C0':
+(.text+0x3c): undefined reference to `.L8004E9E8'
+mips-linux-gnu-ld: build/asm/51CB0.o: in function `func_80051644':
+(.text+0x730): undefined reference to `.L80051DC0'
+mips-linux-gnu-ld: (.text+0x940): undefined reference to `.L80051DC0'
+mips-linux-gnu-ld: (.text+0x9c8): undefined reference to `.L80051B18'
+mips-linux-gnu-ld: build/asm/52710.o: in function `func_80051B10':
+(.text+0x0): undefined reference to `.L80051DC0'
+mips-linux-gnu-ld: build/asm/52910.o: in function `func_800520E4':
+(.text+0x408): undefined reference to `.L800521B4'
+mips-linux-gnu-ld: build/asm/52D50.o: in function `func_80054220':
+(.text+0x2104): undefined reference to `.L800542DC'
+mips-linux-gnu-ld: build/asm/54E70.o: in function `func_800542EC':
+(.text+0xa0): undefined reference to `.L80054A0C'
+mips-linux-gnu-ld: (.text+0x180): undefined reference to `.L80054A0C'
+mips-linux-gnu-ld: build/asm/55050.o: in function `func_80054450':
+(.text+0x90): undefined reference to `.L80054A0C'
+mips-linux-gnu-ld: (.text+0x128): undefined reference to `.L80054A0C'
+mips-linux-gnu-ld: (.text+0x1d4): undefined reference to `.L80054A0C'
+mips-linux-gnu-ld: build/asm/552F0.o:(.text+0x14): more undefined references to `.L80054A0C' follow
+mips-linux-gnu-ld: build/asm/556B0.o: in function `func_80054AB0':
+(.text+0x24): undefined reference to `.L80055008'
+mips-linux-gnu-ld: build/asm/55890.o: in function `func_80054C90':
+(.text+0x370): undefined reference to `.L80054B18'
+mips-linux-gnu-ld: build/asm/55C90.o: in function `func_80055090':
+(.text+0x68): undefined reference to `.L80056A5C'
+mips-linux-gnu-ld: (.text+0x94): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: build/asm/55E70.o: in function `func_80055270':
+(.text+0x3ec): undefined reference to `.L80055168'
+mips-linux-gnu-ld: (.text+0x3f4): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x404): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: build/asm/effect/fire_sparkles.o: in function `func_80055890':
+(.text+0x0): undefined reference to `.L800556B0'
+mips-linux-gnu-ld: (.text+0x8): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x1c): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x1d8): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x1e8): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: build/asm/566D0.o: in function `func_80055AD0':
+(.text+0x1ec): undefined reference to `.L80055AC0'
+mips-linux-gnu-ld: (.text+0x1f4): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x204): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: build/asm/56B60.o: in function `func_80055F60':
+(.text+0xd8): undefined reference to `.L80055D10'
+mips-linux-gnu-ld: (.text+0xe0): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0xf0): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x2d0): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x2e0): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: build/asm/57050.o: in function `func_80056450':
+(.text+0x210): undefined reference to `.L8005627C'
+mips-linux-gnu-ld: (.text+0x218): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x22c): undefined reference to `.L80056A60'
+mips-linux-gnu-ld: (.text+0x458): undefined reference to `.L800568C8'
+mips-linux-gnu-ld: (.text+0x460): undefined reference to `.L800568C8'
+mips-linux-gnu-ld: build/asm/574C0.o: in function `func_800568C0':
+(.text+0x0): undefined reference to `.L800568B0'
+mips-linux-gnu-ld: (.text+0x194): undefined reference to `.L800566C0'
+mips-linux-gnu-ld: (.text+0x3bbc): undefined reference to `.L8005AAA4'
+mips-linux-gnu-ld: (.text+0x3bd0): undefined reference to `.L8005AAA4'
+mips-linux-gnu-ld: (.text+0x4150): undefined reference to `.L8005AA4C'
+mips-linux-gnu-ld: build/asm/5B620.o: in function `func_8005AB28':
+(.text+0x124): undefined reference to `.L8005AC5C'
+mips-linux-gnu-ld: (.text+0x15c): undefined reference to `.L8005AC5C'
+mips-linux-gnu-ld: (.text+0x190): undefined reference to `.L8005AC5C'
+mips-linux-gnu-ld: (.text+0x198): undefined reference to `.L8005AC38'
+mips-linux-gnu-ld: (.text+0x1a4): undefined reference to `.L8005AC0C'
+mips-linux-gnu-ld: (.text+0x1b4): undefined reference to `.L8005ABF0'
+mips-linux-gnu-ld: build/asm/5B7E0.o: in function `func_8005AC6C':
+(.text+0xa4): undefined reference to `.L8005BA18'
+mips-linux-gnu-ld: (.text+0x15c): undefined reference to `.L8005BA14'
+mips-linux-gnu-ld: (.text+0x184): undefined reference to `.L8005BA14'
+mips-linux-gnu-ld: (.text+0x18c): undefined reference to `.L8005AFF0'
+mips-linux-gnu-ld: (.text+0x1dc): undefined reference to `.L8005BA14'
+mips-linux-gnu-ld: (.text+0x224): undefined reference to `.L8005BA18'
+mips-linux-gnu-ld: (.text+0x238): undefined reference to `.L8005AF60'
+mips-linux-gnu-ld: (.text+0x2d4): undefined reference to `.L8005AEC8'
+mips-linux-gnu-ld: build/asm/effect_manager.o: in function `func_8005AEC4':
+(.text+0x98): undefined reference to `.L8005BA14'
+mips-linux-gnu-ld: (.text+0xa0): undefined reference to `.L8005AFA8'
+mips-linux-gnu-ld: (.text+0xd0): undefined reference to `.L8005AFA4'
+mips-linux-gnu-ld: (.text+0xd8): undefined reference to `.L8005AFA4'
+mips-linux-gnu-ld: build/asm/63A60.o: in function `func_80069694':
+(.text+0x6880): undefined reference to `.L800698B4'
+mips-linux-gnu-ld: (.text+0x69dc): undefined reference to `.L800698B4'
+mips-linux-gnu-ld: (.text+0x69e4): undefined reference to `.L800698B0'
+mips-linux-gnu-ld: (.text+0x69fc): undefined reference to `.L800698B0'
+mips-linux-gnu-ld: (.text+0x6a14): undefined reference to `.L800698B0'
+mips-linux-gnu-ld: (.text+0x6a3c): undefined reference to `.L800698B4'
+mips-linux-gnu-ld: build/asm/6A990.o: in function `func_8006A1B8':
+(.text+0x448): undefined reference to `.L8006A378'
+mips-linux-gnu-ld: (.text+0x484): undefined reference to `.L8006A378'
+mips-linux-gnu-ld: build/asm/6C0B0.o: in function `func_8006BD4C':
+(.text+0x8f0): undefined reference to `.L8006C004'
+mips-linux-gnu-ld: (.text+0x964): undefined reference to `.L8006C000'
+mips-linux-gnu-ld: (.text+0x994): undefined reference to `.L8006BFF4'
+mips-linux-gnu-ld: build/asm/6CB40.o: in function `func_8006F62C':
+(.text+0x38dc): undefined reference to `.L8006F86C'
+mips-linux-gnu-ld: (.text+0x3918): undefined reference to `.L8006F878'
+mips-linux-gnu-ld: build/asm/70460.o: in function `func_8006FDCC':
+(.text+0x5bc): undefined reference to `.L800701D0'
+mips-linux-gnu-ld: (.text+0x688): undefined reference to `.L800701B4'
+mips-linux-gnu-ld: (.text+0x808): undefined reference to `.L800700B8'
+mips-linux-gnu-ld: build/asm/70C90.o: in function `func_80070090':
+(.text+0x138): undefined reference to `.L8006FE64'
+mips-linux-gnu-ld: build/asm/71180.o: in function `func_80070E44':
+(.text+0xeb8): undefined reference to `.L800714B0'
+mips-linux-gnu-ld: build/asm/72060.o: in function `func_80071ADC':
+(.text+0x690): undefined reference to `.L80071B0C'
+mips-linux-gnu-ld: build/asm/72DB0.o: in function `func_80072CC0':
+(.text+0xb34): undefined reference to `.L800733EC'
+mips-linux-gnu-ld: (.text+0xc44): undefined reference to `.L800733F0'
+mips-linux-gnu-ld: (.text+0xc90): undefined reference to `.L800733EC'
+mips-linux-gnu-ld: build/asm/73D80.o: in function `func_80073F24':
+(.text+0xecc): undefined reference to `.L8007450C'
+mips-linux-gnu-ld: (.text+0xefc): undefined reference to `.L80074510'
+mips-linux-gnu-ld: (.text+0x1060): undefined reference to `.L80074510'
+mips-linux-gnu-ld: build/asm/750B0.o: in function `func_80074758':
+(.text+0x30c): undefined reference to `.L80074DA4'
+mips-linux-gnu-ld: (.text+0x590): undefined reference to `.L80074C44'
+mips-linux-gnu-ld: (.text+0x674): undefined reference to `.L80074B48'
+mips-linux-gnu-ld: build/asm/75730.o: in function `func_80074B30':
+(.text+0x26c): undefined reference to `.L80074808'
+mips-linux-gnu-ld: (.text+0x1358): undefined reference to `.L80075F40'
+mips-linux-gnu-ld: (.text+0x1370): undefined reference to `.L80075F28'
+mips-linux-gnu-ld: build/asm/76AE0.o: in function `func_80077EAC':
+(.text+0x2198): undefined reference to `.L80079564'
+mips-linux-gnu-ld: (.text+0x2dc4): undefined reference to `.L80079560'
+mips-linux-gnu-ld: (.text+0x2e3c): undefined reference to `.L80079008'
+mips-linux-gnu-ld: build/asm/audio/audioMgr.o: in function `func_8007966C':
+(.text+0x7b8): undefined reference to `.L800799F8'
+mips-linux-gnu-ld: (.text+0x8b4): undefined reference to `.L800799FC'
+mips-linux-gnu-ld: build/asm/audio/audio.o: in function `func_800798A0':
+(.text+0x90): undefined reference to `.L80079890'
+mips-linux-gnu-ld: (.text+0x267c): undefined reference to `.L8007C0B4'
+mips-linux-gnu-ld: (.text+0x26ac): undefined reference to `.L8007BFF0'
+mips-linux-gnu-ld: (.text+0x26e8): undefined reference to `.L8007BFD8'
+mips-linux-gnu-ld: build/asm/7CBB0.o: in function `func_8007BFB0':
+(.text+0xf8): undefined reference to `.L8007BF4C'
+mips-linux-gnu-ld: build/asm/7E080.o: in function `func_8007F090':
+(.text+0x1cb4): undefined reference to `.L8007F460'
+mips-linux-gnu-ld: (.text+0x1d2c): undefined reference to `.L8007F33C'
+mips-linux-gnu-ld: (.text+0x1d7c): undefined reference to `.L8007F324'
+mips-linux-gnu-ld: build/asm/libultra/os/sendmesg.o: in function `func_8007F2E0':
+(.text+0x34): undefined reference to `.L8007F464'
+mips-linux-gnu-ld: (.text+0x3c): undefined reference to `.L8007F204'
+mips-linux-gnu-ld: (.text+0x48): undefined reference to `.L8007F454'
+mips-linux-gnu-ld: (.text+0x54): undefined reference to `.L8007F454'
+mips-linux-gnu-ld: (.text+0x68): undefined reference to `.L8007F464'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsfreeblocks.o: in function `func_8007F430':
+(.text+0x28): undefined reference to `.L8007F138'
+mips-linux-gnu-ld: (.text+0x90): undefined reference to `.L8007F620'
+mips-linux-gnu-ld: build/asm/libultra/gu/perspective.o: in function `func_8007F5D0':
+(.text+0x48): undefined reference to `.L8007F4CC'
+mips-linux-gnu-ld: (.text+0x254): undefined reference to `.L80080BC0'
+mips-linux-gnu-ld: (.text+0x25c): undefined reference to `.L80080BC0'
+mips-linux-gnu-ld: build/asm/libultra/os/setintmask.o: in function `func_8007F9A0':
+(.text+0x8): undefined reference to `.L80080BBC'
+mips-linux-gnu-ld: (.text+0x24): undefined reference to `.L8007FA44'
+mips-linux-gnu-ld: (.text+0x98): undefined reference to `.L8007FAA8'
+mips-linux-gnu-ld: build/asm/libultra/al/sl.o: in function `func_8007FA40':
+(.text+0xac): undefined reference to `.L8007FB18'
+mips-linux-gnu-ld: build/asm/libultra/gu/align.o: in function `func_8007FB00':
+(.text+0x1a4): undefined reference to `.L8008065C'
+mips-linux-gnu-ld: (.text+0x1d4): undefined reference to `.L8008064C'
+mips-linux-gnu-ld: build/asm/libultra/gu/sins.o: in function `func_8007FEB0':
+(.text+0x20): undefined reference to `.L80080018'
+mips-linux-gnu-ld: (.text+0x64): undefined reference to `.L8007FF68'
+mips-linux-gnu-ld: build/asm/libultra/al/synsetvol.o: in function `func_8007FF20':
+(.text+0x8c): undefined reference to `.L80080000'
+mips-linux-gnu-ld: build/asm/libultra/io/sptask.o: in function `func_8007FFC0':
+(.text+0x2ec): undefined reference to `.L800802BC'
+mips-linux-gnu-ld: build/asm/libultra/os/os_tlb.o: in function `func_800802B0':
+(.text+0xb4): undefined reference to `.L80080620'
+mips-linux-gnu-ld: build/asm/libultra/os/exceptasm.o: in function `func_80080370':
+(.text+0x2d4): undefined reference to `.L8007FCEC'
+mips-linux-gnu-ld: (.text+0x844): undefined reference to `.L8007F9BC'
+mips-linux-gnu-ld: (.text+0x894): undefined reference to `.L80080C88'
+mips-linux-gnu-ld: (.text+0x8c8): undefined reference to `.L80080CF4'
+mips-linux-gnu-ld: build/asm/libultra/os/thread.o: in function `func_80080C70':
+(.text+0x4): undefined reference to `.L80080C44'
+mips-linux-gnu-ld: build/asm/libultra/os/destroythread.o: in function `func_80080CFC':
+(.text+0x60): undefined reference to `.L80080E20'
+mips-linux-gnu-ld: (.text+0xfc): undefined reference to `.L80080EE8'
+mips-linux-gnu-ld: (.text+0x10c): undefined reference to `.L80080DEC'
+mips-linux-gnu-ld: build/asm/libultra/io/piread.o: in function `func_80080DC4':
+(.text+0x4): undefined reference to `.L80080E08'
+mips-linux-gnu-ld: (.text+0x24): undefined reference to `.L80080E04'
+mips-linux-gnu-ld: build/asm/libultra/io/piacs.o: in function `func_80080E00':
+(.text+0xc): undefined reference to `.L80080DBC'
+mips-linux-gnu-ld: (.text+0xac): undefined reference to `.L80080EE8'
+mips-linux-gnu-ld: (.text+0xb8): undefined reference to `.L80080ED0'
+mips-linux-gnu-ld: build/asm/libultra/io/controller.o: in function `func_80080EC0':
+(.text+0x20): undefined reference to `.L80080EB8'
+mips-linux-gnu-ld: (.text+0x6c): undefined reference to `.L800814B8'
+mips-linux-gnu-ld: (.text+0x74): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0x8c): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0xb4): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0xe4): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0xf0): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0xfc): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x140): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0x1b0): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x1d4): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0x1ec): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x1f4): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x218): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0x24c): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x258): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x278): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x29c): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x30c): undefined reference to `.L8008121C'
+mips-linux-gnu-ld: (.text+0x338): undefined reference to `.L80081210'
+mips-linux-gnu-ld: build/asm/libultra/io/siacs.o: in function `func_80081200':
+(.text+0x50): undefined reference to `.L80081954'
+mips-linux-gnu-ld: (.text+0x68): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x70): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x7c): undefined reference to `.L8008134C'
+mips-linux-gnu-ld: build/asm/libultra/os/createthread.o: in function `func_800812C0':
+(.text+0x84): undefined reference to `.L80081440'
+mips-linux-gnu-ld: (.text+0xb4): undefined reference to `.L80081440'
+mips-linux-gnu-ld: build/asm/libultra/io/contreaddata.o: in function `func_80081410':
+(.text+0x30): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x4c): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x54): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x68): undefined reference to `.L80081950'
+mips-linux-gnu-ld: (.text+0x98): undefined reference to `.L80081950'
+mips-linux-gnu-ld: build/asm/libultra/io/contreaddata.o:(.text+0xa0): more undefined references to `.L80081950' follow
+mips-linux-gnu-ld: build/asm/libultra/io/contreaddata.o: in function `func_80081410':
+(.text+0x1a4): undefined reference to `.L80081604'
+mips-linux-gnu-ld: (.text+0x1d0): undefined reference to `.L800815F8'
+mips-linux-gnu-ld: build/asm/libultra/al/synallocvoice.o: in function `func_80081B50':
+(.text+0x220): undefined reference to `.L80081C84'
+mips-linux-gnu-ld: build/asm/libultra/os/writebackdcache.o: in function `func_80081D00':
+(.text+0x74): undefined reference to `.L80081D88'
+mips-linux-gnu-ld: build/asm/libultra/os/initialize.o: in function `func_80081ECC':
+(.text+0x208): undefined reference to `.L8008239C'
+mips-linux-gnu-ld: (.text+0x22c): undefined reference to `.L80082178'
+mips-linux-gnu-ld: (.text+0x23c): undefined reference to `.L8008217C'
+mips-linux-gnu-ld: (.text+0x338): undefined reference to `.L80082178'
+mips-linux-gnu-ld: (.text+0x34c): undefined reference to `.L80082178'
+mips-linux-gnu-ld: build/asm/libultra/libc/ll.o: in function `func_800820D0':
+(.text+0x224): undefined reference to `.L8008239C'
+mips-linux-gnu-ld: build/asm/libultra/libc/bzero.o: in function `func_800823AC':
+(.text+0x38): undefined reference to `.L800825E4'
+mips-linux-gnu-ld: (.text+0x60): undefined reference to `.L800824BC'
+mips-linux-gnu-ld: (.text+0xc0): undefined reference to `.L800824A8'
+mips-linux-gnu-ld: build/asm/libultra/os/setsr.o: in function `func_80082490':
+(.text+0x4): undefined reference to `.L8008246C'
+mips-linux-gnu-ld: build/asm/libultra/audio/synsetfxparam.o: in function `func_800824B0':
+(.text+0x4): undefined reference to `.L800825E8'
+mips-linux-gnu-ld: (.text+0xc): undefined reference to `.L80082510'
+mips-linux-gnu-ld: (.text+0x24): undefined reference to `.L80082504'
+mips-linux-gnu-ld: build/asm/libultra/io/vigetnextframebuf.o: in function `func_800824F0':
+(.text+0xc): undefined reference to `.L800824DC'
+mips-linux-gnu-ld: (.text+0x14): undefined reference to `.L8008254C'
+mips-linux-gnu-ld: (.text+0x28): undefined reference to `.L8008254C'
+mips-linux-gnu-ld: build/asm/libultra/audio/synstartvoice.o: in function `func_80082530':
+(.text+0x10): undefined reference to `.L80082520'
+mips-linux-gnu-ld: (.text+0x78): undefined reference to `.L800825E4'
+mips-linux-gnu-ld: (.text+0x8c): undefined reference to `.L800825E8'
+mips-linux-gnu-ld: build/asm/libultra/io/sprawdma.o: in function `func_800825F8':
+(.text+0x6c): undefined reference to `.L800827EC'
+mips-linux-gnu-ld: (.text+0x74): undefined reference to `.L8008297C'
+mips-linux-gnu-ld: (.text+0x7c): undefined reference to `.L80082978'
+mips-linux-gnu-ld: build/asm/libultra/io/sirawdma.o: in function `func_80082650':
+(.text+0x80): undefined reference to `.L800827B0'
+mips-linux-gnu-ld: (.text+0x88): undefined reference to `.L80082798'
+mips-linux-gnu-ld: (.text+0xa0): undefined reference to `.L8008276C'
+mips-linux-gnu-ld: build/asm/libultra/io/viblack.o: in function `func_80082700':
+(.text+0x54): undefined reference to `.L80082788'
+mips-linux-gnu-ld: (.text+0x64): undefined reference to `.L80082784'
+mips-linux-gnu-ld: build/asm/libultra/io/pirawread.o: in function `func_80082770':
+(.text+0x20): undefined reference to `.L800826F0'
+mips-linux-gnu-ld: build/asm/libultra/io/sirawread.o: in function `func_800827C0':
+(.text+0x24): undefined reference to `.L80082978'
+mips-linux-gnu-ld: (.text+0x2c): undefined reference to `.L80082978'
+mips-linux-gnu-ld: (.text+0x4c): undefined reference to `.L800828E8'
+mips-linux-gnu-ld: build/asm/libultra/io/sptaskyield.o: in function `func_80082810':
+(.text+0x4): undefined reference to `.L800828D4'
+mips-linux-gnu-ld: (.text+0x1c): undefined reference to `.L800828A8'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsreadwritefile.o: in function `func_80082834':
+(.text+0x9c): undefined reference to `.L8008282C'
+mips-linux-gnu-ld: (.text+0x440): undefined reference to `.L80082C84'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsgetstatus.o: in function `func_80082D68':
+(.text+0xfc): undefined reference to `.L80082EC4'
+mips-linux-gnu-ld: (.text+0x11c): undefined reference to `.L80082EC4'
+mips-linux-gnu-ld: (.text+0x1e0): undefined reference to `.L80082EB8'
+mips-linux-gnu-ld: (.text+0x228): undefined reference to `.L80082EB8'
+mips-linux-gnu-ld: build/asm/libultra/io/motor.o: in function `func_800832F0':
+(.text+0x368): undefined reference to `.L80083564'
+mips-linux-gnu-ld: (.text+0x3c0): undefined reference to `.L80083564'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsallocatefile.o: in function `func_800839A4':
+(.text+0x460): undefined reference to `.L80083A84'
+mips-linux-gnu-ld: (.text+0x474): undefined reference to `.L80083A84'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsisplug.o: in function `func_80083CB8':
+(.text+0x2fc): undefined reference to `.L80083E40'
+mips-linux-gnu-ld: build/asm/libultra/audio/synsetpitch.o: in function `func_80083D20':
+(.text+0x60): undefined reference to `.L80083DEC'
+mips-linux-gnu-ld: (.text+0x7c): undefined reference to `.L80083DEC'
+mips-linux-gnu-ld: (.text+0x8c): undefined reference to `.L80083DD4'
+mips-linux-gnu-ld: build/asm/libultra/os/probetlb.o: in function `func_80083DB4':
+(.text+0x68): undefined reference to `.L80083D28'
+mips-linux-gnu-ld: build/asm/libultra/io/pimgr.o: in function `func_80083FA0':
+(.text+0x150): undefined reference to `.L80083FFC'
+mips-linux-gnu-ld: (.text+0x15c): undefined reference to `.L80083FEC'
+mips-linux-gnu-ld: (.text+0x168): undefined reference to `.L80083FEC'
+mips-linux-gnu-ld: build/asm/libultra/io/devmgr.o: in function `func_80083FE8':
+(.text+0x10): undefined reference to `.L80083FCC'
+mips-linux-gnu-ld: (.text+0x354): undefined reference to `.L800844D8'
+mips-linux-gnu-ld: (.text+0x35c): undefined reference to `.L800844D8'
+mips-linux-gnu-ld: (.text+0x36c): undefined reference to `.L800844D8'
+mips-linux-gnu-ld: (.text+0x374): undefined reference to `.L800844D8'
+mips-linux-gnu-ld: (.text+0x37c): undefined reference to `.L800844D8'
+mips-linux-gnu-ld: (.text+0x398): undefined reference to `.L8008442C'
+mips-linux-gnu-ld: (.text+0x3a0): undefined reference to `.L800844C8'
+mips-linux-gnu-ld: (.text+0x3bc): undefined reference to `.L800844C8'
+mips-linux-gnu-ld: (.text+0x3ec): undefined reference to `.L8008440C'
+mips-linux-gnu-ld: (.text+0x3f4): undefined reference to `.L8008440C'
+mips-linux-gnu-ld: (.text+0x40c): undefined reference to `.L80084410'
+mips-linux-gnu-ld: build/asm/libultra/io/pirawdma.o: in function `func_800843F0':
+(.text+0x28): undefined reference to `.L800843A8'
+mips-linux-gnu-ld: (.text+0x30): undefined reference to `.L800844C8'
+mips-linux-gnu-ld: build/asm/libultra/audio/synsetpan.o: in function `func_800844E0':
+(.text+0x30): undefined reference to `.L800845D4'
+mips-linux-gnu-ld: (.text+0x38): undefined reference to `.L800845D4'
+mips-linux-gnu-ld: (.text+0x48): undefined reference to `.L800845D4'
+mips-linux-gnu-ld: (.text+0x50): undefined reference to `.L800845D4'
+mips-linux-gnu-ld: (.text+0x58): undefined reference to `.L800845D4'
+mips-linux-gnu-ld: (.text+0x68): undefined reference to `.L80084584'
+mips-linux-gnu-ld: (.text+0x70): undefined reference to `.L800845C4'
+mips-linux-gnu-ld: (.text+0x84): undefined reference to `.L800845C4'
+mips-linux-gnu-ld: build/asm/libultra/io/contpfs.o: in function `func_80084560':
+(.text+0x10): undefined reference to `.L8008454C'
+mips-linux-gnu-ld: (.text+0xb04): undefined reference to `.L8008512C'
+mips-linux-gnu-ld: (.text+0xb14): undefined reference to `.L8008512C'
+mips-linux-gnu-ld: (.text+0xb2c): undefined reference to `.L8008512C'
+mips-linux-gnu-ld: (.text+0xb3c): undefined reference to `.L8008512C'
+mips-linux-gnu-ld: (.text+0xb44): undefined reference to `.L80085100'
+mips-linux-gnu-ld: (.text+0xb60): undefined reference to `.L800850F8'
+mips-linux-gnu-ld: build/asm/libultra/io/pidma.o: in function `func_800850E0':
+(.text+0x10): undefined reference to `.L800850CC'
+mips-linux-gnu-ld: (.text+0x10c): undefined reference to `.L80085204'
+mips-linux-gnu-ld: build/asm/libultra/io/pfssearchfile.o: in function `func_800852F0':
+(.text+0x138): undefined reference to `.L80085418'
+mips-linux-gnu-ld: (.text+0x17c): undefined reference to `.L80085418'
+mips-linux-gnu-ld: (.text+0x194): undefined reference to `.L800853C8'
+mips-linux-gnu-ld: (.text+0x1b8): undefined reference to `.L80085400'
+mips-linux-gnu-ld: build/asm/libultra/audio/synthesizer.o: in function `func_8008585C':
+(.text+0x578): undefined reference to `.L80085AFC'
+mips-linux-gnu-ld: build/asm/libultra/audio/drvrnew.o: in function `func_80085A40':
+(.text+0xb4): undefined reference to `.L80085998'
+mips-linux-gnu-ld: (.text+0x7a4): undefined reference to `.L800861F4'
+mips-linux-gnu-ld: build/asm/libultra/audio/auxbus.o: in function `func_80087070':
+(.text+0x100): undefined reference to `.L80087330'
+mips-linux-gnu-ld: build/asm/libultra/audio/load.o: in function `func_80088B3C':
+(.text+0xb28): undefined reference to `.L80088FD4'
+mips-linux-gnu-ld: build/asm/libultra/io/contquery.o: in function `func_80088C70':
+(.text+0x60): undefined reference to `.L80088FD8'
+mips-linux-gnu-ld: (.text+0x88): undefined reference to `.L80088D48'
+mips-linux-gnu-ld: build/asm/libultra/os/unmaptlb.o: in function `.L80088D54':
+(.text+0x3c): undefined reference to `.L80088DA0'
+mips-linux-gnu-ld: build/asm/libultra/libc/xprintf.o: in function `func_800898F0':
+(.text+0xb70): undefined reference to `.L80089BB0'
+mips-linux-gnu-ld: build/asm/libultra/gu/ortho.o: in function `func_80089BB8':
+(.text+0x1b8): undefined reference to `.L80089C38'
+mips-linux-gnu-ld: build/asm/libultra/audio/heapinit.o: in function `func_80089D60':
+(.text+0x38): undefined reference to `.L80089DAC'
+mips-linux-gnu-ld: build/asm/libultra/audio/save.o: in function `.L8008A040':
+(.text+0xa4): undefined reference to `.L8008A5C0'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsrepairid.o: in function `func_8008A100':
+(.text+0x4): undefined reference to `.L8008A5A4'
+mips-linux-gnu-ld: build/asm/libultra/os/jammesg.o: in function `func_8008A2E0':
+(.text+0x84): undefined reference to `.L8008A444'
+mips-linux-gnu-ld: (.text+0x98): undefined reference to `.L8008A448'
+mips-linux-gnu-ld: (.text+0xfc): undefined reference to `.L8008A444'
+mips-linux-gnu-ld: (.text+0x10c): undefined reference to `.L8008A448'
+mips-linux-gnu-ld: build/asm/libultra/os/setthreadpri.o: in function `func_8008A430':
+(.text+0x78): undefined reference to `.L8008A588'
+mips-linux-gnu-ld: (.text+0x8c): undefined reference to `.L8008A58C'
+mips-linux-gnu-ld: (.text+0x9c): undefined reference to `.L8008A52C'
+mips-linux-gnu-ld: build/asm/libultra/os/getthreadpri.o: in function `func_8008A510':
+(.text+0x10): undefined reference to `.L8008A588'
+mips-linux-gnu-ld: build/asm/libultra/io/epirawread.o: in function `func_8008A530':
+(.text+0x84): undefined reference to `.L8008A104'
+mips-linux-gnu-ld: (.text+0x118): undefined reference to `.L8008AA54'
+mips-linux-gnu-ld: build/asm/libultra/io/viswapbuf.o: in function `func_8008A690':
+(.text+0x2c): undefined reference to `.L8008AA34'
+mips-linux-gnu-ld: build/asm/libultra/gu/lookat.o: in function `func_8008A6E0':
+(.text+0x1c4): undefined reference to `.L8008AA14'
+mips-linux-gnu-ld: (.text+0x1cc): undefined reference to `.L8008AA14'
+mips-linux-gnu-ld: (.text+0x238): undefined reference to `.L8008AA14'
+mips-linux-gnu-ld: (.text+0x240): undefined reference to `.L8008AA18'
+mips-linux-gnu-ld: (.text+0x2bc): undefined reference to `.L8008AA14'
+mips-linux-gnu-ld: (.text+0x2c4): undefined reference to `.L8008AA14'
+mips-linux-gnu-ld: build/asm/libultra/gu/position.o: in function `func_8008AA10':
+(.text+0x18): undefined reference to `.L8008A6C8'
+mips-linux-gnu-ld: (.text+0x38): undefined reference to `.L8008A654'
+mips-linux-gnu-ld: build/asm/libultra/os/setglobalintmask.o: in function `func_8008B440':
+(.text+0x4): undefined reference to `.L8008B500'
+mips-linux-gnu-ld: (.text+0x18): undefined reference to `.L8008B500'
+mips-linux-gnu-ld: build/asm/libultra/io/aisetfreq.o: in function `func_8008B490':
+(.text+0x138): undefined reference to `.L8008B660'
+mips-linux-gnu-ld: build/asm/libultra/libc/bcopy.o: in function `func_8008B768':
+(.text+0x308): undefined reference to `.L8008BA80'
+mips-linux-gnu-ld: build/asm/libultra/audio/copy.o: in function `func_8008B990':
+(.text+0x60): undefined reference to `.L8008BA74'
+mips-linux-gnu-ld: (.text+0x6c): undefined reference to `.L8008BA6C'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsdeletefile.o: in function `func_8008BC28':
+(.text+0x208): undefined reference to `.L8008C0CC'
+mips-linux-gnu-ld: (.text+0x224): undefined reference to `.L8008C0D0'
+mips-linux-gnu-ld: (.text+0x268): undefined reference to `.L8008BCE8'
+mips-linux-gnu-ld: build/asm/libultra/os/interrupt.o: in function `func_8008BCE0':
+(.text+0x18): undefined reference to `.L8008BE10'
+mips-linux-gnu-ld: (.text+0x78): undefined reference to `.L8008BDA8'
+mips-linux-gnu-ld: build/asm/libultra/io/vi.o: in function `func_8008BD74':
+(.text+0x94): undefined reference to `.L8008C0CC'
+mips-linux-gnu-ld: (.text+0xa8): undefined reference to `.L8008BFB8'
+mips-linux-gnu-ld: build/asm/libultra/io/viswapcontext.o: in function `func_8008C0E0':
+(.text+0x26c): undefined reference to `.L8008C1F4'
+mips-linux-gnu-ld: (.text+0x2b4): undefined reference to `.L8008C1F4'
+mips-linux-gnu-ld: (.text+0x2d0): undefined reference to `.L8008C1D4'
+mips-linux-gnu-ld: build/asm/libultra/gu/cosf.o: in function `func_8008C2D4':
+(.text+0x144): undefined reference to `.L8008C574'
+mips-linux-gnu-ld: (.text+0x14c): undefined reference to `.L8008C574'
+mips-linux-gnu-ld: build/asm/libultra/gu/coss.o: in function `.L8008C358':
+(.text+0x20): undefined reference to `.L8008C3D0'
+mips-linux-gnu-ld: build/asm/libultra/io/visetspecial.o: in function `func_8008C380':
+(.text+0xd0): undefined reference to `.L8008C574'
+mips-linux-gnu-ld: build/asm/libultra/io/visetevent.o: in function `.L8008C4E0':
+(.text+0x2c): undefined reference to `.L8008C55C'
+mips-linux-gnu-ld: (.text+0x68): undefined reference to `.L8008C568'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsnumfiles.o: in function `func_8008C5A0':
+(.text+0x18): undefined reference to `.L8008C6EC'
+mips-linux-gnu-ld: (.text+0x118): undefined reference to `.L8008C6D4'
+mips-linux-gnu-ld: (.text+0x12c): undefined reference to `.L8008C6E0'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsselectbank.o: in function `func_8008C888':
+(.text+0x7c): undefined reference to `.L8008C8CC'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsfilestate.o: in function `func_8008C8FC':
+(.text+0x1c8): undefined reference to `.L8008CAB0'
+mips-linux-gnu-ld: build/asm/libultra/io/pfsinitpak.o: in function `func_8008CAA0':
+(.text+0x25c): undefined reference to `.L8008D030'
+mips-linux-gnu-ld: (.text+0x2d8): undefined reference to `.L8008CEA4'
+mips-linux-gnu-ld: build/asm/libultra/io/pfschecker.o: in function `func_8008CDB0':
+(.text+0x998): undefined reference to `.L8008D7E0'
+mips-linux-gnu-ld: build/asm/libultra/os/getcause.o: in function `func_8008D930':
+(.text+0x0): undefined reference to `.L8008D958'
+mips-linux-gnu-ld: (.text+0x8): undefined reference to `.L8008D95C'
+mips-linux-gnu-ld: build/asm/libultra/io/contramwrite.o: in function `func_8008DB5C':
+(.text+0x24c): undefined reference to `.L8008DB9C'
+mips-linux-gnu-ld: build/asm/libultra/io/contramread.o: in function `func_8008DC20':
+(.text+0x9c): undefined reference to `.L8008DE70'
+mips-linux-gnu-ld: (.text+0xb4): undefined reference to `.L8008DE60'
+mips-linux-gnu-ld: build/asm/libultra/io/crc.o: in function `func_8008DDC0':
+(.text+0x90): undefined reference to `.L8008DC50'
+mips-linux-gnu-ld: (.text+0xa8): undefined reference to `.L8008DC44'
+mips-linux-gnu-ld: build/asm/libultra/io/epirawwrite.o: in function `func_8008DF30':
+(.text+0xe4): undefined reference to `.L8008E79C'
+mips-linux-gnu-ld: (.text+0xf8): undefined reference to `.L8008EA20'
+mips-linux-gnu-ld: (.text+0x130): undefined reference to `.L8008E09C'
+mips-linux-gnu-ld: build/asm/libultra/os/settimer.o: in function `func_8008E090':
+(.text+0x48): undefined reference to `.L8008E780'
+mips-linux-gnu-ld: (.text+0x6c): undefined reference to `.L8008E308'
+mips-linux-gnu-ld: build/asm/libultra/libc/xldtob.o: in function `func_8008E170':
+(.text+0x608): undefined reference to `.L8008E0E4'
+mips-linux-gnu-ld: (.text+0x618): undefined reference to `.L8008E054'
+mips-linux-gnu-ld: (.text+0x994): undefined reference to `.L8008ED70'
+mips-linux-gnu-ld: build/asm/libultra/libc/ldiv.o: in function `func_8008EC30':
+(.text+0x138): undefined reference to `.L8008EB48'
+mips-linux-gnu-ld: build/asm/libultra/libc/xlitob.o: in function `func_8008EDC0':
+(.text+0x24): undefined reference to `.L8008F3B8'
+mips-linux-gnu-ld: (.text+0xbc): undefined reference to `.L8008F3B8'
+mips-linux-gnu-ld: (.text+0x184): undefined reference to `.L8008F3B8'
+mips-linux-gnu-ld: (.text+0x214): undefined reference to `.L8008F3B8'
+mips-linux-gnu-ld: build/asm/libultra/io/pirawwrite.o: in function `func_8008F0B0':
+(.text+0x10): undefined reference to `.L8008F3B8'
+mips-linux-gnu-ld: build/asm/libultra/gu/rotaterpy.o: in function `func_8008F62C':
+(.text+0x170): undefined reference to `.L8008F694'
+mips-linux-gnu-ld: build/asm/libultra/libc/llcvt.o: in function `func_8008F680':
+(.text+0x0): undefined reference to `.L8008F658'
+mips-linux-gnu-ld: (.text+0xc): undefined reference to `.L8008F658'
+mips-linux-gnu-ld: (.text+0x1e8): undefined reference to `.L8008F984'
+mips-linux-gnu-ld: (.text+0x1f4): undefined reference to `.L8008F984'
+mips-linux-gnu-ld: (.text+0x208): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: build/asm/libultra/os/startthread.o: in function `.L8008F890':
+(.text+0x34): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x48): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x5c): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0xec): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0xf8): undefined reference to `.L8008FA20'
+mips-linux-gnu-ld: (.text+0x100): undefined reference to `.L8008FA20'
+mips-linux-gnu-ld: (.text+0x108): undefined reference to `.L8008FA14'
+mips-linux-gnu-ld: (.text+0x124): undefined reference to `.L8008FA00'
+mips-linux-gnu-ld: build/asm/libultra/io/visetyscale.o: in function `func_8008F9E0':
+(.text+0x2c): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x38): undefined reference to `.L8008FC44'
+mips-linux-gnu-ld: (.text+0x44): undefined reference to `.L8008FAAC'
+mips-linux-gnu-ld: (.text+0x4c): undefined reference to `.L8008FAAC'
+mips-linux-gnu-ld: build/asm/libultra/audio/synallocfx.o: in function `func_8008FA40':
+(.text+0x64): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x80): undefined reference to `.L8008FB08'
+mips-linux-gnu-ld: (.text+0x94): undefined reference to `.L8008FAE8'
+mips-linux-gnu-ld: (.text+0x9c): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: build/asm/libultra/audio/synstopvoice.o: in function `func_8008FAE0':
+(.text+0x18): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x20): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x44): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: (.text+0x60): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: build/asm/libultra/audio/synstopvoice.o:(.text+0x68): more undefined references to `.L8008FC94' follow
+mips-linux-gnu-ld: build/asm/libultra/audio/synstopvoice.o: in function `func_8008FAE0':
+(.text+0x7c): undefined reference to `.L8008FB68'
+mips-linux-gnu-ld: build/asm/libultra/audio/syndelete.o: in function `.L8008FB64':
+(.text+0x8): undefined reference to `.L8008FC44'
+mips-linux-gnu-ld: build/asm/libultra/io/aisetnextbuf.o: in function `.L8008FB70':
+(.text+0x4): undefined reference to `.L8008FC44'
+mips-linux-gnu-ld: (.text+0xc): undefined reference to `.L8008FC44'
+mips-linux-gnu-ld: (.text+0xa8): undefined reference to `.L8008FC28'
+mips-linux-gnu-ld: build/asm/libultra/io/ai.o: in function `func_8008FC20':
+(.text+0x1c): undefined reference to `.L8008FC94'
+mips-linux-gnu-ld: build/asm/libultra/io/vigetcurrframebuf.o: in function `func_8008FC50':
+(.text+0x34): undefined reference to `.L8008FC94'
+Patching ASM...
+Converting assets/ipl3.bin...
+Linking...
+Error running command: mips-linux-gnu-ld -m elf32btsmip -T castlevania2.ld -T undefined_syms_auto.txt -T undefined_funcs_auto.txt -Map build/castlevania2.map -o build/castlevania2.elf

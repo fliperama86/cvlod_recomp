@@ -1,0 +1,19 @@
+[Warn] Function func_80169BD8 is branching outside of the function (to 0x801557B0)
+[Warn] Function func_80147C80 is branching outside of the function (to 0x801443B0)
+[Warn] Function func_801523D0 is branching outside of the function (to 0x8014AEB4)
+[Warn] Function func_80146CE0 is branching outside of the function (to 0x80143630)
+[Warn] Function func_80146CE0 is branching outside of the function (to 0x801435A4)
+[Warn] Function func_80140F8C is branching outside of the function (to 0x8013FC14)
+[Warn] Function func_80150F08 is branching outside of the function (to 0x8014A1B8)
+[Warn] Function func_8014FB6C is branching outside of the function (to 0x801494B8)
+[Warn] Function func_80148108 is branching outside of the function (to 0x801447B4)
+[Warn] Function D_80142E9C is branching outside of the function (to 0x80140A18)
+[Warn] Function func_8015E3E0 is branching outside of the function (to 0x80151574)
+Unhandled branch in func_80142338 at 0x801402C0 to 0x8014030C
+Error in recompiling func_80142338, clearing output file
+Error recompiling func_80142338
+Function count: 16669
+Working dir: /Users/dudu/Projects/cvlod_recomp
+[Info] Tail call in func_80169BD8 to 0x80155B4C
+Tail call in D_8006F86C to 0x80028540
+[Info] Indirect tail call in recomp_entrypoint

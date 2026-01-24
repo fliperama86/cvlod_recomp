@@ -1,0 +1,34 @@
+[Warn] Function func_80169BD8 is branching outside of the function (to 0x80168E38)
+[Warn] Function func_80143568 is branching outside of the function (to 0x801441FC)
+[Warn] Function func_80147C80 is branching outside of the function (to 0x80148324)
+[Warn] Function func_801523D0 is branching outside of the function (to 0x80151E24)
+[Warn] Function func_80143390 is branching outside of the function (to 0x80144034)
+[Warn] Function func_80146CE0 is branching outside of the function (to 0x80147550)
+[Warn] Function func_80146CE0 is branching outside of the function (to 0x801474C4)
+[Warn] Function func_80140F8C is branching outside of the function (to 0x80141DC0)
+[Warn] Function D_801669E0 is branching outside of the function (to 0x80166000)
+[Warn] Function func_8000F5C0 is branching outside of the function (to 0x8000F514)
+[Warn] Function func_8016D9B4 is branching outside of the function (to 0x8016CEE8)
+[Warn] Function func_8016D9B4 is branching outside of the function (to 0x8016CE5C)
+[Warn] Function func_8016D9B4 is branching outside of the function (to 0x8016CEE4)
+[Warn] Function func_8016D9B4 is branching outside of the function (to 0x8016CE48)
+[Warn] Function func_8016C714 is branching outside of the function (to 0x8016BA54)
+[Warn] Function func_80168AA0 is branching outside of the function (to 0x80167CF8)
+[Warn] Function func_80150F08 is branching outside of the function (to 0x80150A7C)
+No function found for jal target: 0x8014314C
+Error in recompiling func_8004803C, clearing output file
+Error recompiling func_8004803C
+Function count: 16668
+Working dir: /Users/dudu/Projects/cvlod_recomp
+Tail call in func_8003FB70 to 0x8003FC20
+Tail call in func_8003FB70 to 0x8003FC20
+Tail call in D_8008FB08 to 0x80085354
+[Info] Tail call in func_80169BD8 to 0x8016917C
+Tail call in D_8006F86C to 0x80066AC0
+[Info] Tail call in func_8016DD2C to 0x8016D968
+[Info] Tail call in func_8016DD2C to 0x8016D968
+[Info] Tail call in func_8016DD2C to 0x8016D968
+Tail call in func_8016DD2C to 0x8016D3FC
+Tail call in func_8016DD2C to 0x8016D38C
+Tail call in func_8008C2D4 to 0x800828C8
+[Info] Indirect tail call in recomp_entrypoint

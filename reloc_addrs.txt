@@ -1,0 +1,12 @@
+// Visit https://github.com/ethteck/splat/wiki/Advanced-Reloc for documentation about this file
+// entrypoint relocs
+rom:0x001000 reloc:MIPS_HI16 symbol:main_BSS_START
+rom:0x001008 reloc:MIPS_LO16 symbol:main_BSS_START
+
+// This entry corresponds to the "stack top", which is the end of the array used as the stack for the main segment.
+// It is commented out because it was not possible to infer what the start of the stack symbol is, so you'll have to figure it out by yourself.
+// Once you have found it you can properly name it and specify the length of this stack as the addend value here.
+// The address of the end of the stack is 0x800C3680.
+// A common size for this stack is 0x2000, so try checking for the address 0x800C1680. Note the stack may have a different size.
+// rom:0x001028 reloc:MIPS_HI16 symbol:main_stack addend:0xXXXX
+// rom:0x001034 reloc:MIPS_LO16 symbol:main_stack addend:0xXXXX

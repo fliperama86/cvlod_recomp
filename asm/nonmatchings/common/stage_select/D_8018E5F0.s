@@ -1,0 +1,10 @@
+.section .rodata
+
+nonmatching D_8018E5F0
+
+dlabel D_8018E5F0
+    /* 1116E0 8018E5F0 00010500 */ .word 0x00010500
+    /* 1116E4 8018E5F4 060158E8 */ .word 0x060158E8
+    /* 1116E8 8018E5F8 41A00000 */ .word 0x41A00000
+    /* 1116EC 8018E5FC 00010500 */ .word 0x00010500
+enddlabel D_8018E5F0

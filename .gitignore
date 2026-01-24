@@ -1,0 +1,28 @@
+# Build artifacts
+build/
+recompiled/functions/
+recompiled/build/
+*.o
+*.elf
+*.map
+
+# Logs and debug info
+*.log
+recomp_latest.log
+recomp_debug.log
+build_errors.log
+
+# Temporary files
+.DS_Store
+stubs_backup.txt
+
+# N64Recomp source (already a submodule)
+# N64Recomp/
+
+# Assets and resources (Original ROM)
+resources/
+assets/*.bin
+
+# Large files (>100MB) rejected by GitHub
+asm/AB9F0.s
+asm/data/113180.data.s
