@@ -64,7 +64,12 @@ def main():
                                  new_lines.append("    nop\n")
                         continue
 
-                    # 2. Handle Relocation Truncation (Suspicious Branches)
+                    # 2. Convert alabel func_8 to glabel for proper function export
+                    if "alabel func_8" in line:
+                        line = line.replace("alabel func_8", "glabel func_8")
+                        file_patched = True
+
+                    # 3. Handle Relocation Truncation (Suspicious Branches)
                     is_branch = False
                     if "bltz" in line or "bgez" in line or "blez" in line or "bgtz" in line or "beq" in line or "bne" in line or "bc1" in line:
                         is_branch = True
