@@ -11,8 +11,7 @@
 nonmatching func_8008FB60, 0x4
 
 glabel func_8008FB60
-    jr $ra
-    nop
+    /* 90760 8008FB60 00000000 */  nop
 endlabel func_8008FB60
 
 nonmatching .L8008FB64, 0x4
@@ -24,6 +23,8 @@ endlabel .L8008FB64
 nonmatching D_8008FB68, 0x8
 
 glabel D_8008FB68
-    jr $ra
+# PATCHED: # PATCHED: /* 90768 8008FB68 10000036 */  b          D_8008FC44
     nop
+    nop
+    /* 9076C 8008FB6C AFA50038 */   sw        $a1, 0x38($sp)
 endlabel D_8008FB68

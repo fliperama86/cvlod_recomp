@@ -11,6 +11,12 @@
 nonmatching func_80089A50, 0x20
 
 glabel func_80089A50
-    jr $ra
-    nop
+    /* 8A650 80089A50 8C480008 */  lw         $t0, 0x8($v0)
+    /* 8A654 80089A54 44998000 */  mtc1       $t9, $ft4
+    /* 8A658 80089A58 460092A1 */  cvt.d.s    $ft3, $ft5
+    /* 8A65C 80089A5C 46808221 */  cvt.d.w    $ft2, $ft4
+    /* 8A660 80089A60 46225180 */  add.d      $ft1, $ft3, $fv1
+    /* 8A664 80089A64 46264100 */  add.d      $ft0, $ft2, $ft1
+    /* 8A668 80089A68 46202420 */  cvt.s.d    $ft4, $ft0
+    /* 8A66C 80089A6C E5100054 */  swc1       $ft4, 0x54($t0)
 endlabel func_80089A50

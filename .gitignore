@@ -25,6 +25,5 @@ assets/*.bin
 # Keep ipl3.bin tracked (small, required for build)
 !assets/bin/ipl3.bin
 
-# Large files (>100MB) rejected by GitHub
-asm/AB9F0.s
-asm/data/113180.data.s
+# Generated assembly (from ROM via splat)
+asm/

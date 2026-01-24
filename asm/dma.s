@@ -11,8 +11,9 @@
 nonmatching func_80017710, 0xC
 
 glabel func_80017710
-    jr $ra
-    nop
+    /* 18310 80017710 27BD0038 */  addiu      $sp, $sp, 0x38
+    /* 18314 80017714 03E00008 */  jr         $ra
+    /* 18318 80017718 AC290070 */   sw        $t1, 0x70($at)
 endlabel func_80017710
     /* 1831C 8001771C 00000000 */  nop
 
@@ -45,6 +46,24 @@ endlabel func_80017720
 nonmatching main, 0x50
 
 glabel main
-    jr $ra
-    nop
+    /* 183E0 800177E0 27BDFFE0 */  addiu      $sp, $sp, -0x20
+    /* 183E4 800177E4 AFBF001C */  sw         $ra, 0x1C($sp)
+    /* 183E8 800177E8 0C026530 */  jal        func_800994C0
+    /* 183EC 800177EC 00000000 */   nop
+    /* 183F0 800177F0 3C0E800C */  lui        $t6, %hi(D_800C3830)
+    /* 183F4 800177F4 25CE3830 */  addiu      $t6, $t6, %lo(D_800C3830)
+    /* 183F8 800177F8 3C04800C */  lui        $a0, %hi(D_800C2680)
+    /* 183FC 800177FC 3C068001 */  lui        $a2, %hi(func_8001783C)
+    /* 18400 80017800 240F0009 */  addiu      $t7, $zero, 0x9
+    /* 18404 80017804 AFAF0014 */  sw         $t7, 0x14($sp)
+    /* 18408 80017808 24C6783C */  addiu      $a2, $a2, %lo(func_8001783C)
+    /* 1840C 8001780C 24842680 */  addiu      $a0, $a0, %lo(D_800C2680)
+    /* 18410 80017810 AFAE0010 */  sw         $t6, 0x10($sp)
+    /* 18414 80017814 24050001 */  addiu      $a1, $zero, 0x1
+    /* 18418 80017818 0C026280 */  jal        func_80098A00
+    /* 1841C 8001781C 00003825 */   or        $a3, $zero, $zero
+    /* 18420 80017820 3C04800C */  lui        $a0, %hi(D_800C2680)
+    /* 18424 80017824 0C029B8C */  jal        func_800A6E30
+    /* 18428 80017828 24842680 */   addiu     $a0, $a0, %lo(D_800C2680)
+    /* 1842C 8001782C 8FBF001C */  lw         $ra, 0x1C($sp)
 endlabel main

@@ -11,38 +11,52 @@
 nonmatching func_80081C80, 0x4
 
 glabel func_80081C80
-    jr $ra
-    nop
+    /* 82880 80081C80 24010076 */  addiu      $at, $zero, 0x76
 endlabel func_80081C80
 
 nonmatching D_80081C84, 0x78
 
 glabel D_80081C84
-    jr $ra
-    nop
+    /* 82884 80081C84 54410004 */  bnel       $v0, $at, .L80081C98
+    /* 82888 80081C88 24010042 */   addiu     $at, $zero, 0x42
+    /* 8288C 80081C8C 03E00008 */  jr         $ra
+    /* 82890 80081C90 24020061 */   addiu     $v0, $zero, 0x61
+    /* 82894 80081C94 24010042 */  addiu      $at, $zero, 0x42
   .L80081C98:
-    jr $ra
-    nop
+    /* 82898 80081C98 54410004 */  bnel       $v0, $at, .L80081CAC
+    /* 8289C 80081C9C 24010087 */   addiu     $at, $zero, 0x87
+    /* 828A0 80081CA0 03E00008 */  jr         $ra
+    /* 828A4 80081CA4 24020064 */   addiu     $v0, $zero, 0x64
+    /* 828A8 80081CA8 24010087 */  addiu      $at, $zero, 0x87
   .L80081CAC:
-    jr $ra
-    nop
+    /* 828AC 80081CAC 54410004 */  bnel       $v0, $at, .L80081CC0
+    /* 828B0 80081CB0 24010045 */   addiu     $at, $zero, 0x45
+    /* 828B4 80081CB4 03E00008 */  jr         $ra
+    /* 828B8 80081CB8 24020072 */   addiu     $v0, $zero, 0x72
+    /* 828BC 80081CBC 24010045 */  addiu      $at, $zero, 0x45
   .L80081CC0:
-    jr $ra
-    nop
+    /* 828C0 80081CC0 14410003 */  bne        $v0, $at, .L80081CD0
+    /* 828C4 80081CC4 24030044 */   addiu     $v1, $zero, 0x44
+    /* 828C8 80081CC8 03E00008 */  jr         $ra
+    /* 828CC 80081CCC 24020063 */   addiu     $v0, $zero, 0x63
   .L80081CD0:
-    jr $ra
-    nop
+    /* 828D0 80081CD0 14620003 */  bne        $v1, $v0, .L80081CE0
+    /* 828D4 80081CD4 00000000 */   nop
+    /* 828D8 80081CD8 03E00008 */  jr         $ra
+    /* 828DC 80081CDC 24020063 */   addiu     $v0, $zero, 0x63
   .L80081CE0:
-    jr $ra
-    nop
+    /* 828E0 80081CE0 54620004 */  bnel       $v1, $v0, .L80081CF4
+    /* 828E4 80081CE4 00001025 */   or        $v0, $zero, $zero
+    /* 828E8 80081CE8 03E00008 */  jr         $ra
+    /* 828EC 80081CEC 24020071 */   addiu     $v0, $zero, 0x71
+    /* 828F0 80081CF0 00001025 */  or         $v0, $zero, $zero
   .L80081CF4:
-    jr $ra
-    nop
+    /* 828F4 80081CF4 03E00008 */  jr         $ra
+    /* 828F8 80081CF8 00000000 */   nop
 endlabel D_80081C84
 
 nonmatching func_80081CFC, 0x4
 
 glabel func_80081CFC
-    jr $ra
-    nop
+    /* 828FC 80081CFC AFA40000 */  sw         $a0, 0x0($sp)
 endlabel func_80081CFC

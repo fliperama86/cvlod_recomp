@@ -11,8 +11,7 @@
 nonmatching func_80088D50, 0x4
 
 glabel func_80088D50
-    jr $ra
-    nop
+    /* 89950 80088D50 00000000 */  nop
 endlabel func_80088D50
 
 nonmatching .L80088D54, 0x3C
@@ -33,59 +32,7 @@ glabel .L80088D54
     /* 89980 80088D80 3C014F80 */  lui        $at, (0x4F800000 >> 16)
     /* 89984 80088D84 004C6823 */  subu       $t5, $v0, $t4
     /* 89988 80088D88 448D2000 */  mtc1       $t5, $ft0
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 8998C 80088D8C 05A10004 */  bgez       $t5, D_80088DA0
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 8998C 80088D8C 05A10004 */  bgez       $t5, D_80088DA0
     nop
     nop
 endlabel .L80088D54

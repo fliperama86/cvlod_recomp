@@ -11,16 +11,52 @@
 nonmatching func_8008BCE0, 0x8
 
 glabel func_8008BCE0
-    jr $ra
+# PATCHED: # PATCHED: /* 8C8E0 8008BCE0 10000001 */  b          D_8008BCE8
     nop
+    nop
+    /* 8C8E4 8008BCE4 84850000 */   lh        $a1, 0x0($a0)
 endlabel func_8008BCE0
 
 nonmatching D_8008BCE8, 0x88
 
 glabel D_8008BCE8
-    jr $ra
-    nop
+    /* 8C8E8 8008BCE8 1CA00003 */  bgtz       $a1, .L8008BCF8
+    /* 8C8EC 8008BCEC 00000000 */   nop
+    /* 8C8F0 8008BCF0 AC400018 */  sw         $zero, 0x18($v0)
+    /* 8C8F4 8008BCF4 00002025 */  or         $a0, $zero, $zero
   .L8008BCF8:
-    jr $ra
+# PATCHED: # PATCHED: /* 8C8F8 8008BCF8 54800045 */  bnel       $a0, $zero, D_8008BE10
     nop
+    nop
+    /* 8C8FC 8008BCFC 822B006D */   lb        $t3, 0x6D($s1)
+    /* 8C900 8008BD00 C604006C */  lwc1       $ft0, 0x6C($s0)
+    /* 8C904 8008BD04 3C01800C */  lui        $at, %hi(D_800C02F8)
+    /* 8C908 8008BD08 D42802F8 */  ldc1       $ft2, %lo(D_800C02F8)($at)
+    /* 8C90C 8008BD0C 460021A1 */  cvt.d.s    $ft1, $ft0
+    /* 8C910 8008BD10 3C01437F */  lui        $at, (0x437F0000 >> 16)
+    /* 8C914 8008BD14 46283281 */  sub.d      $ft3, $ft1, $ft2
+    /* 8C918 8008BD18 44812000 */  mtc1       $at, $ft0
+    /* 8C91C 8008BD1C 240E0001 */  addiu      $t6, $zero, 0x1
+    /* 8C920 8008BD20 44806800 */  mtc1       $zero, $fa0f
+    /* 8C924 8008BD24 46205420 */  cvt.s.d    $ft4, $ft3
+    /* 8C928 8008BD28 44806000 */  mtc1       $zero, $fa0
+    /* 8C92C 8008BD2C 3C014F00 */  lui        $at, (0x4F000000 >> 16)
+    /* 8C930 8008BD30 E610006C */  swc1       $ft4, 0x6C($s0)
+    /* 8C934 8008BD34 C612006C */  lwc1       $ft5, 0x6C($s0)
+    /* 8C938 8008BD38 46049182 */  mul.s      $ft1, $ft5, $ft0
+    /* 8C93C 8008BD3C 444DF800 */  cfc1       $t5, $31
+    /* 8C940 8008BD40 44CEF800 */  ctc1       $t6, $31
+    /* 8C944 8008BD44 00000000 */  nop
+    /* 8C948 8008BD48 46003224 */  cvt.w.s    $ft2, $ft1
+    /* 8C94C 8008BD4C 444EF800 */  cfc1       $t6, $31
+    /* 8C950 8008BD50 00000000 */  nop
+    /* 8C954 8008BD54 31CE0078 */  andi       $t6, $t6, 0x78
+# PATCHED: # PATCHED: /* 8C958 8008BD58 51C00013 */  beql       $t6, $zero, D_8008BDA8
+    nop
+    nop
+    /* 8C95C 8008BD5C 440E4000 */   mfc1      $t6, $ft2
+    /* 8C960 8008BD60 44814000 */  mtc1       $at, $ft2
+    /* 8C964 8008BD64 240E0001 */  addiu      $t6, $zero, 0x1
+    /* 8C968 8008BD68 46083201 */  sub.s      $ft2, $ft1, $ft2
+    /* 8C96C 8008BD6C 44CEF800 */  ctc1       $t6, $31
 endlabel D_8008BCE8

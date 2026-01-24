@@ -11,8 +11,7 @@
 nonmatching func_8013E9E0, 0x4
 
 glabel func_8013E9E0
-    jr $ra
-    nop
+    /* C1AD0 8013E9E0 00000000 */  nop
 endlabel func_8013E9E0
     /* C1AD4 8013E9E4 00000000 */  nop
     /* C1AD8 8013E9E8 00000000 */  nop

@@ -7,8 +7,12 @@
 nonmatching func_800A3A50
 
 glabel func_800A3A50
-    jr $ra
-    nop
+    /* A4650 800A3A50 27BDFFE8 */ .word 0x27BDFFE8
+    /* A4654 800A3A54 AFA40018 */ .word 0xAFA40018
+    /* A4658 800A3A58 00802825 */ .word 0x00802825
+    /* A465C 800A3A5C 24A44000 */ .word 0x24A44000
+    /* A4660 800A3A60 AFBF0014 */ .word 0xAFBF0014
+    /* A4664 800A3A64 308EFFFF */ .word 0x308EFFFF
+    /* A4668 800A3A68 0C025CCC */ .word 0x0C025CCC
+    /* A466C 800A3A6C 01C02025 */ .word 0x01C02025
 enddlabel func_800A3A50
-    jr $ra
-    nop

@@ -11,31 +11,69 @@
 nonmatching func_8000F500, 0x14
 
 glabel func_8000F500
-    jr $ra
-    nop
+    /* 10100 8000F500 02594007 */  srav       $t0, $t9, $s2
+    /* 10104 8000F504 01004827 */  not        $t1, $t0
+    /* 10108 8000F508 03095024 */  and        $t2, $t8, $t1
+    /* 1010C 8000F50C A60A0002 */  sh         $t2, 0x2($s0)
+    /* 10110 8000F510 8E040010 */  lw         $a0, 0x10($s0)
 endlabel func_8000F500
 
 nonmatching D_8000F514, 0xAC
 
 glabel D_8000F514
-    jr $ra
-    nop
+    /* 10114 8000F514 02402825 */  or         $a1, $s2, $zero
+    /* 10118 8000F518 50800004 */  beql       $a0, $zero, .L8000F52C
+    /* 1011C 8000F51C 860B0000 */   lh        $t3, 0x0($s0)
+    /* 10120 8000F520 0C003D2D */  jal        func_8000F4B4
+    /* 10124 8000F524 3266FFFF */   andi      $a2, $s3, 0xFFFF
+    /* 10128 8000F528 860B0000 */  lh         $t3, 0x0($s0)
   .L8000F52C:
-    jr $ra
+    /* 1012C 8000F52C 316C0800 */  andi       $t4, $t3, 0x800
+    /* 10130 8000F530 55800005 */  bnel       $t4, $zero, .L8000F548
+    /* 10134 8000F534 8FBF0024 */   lw        $ra, 0x24($sp)
+    /* 10138 8000F538 8E10000C */  lw         $s0, 0xC($s0)
+# PATCHED: # PATCHED: /* 1013C 8000F53C 1600FFE9 */  bnez       $s0, D_8000F4E4
     nop
+    nop
+    /* 10140 8000F540 00000000 */   nop
   alabel D_8000F544
-    jr $ra
-    nop
+    /* 10144 8000F544 8FBF0024 */  lw         $ra, 0x24($sp)
   .L8000F548:
-    jr $ra
-    nop
+    /* 10148 8000F548 8FB00014 */  lw         $s0, 0x14($sp)
+    /* 1014C 8000F54C 8FB10018 */  lw         $s1, 0x18($sp)
+    /* 10150 8000F550 8FB2001C */  lw         $s2, 0x1C($sp)
+    /* 10154 8000F554 8FB30020 */  lw         $s3, 0x20($sp)
+    /* 10158 8000F558 03E00008 */  jr         $ra
+    /* 1015C 8000F55C 27BD0028 */   addiu     $sp, $sp, 0x28
   alabel func_8000F560
-    jr $ra
-    nop
+    /* 10160 8000F560 948E0002 */  lhu        $t6, 0x2($a0)
+    /* 10164 8000F564 240F0800 */  addiu      $t7, $zero, 0x800
+    /* 10168 8000F568 00AFC007 */  srav       $t8, $t7, $a1
+    /* 1016C 8000F56C 00054080 */  sll        $t0, $a1, 2
+    /* 10170 8000F570 01D8C825 */  or         $t9, $t6, $t8
+    /* 10174 8000F574 A4990002 */  sh         $t9, 0x2($a0)
+    /* 10178 8000F578 00884821 */  addu       $t1, $a0, $t0
+    /* 1017C 8000F57C 03E00008 */  jr         $ra
+    /* 10180 8000F580 AD260018 */   sw        $a2, 0x18($t1)
   alabel func_8000F584
-    jr $ra
+    /* 10184 8000F584 27BDFFD0 */  addiu      $sp, $sp, -0x30
+    /* 10188 8000F588 AFB40028 */  sw         $s4, 0x28($sp)
+    /* 1018C 8000F58C AFB30024 */  sw         $s3, 0x24($sp)
+    /* 10190 8000F590 AFB1001C */  sw         $s1, 0x1C($sp)
+    /* 10194 8000F594 AFB00018 */  sw         $s0, 0x18($sp)
+    /* 10198 8000F598 00A08825 */  or         $s1, $a1, $zero
+    /* 1019C 8000F59C 00C09825 */  or         $s3, $a2, $zero
+    /* 101A0 8000F5A0 30F4FFFF */  andi       $s4, $a3, 0xFFFF
+    /* 101A4 8000F5A4 AFBF002C */  sw         $ra, 0x2C($sp)
+    /* 101A8 8000F5A8 AFB20020 */  sw         $s2, 0x20($sp)
+    /* 101AC 8000F5AC AFA7003C */  sw         $a3, 0x3C($sp)
+# PATCHED: # PATCHED: /* 101B0 8000F5B0 1080001D */  beqz       $a0, D_8000F628
     nop
+    nop
+    /* 101B4 8000F5B4 00808025 */   or        $s0, $a0, $zero
+    /* 101B8 8000F5B8 02809025 */  or         $s2, $s4, $zero
   alabel D_8000F5BC
-    jr $ra
+# PATCHED: # PATCHED: /* 101BC 8000F5BC 12400005 */  beqz       $s2, D_8000F5D4
+    nop
     nop
 endlabel D_8000F514

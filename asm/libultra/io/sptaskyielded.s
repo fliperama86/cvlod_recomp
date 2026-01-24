@@ -11,6 +11,36 @@
 nonmatching func_8008AE10, 0x80
 
 glabel func_8008AE10
-    jr $ra
-    nop
+    /* 8BA10 8008AE10 27186340 */  addiu      $t8, $t8, 0x6340
+    /* 8BA14 8008AE14 240AFFFF */  addiu      $t2, $zero, -0x1
+    /* 8BA18 8008AE18 37290800 */  ori        $t1, $t9, 0x800
+    /* 8BA1C 8008AE1C AC58003C */  sw         $t8, 0x3C($v0)
+    /* 8BA20 8008AE20 AC510040 */  sw         $s1, 0x40($v0)
+    /* 8BA24 8008AE24 A4490002 */  sh         $t1, 0x2($v0)
+    /* 8BA28 8008AE28 AC4A0018 */  sw         $t2, 0x18($v0)
+    /* 8BA2C 8008AE2C 4406B000 */  mfc1       $a2, $fs1
+    /* 8BA30 8008AE30 E7B40018 */  swc1       $fs0, 0x18($sp)
+    /* 8BA34 8008AE34 E7B40014 */  swc1       $fs0, 0x14($sp)
+    /* 8BA38 8008AE38 E7B40010 */  swc1       $fs0, 0x10($sp)
+    /* 8BA3C 8008AE3C 00402025 */  or         $a0, $v0, $zero
+    /* 8BA40 8008AE40 3C054296 */  lui        $a1, (0x42960000 >> 16)
+    /* 8BA44 8008AE44 0C0231DD */  jal        func_8008C774
+    /* 8BA48 8008AE48 3C0741A0 */   lui       $a3, (0x41A00000 >> 16)
+    /* 8BA4C 8008AE4C 24040004 */  addiu      $a0, $zero, 0x4
+    /* 8BA50 8008AE50 0C0016AF */  jal        func_80005ABC
+    /* 8BA54 8008AE54 8E050024 */   lw        $a1, 0x24($s0)
+    /* 8BA58 8008AE58 AE020044 */  sw         $v0, 0x44($s0)
+    /* 8BA5C 8008AE5C 944C0002 */  lhu        $t4, 0x2($v0)
+    /* 8BA60 8008AE60 3C0B0600 */  lui        $t3, %hi(D_6006710)
+    /* 8BA64 8008AE64 256B6710 */  addiu      $t3, $t3, %lo(D_6006710)
+    /* 8BA68 8008AE68 358D0800 */  ori        $t5, $t4, 0x800
+    /* 8BA6C 8008AE6C AC4B003C */  sw         $t3, 0x3C($v0)
+    /* 8BA70 8008AE70 AC510040 */  sw         $s1, 0x40($v0)
+    /* 8BA74 8008AE74 A44D0002 */  sh         $t5, 0x2($v0)
+    /* 8BA78 8008AE78 3C0E800B */  lui        $t6, %hi(D_800B78C8)
+    /* 8BA7C 8008AE7C 8DCE78C8 */  lw         $t6, %lo(D_800B78C8)($t6)
+    /* 8BA80 8008AE80 3C0F801D */  lui        $t7, %hi(D_801CAB3A)
+    /* 8BA84 8008AE84 3C0140A0 */  lui        $at, (0x40A00000 >> 16)
+    /* 8BA88 8008AE88 AC4E0018 */  sw         $t6, 0x18($v0)
+    /* 8BA8C 8008AE8C 85EFAB3A */  lh         $t7, %lo(D_801CAB3A)($t7)
 endlabel func_8008AE10

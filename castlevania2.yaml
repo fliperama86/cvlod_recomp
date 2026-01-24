@@ -2,16 +2,13 @@ name: Castlevania2 (North America)
 sha1: 879ead98f197fd05edda867655da5b1ce25aa5b8
 options:
   basename: castlevania2
-  target_path: ../resources/castlevania_legacy_of_darkness.z64
-  elf_path: ../build/castlevania2.elf
-  base_path: ..
+  target_path: resources/castlevania_legacy_of_darkness.z64
+  elf_path: build/castlevania2.elf
+  base_path: .
   platform: n64
   compiler: IDO
 
   asm_path: asm
-  # src_path: src
-  # build_path: build
-  # create_asm_dependencies: True
 
   ld_script_path: config/castlevania2.ld
   ld_dependencies: True
@@ -23,9 +20,6 @@ options:
   use_legacy_include_asm: False
   mips_abi_float_regs: o32
 
-  # section_order: [".text", ".data", ".rodata", ".bss"]
-  # auto_link_sections: [".data", ".rodata", ".bss"]
-
   symbol_addrs_path:
     - symbols/symbol_addrs.txt
   reloc_addrs_path:
@@ -35,14 +29,8 @@ options:
   undefined_syms_auto_path: symbols/undefined_syms_auto.txt
 
   extensions_path: tools/splat_ext
-
-  # string_encoding: ASCII
-  # data_string_encoding: ASCII
   rodata_string_guesser_level: 2
   data_string_guesser_level: 2
-  # libultra_symbols: True
-  # hardware_regs: True
-  # gfx_ucode: # one of [f3d, f3db, f3dex, f3dexb, f3dex2]
 segments:
   - name: header
     type: header

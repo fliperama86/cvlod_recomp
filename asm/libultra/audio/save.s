@@ -52,59 +52,7 @@ glabel .L8008A040
     /* 8ACD8 8008A0D8 462021A0 */  cvt.s.d    $ft1, $ft0
     /* 8ACDC 8008A0DC E7A600C0 */  swc1       $ft1, 0xC0($sp)
     /* 8ACE0 8008A0E0 92230051 */  lbu        $v1, 0x51($s1)
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 8ACE4 8008A0E4 58600136 */  blezl      $v1, D_8008A5C0
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 8ACE4 8008A0E4 58600136 */  blezl      $v1, D_8008A5C0
     nop
     nop
     /* 8ACE8 8008A0E8 8FBF0064 */   lw        $ra, 0x64($sp)

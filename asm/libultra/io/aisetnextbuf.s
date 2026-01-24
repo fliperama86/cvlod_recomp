@@ -12,115 +12,11 @@ nonmatching .L8008FB70, 0xB0
 
 glabel .L8008FB70
     /* 90770 8008FB70 2881002E */  slti       $at, $a0, 0x2E
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 90774 8008FB74 14200033 */  bnez       $at, D_8008FC44
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 90774 8008FB74 14200033 */  bnez       $at, D_8008FC44
     nop
     nop
     /* 90778 8008FB78 28810031 */   slti      $at, $a0, 0x31
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 9077C 8008FB7C 10200031 */  beqz       $at, D_8008FC44
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 9077C 8008FB7C 10200031 */  beqz       $at, D_8008FC44
     nop
     nop
     /* 90780 8008FB80 2401002E */   addiu     $at, $zero, 0x2E
@@ -166,59 +62,7 @@ glabel .L8008FB70
     /* 9080C 8008FC0C 27392560 */  addiu      $t9, $t9, %lo(func_80002560)
     /* 90810 8008FC10 0320F809 */  jalr       $t9
     /* 90814 8008FC14 AFA70044 */   sw        $a3, 0x44($sp)
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 90818 8008FC18 10400003 */  beqz       $v0, D_8008FC28
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 90818 8008FC18 10400003 */  beqz       $v0, D_8008FC28
     nop
     nop
     /* 9081C 8008FC1C 8FA70044 */   lw        $a3, 0x44($sp)

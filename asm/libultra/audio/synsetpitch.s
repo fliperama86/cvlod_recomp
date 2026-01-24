@@ -11,8 +11,8 @@
 nonmatching func_80083D20, 0x8
 
 glabel func_80083D20
-    jr $ra
-    nop
+    /* 84920 80083D20 93A80023 */  lbu        $t0, 0x23($sp)
+    /* 84924 80083D24 24A90001 */  addiu      $t1, $a1, 0x1
 endlabel func_80083D20
 
 nonmatching D_80083D28, 0x88

@@ -11,13 +11,31 @@
 nonmatching func_8008A690, 0x38
 
 glabel func_8008A690
-    jr $ra
+    /* 8B290 8008A690 0000B825 */  or         $s7, $zero, $zero
+    /* 8B294 8008A694 00007012 */  mflo       $t6
+    /* 8B298 8008A698 000EC100 */  sll        $t8, $t6, 4
+    /* 8B29C 8008A69C 03197821 */  addu       $t7, $t8, $t9
+    /* 8B2A0 8008A6A0 AC6F0004 */  sw         $t7, 0x4($v1)
+    /* 8B2A4 8008A6A4 91260050 */  lbu        $a2, 0x50($t1)
+    /* 8B2A8 8008A6A8 8FB90040 */  lw         $t9, 0x40($sp)
+    /* 8B2AC 8008A6AC 00E60019 */  multu      $a3, $a2
+    /* 8B2B0 8008A6B0 24CFFFFF */  addiu      $t7, $a2, -0x1
+    /* 8B2B4 8008A6B4 00007012 */  mflo       $t6
+    /* 8B2B8 8008A6B8 000EC100 */  sll        $t8, $t6, 4
+# PATCHED: # PATCHED: /* 8B2BC 8008A6BC 19E000DD */  blez       $t7, D_8008AA34
     nop
+    nop
+    /* 8B2C0 8008A6C0 0319F821 */   addu      $ra, $t8, $t9
+    /* 8B2C4 8008A6C4 A7A20034 */  sh         $v0, 0x34($sp)
 endlabel func_8008A690
 
 nonmatching D_8008A6C8, 0x18
 
 glabel D_8008A6C8
-    jr $ra
-    nop
+    /* 8B2C8 8008A6C8 00A01025 */  or         $v0, $a1, $zero
+    /* 8B2CC 8008A6CC 3C0EE700 */  lui        $t6, (0xE7000000 >> 16)
+    /* 8B2D0 8008A6D0 AC4E0000 */  sw         $t6, 0x0($v0)
+    /* 8B2D4 8008A6D4 AC400004 */  sw         $zero, 0x4($v0)
+    /* 8B2D8 8008A6D8 912E0050 */  lbu        $t6, 0x50($t1)
+    /* 8B2DC 8008A6DC 0017C100 */  sll        $t8, $s7, 4
 endlabel D_8008A6C8

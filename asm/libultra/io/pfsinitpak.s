@@ -11,8 +11,10 @@
 nonmatching func_8008CAA0, 0x10
 
 glabel func_8008CAA0
-    jr $ra
-    nop
+    /* 8D6A0 8008CAA0 8DA20004 */  lw         $v0, 0x4($t5)
+    /* 8D6A4 8008CAA4 AC430000 */  sw         $v1, 0x0($v0)
+    /* 8D6A8 8008CAA8 AC400004 */  sw         $zero, 0x4($v0)
+    /* 8D6AC 8008CAAC 960C001A */  lhu        $t4, 0x1A($s0)
 endlabel func_8008CAA0
 
 nonmatching D_8008CAB0, 0x300

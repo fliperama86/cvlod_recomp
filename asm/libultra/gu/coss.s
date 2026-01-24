@@ -11,8 +11,8 @@
 nonmatching func_8008C350, 0x8
 
 glabel func_8008C350
-    jr $ra
-    nop
+    /* 8CF50 8008C350 03E00008 */  jr         $ra
+    /* 8CF54 8008C354 A04E0014 */   sb        $t6, 0x14($v0)
 endlabel func_8008C350
 
 nonmatching .L8008C358, 0x28
@@ -24,59 +24,7 @@ glabel .L8008C358
     /* 8CF64 8008C364 28A10006 */  slti       $at, $a1, 0x6
     /* 8CF68 8008C368 14200003 */  bnez       $at, .L8008C378
     /* 8CF6C 8008C36C 28A10012 */   slti      $at, $a1, 0x12
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 8CF70 8008C370 54200017 */  bnel       $at, $zero, D_8008C3D0
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 8CF70 8008C370 54200017 */  bnel       $at, $zero, D_8008C3D0
     nop
     nop
     /* 8CF74 8008C374 28A10006 */   slti      $at, $a1, 0x6

@@ -11,6 +11,12 @@
 nonmatching func_8008D930, 0x10
 
 glabel func_8008D930
-    jr $ra
+# PATCHED: # PATCHED: /* 8E530 8008D930 15600009 */  bnez       $t3, D_8008D958
     nop
+    nop
+    /* 8E534 8008D934 306F1000 */   andi      $t7, $v1, 0x1000
+# PATCHED: # PATCHED: /* 8E538 8008D938 51E00008 */  beql       $t7, $zero, D_8008D95C
+    nop
+    nop
+    /* 8E53C 8008D93C 30790200 */   andi      $t9, $v1, 0x200
 endlabel func_8008D930

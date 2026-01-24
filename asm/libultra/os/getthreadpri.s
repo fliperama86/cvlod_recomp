@@ -11,13 +11,19 @@
 nonmatching func_8008A510, 0x1C
 
 glabel func_8008A510
-    jr $ra
+    /* 8B110 8008A510 01786821 */  addu       $t5, $t3, $t8
+    /* 8B114 8008A514 A60D0002 */  sh         $t5, 0x2($s0)
+    /* 8B118 8008A518 00097180 */  sll        $t6, $t1, 6
+    /* 8B11C 8008A51C 032E7823 */  subu       $t7, $t9, $t6
+# PATCHED: # PATCHED: /* 8B120 8008A520 10000019 */  b          D_8008A588
     nop
+    nop
+    /* 8B124 8008A524 A60F000A */   sh        $t7, 0xA($s0)
+    /* 8B128 8008A528 461A603C */  c.lt.s     $fa0, $fs3
 endlabel func_8008A510
 
 nonmatching D_8008A52C, 0x4
 
 glabel D_8008A52C
-    jr $ra
-    nop
+    /* 8B12C 8008A52C 00000000 */  nop
 endlabel D_8008A52C

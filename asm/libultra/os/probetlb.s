@@ -11,28 +11,35 @@
 nonmatching func_80083DB0, 0x4
 
 glabel func_80083DB0
-    jr $ra
-    nop
+    /* 849B0 80083DB0 00000000 */  nop
 endlabel func_80083DB0
 
 nonmatching func_80083DB4, 0x20
 
 glabel func_80083DB4
-    jr $ra
-    nop
+    /* 849B4 80083DB4 0069082A */  slt        $at, $v1, $t1
+    /* 849B8 80083DB8 14200002 */  bnez       $at, .L80083DC4
+    /* 849BC 80083DBC 24AF0010 */   addiu     $t7, $a1, 0x10
+    /* 849C0 80083DC0 30E300FF */  andi       $v1, $a3, 0xFF
   .L80083DC4:
-    jr $ra
+    /* 849C4 80083DC4 0003C840 */  sll        $t9, $v1, 1
+    /* 849C8 80083DC8 02396021 */  addu       $t4, $s1, $t9
+# PATCHED: # PATCHED: /* 849CC 80083DCC 10000007 */  b          D_80083DEC
     nop
+    nop
+    /* 849D0 80083DD0 A58F0000 */   sh        $t7, 0x0($t4)
 endlabel func_80083DB4
 
 nonmatching D_80083DD4, 0x18
 
 glabel D_80083DD4
-    jr $ra
-    nop
+    /* 849D4 80083DD4 14200002 */  bnez       $at, .L80083DE0
+    /* 849D8 80083DD8 24AB0066 */   addiu     $t3, $a1, 0x66
+    /* 849DC 80083DDC 30E300FF */  andi       $v1, $a3, 0xFF
   .L80083DE0:
-    jr $ra
-    nop
+    /* 849E0 80083DE0 00036840 */  sll        $t5, $v1, 1
+    /* 849E4 80083DE4 022D7021 */  addu       $t6, $s1, $t5
+    /* 849E8 80083DE8 A5CB0000 */  sh         $t3, 0x0($t6)
 endlabel D_80083DD4
 
 nonmatching D_80083DEC, 0x84

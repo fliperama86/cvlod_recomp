@@ -1803,8 +1803,7 @@ enddlabel func_8012CED4
 nonmatching func_8012D168, 0x4
 
 glabel func_8012D168
-    jr $ra
-    nop
+    /* B0258 8012D168 00000000 */  nop
 endlabel func_8012D168
     /* B025C 8012D16C 00000000 */  nop
     /* B0260 8012D170 00000000 */  nop
@@ -1973,8 +1972,7 @@ endlabel func_8012D168
 nonmatching func_8012D3F8, 0x4
 
 glabel func_8012D3F8
-    jr $ra
-    nop
+    /* B04E8 8012D3F8 00000000 */  nop
 endlabel func_8012D3F8
     /* B04EC 8012D3FC 00000000 */  nop
     /* B04F0 8012D400 00000000 */  nop

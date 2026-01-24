@@ -11,6 +11,10 @@
 nonmatching func_80082490, 0x10
 
 glabel func_80082490
-    jr $ra
+    /* 83090 80082490 004A082A */  slt        $at, $v0, $t2
+# PATCHED: # PATCHED: /* 83094 80082494 1420FFF5 */  bnez       $at, D_8008246C
     nop
+    nop
+    /* 83098 80082498 00000000 */   nop
+    /* 8309C 8008249C 84CB0002 */  lh         $t3, 0x2($a2)
 endlabel func_80082490

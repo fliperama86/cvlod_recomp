@@ -11,9 +11,37 @@
 nonmatching func_8007FEB0, 0x70
 
 glabel func_8007FEB0
-    jr $ra
+    /* 80AB0 8007FEB0 00002812 */  mflo       $a1
+    /* 80AB4 8007FEB4 53210009 */  beql       $t9, $at, .L8007FEDC
+    /* 80AB8 8007FEB8 86CE0004 */   lh        $t6, 0x4($s6)
+    /* 80ABC 8007FEBC 86DF0000 */  lh         $ra, 0x0($s6)
+    /* 80AC0 8007FEC0 86CC0002 */  lh         $t4, 0x2($s6)
+    /* 80AC4 8007FEC4 86D70004 */  lh         $s7, 0x4($s6)
+    /* 80AC8 8007FEC8 86DE0006 */  lh         $fp, 0x6($s6)
+    /* 80ACC 8007FECC 86D40008 */  lh         $s4, 0x8($s6)
+# PATCHED: # PATCHED: /* 80AD0 8007FED0 10000051 */  b          D_80080018
     nop
+    nop
+    /* 80AD4 8007FED4 86D5000A */   lh        $s5, 0xA($s6)
+    /* 80AD8 8007FED8 86CE0004 */  lh         $t6, 0x4($s6)
   .L8007FEDC:
-    jr $ra
+    /* 80ADC 8007FEDC 24170001 */  addiu      $s7, $zero, 0x1
+    /* 80AE0 8007FEE0 86DF0000 */  lh         $ra, 0x0($s6)
+    /* 80AE4 8007FEE4 448E4000 */  mtc1       $t6, $ft2
+    /* 80AE8 8007FEE8 86CC0002 */  lh         $t4, 0x2($s6)
+    /* 80AEC 8007FEEC 3C0141E0 */  lui        $at, (0x41E00000 >> 16)
+    /* 80AF0 8007FEF0 46804021 */  cvt.d.w    $fv0, $ft2
+    /* 80AF4 8007FEF4 46200280 */  add.d      $ft3, $fv0, $fv0
+    /* 80AF8 8007FEF8 444FF800 */  cfc1       $t7, $31
+    /* 80AFC 8007FEFC 44D7F800 */  ctc1       $s7, $31
+    /* 80B00 8007FF00 00000000 */  nop
+    /* 80B04 8007FF04 46205424 */  cvt.w.d    $ft4, $ft3
+    /* 80B08 8007FF08 4457F800 */  cfc1       $s7, $31
+    /* 80B0C 8007FF0C 00000000 */  nop
+    /* 80B10 8007FF10 32F70078 */  andi       $s7, $s7, 0x78
+# PATCHED: # PATCHED: /* 80B14 8007FF14 52E00014 */  beql       $s7, $zero, D_8007FF68
     nop
+    nop
+    /* 80B18 8007FF18 44178000 */   mfc1      $s7, $ft4
+    /* 80B1C 8007FF1C 44818800 */  mtc1       $at, $ft4f
 endlabel func_8007FEB0

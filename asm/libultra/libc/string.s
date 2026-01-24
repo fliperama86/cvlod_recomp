@@ -11,16 +11,50 @@
 nonmatching func_80089DA0, 0xC
 
 glabel func_80089DA0
-    jr $ra
-    nop
+    /* 8A9A0 80089DA0 24A50001 */  addiu      $a1, $a1, 0x1
+    /* 8A9A4 80089DA4 30A5FFFF */  andi       $a1, $a1, 0xFFFF
+    /* 8A9A8 80089DA8 C5200054 */  lwc1       $fv0, 0x54($t1)
 endlabel func_80089DA0
 
 nonmatching D_80089DAC, 0x94
 
 glabel D_80089DAC
-    jr $ra
-    nop
+    /* 8A9AC 80089DAC 4600048D */  trunc.w.s  $ft5, $fv0
+    /* 8A9B0 80089DB0 44199000 */  mfc1       $t9, $ft5
+    /* 8A9B4 80089DB4 00000000 */  nop
+    /* 8A9B8 80089DB8 44994000 */  mtc1       $t9, $ft2
+    /* 8A9BC 80089DBC 00000000 */  nop
+    /* 8A9C0 80089DC0 46804120 */  cvt.s.w    $ft0, $ft2
+    /* 8A9C4 80089DC4 46040401 */  sub.s      $ft4, $fv0, $ft0
+    /* 8A9C8 80089DC8 460082A1 */  cvt.d.s    $ft3, $ft4
+    /* 8A9CC 80089DCC 462A103C */  c.lt.d     $fv1, $ft3
+    /* 8A9D0 80089DD0 00000000 */  nop
+    /* 8A9D4 80089DD4 45000003 */  bc1f       .L80089DE4
+    /* 8A9D8 80089DD8 00000000 */   nop
+    /* 8A9DC 80089DDC 24C60001 */  addiu      $a2, $a2, 0x1
+    /* 8A9E0 80089DE0 30C6FFFF */  andi       $a2, $a2, 0xFFFF
   .L80089DE4:
-    jr $ra
-    nop
+    /* 8A9E4 80089DE4 0C0227D7 */  jal        func_80089F5C
+    /* 8A9E8 80089DE8 AFA7001C */   sw        $a3, 0x1C($sp)
+    /* 8A9EC 80089DEC 8FA2001C */  lw         $v0, 0x1C($sp)
+    /* 8A9F0 80089DF0 3C0CE700 */  lui        $t4, (0xE7000000 >> 16)
+    /* 8A9F4 80089DF4 3C0BE300 */  lui        $t3, (0xE3000A01 >> 16)
+    /* 8A9F8 80089DF8 AC4C0000 */  sw         $t4, 0x0($v0)
+    /* 8A9FC 80089DFC 24430008 */  addiu      $v1, $v0, 0x8
+    /* 8AA00 80089E00 356B0A01 */  ori        $t3, $t3, (0xE3000A01 & 0xFFFF)
+    /* 8AA04 80089E04 AC400004 */  sw         $zero, 0x4($v0)
+    /* 8AA08 80089E08 AC6B0000 */  sw         $t3, 0x0($v1)
+    /* 8AA0C 80089E0C 24640008 */  addiu      $a0, $v1, 0x8
+    /* 8AA10 80089E10 AC600004 */  sw         $zero, 0x4($v1)
+    /* 8AA14 80089E14 3C0EE200 */  lui        $t6, (0xE200001C >> 16)
+    /* 8AA18 80089E18 3C0D0050 */  lui        $t5, (0x504240 >> 16)
+    /* 8AA1C 80089E1C 35AD4240 */  ori        $t5, $t5, (0x504240 & 0xFFFF)
+    /* 8AA20 80089E20 35CE001C */  ori        $t6, $t6, (0xE200001C & 0xFFFF)
+    /* 8AA24 80089E24 AC8E0000 */  sw         $t6, 0x0($a0)
+    /* 8AA28 80089E28 AC8D0004 */  sw         $t5, 0x4($a0)
+    /* 8AA2C 80089E2C 24870008 */  addiu      $a3, $a0, 0x8
+    /* 8AA30 80089E30 3C18E300 */  lui        $t8, (0xE3001801 >> 16)
+    /* 8AA34 80089E34 37181801 */  ori        $t8, $t8, (0xE3001801 & 0xFFFF)
+    /* 8AA38 80089E38 00E02825 */  or         $a1, $a3, $zero
+    /* 8AA3C 80089E3C ACB80000 */  sw         $t8, 0x0($a1)
 endlabel D_80089DAC

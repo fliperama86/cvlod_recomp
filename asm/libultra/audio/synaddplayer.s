@@ -11,59 +11,7 @@
 nonmatching .L8008C550, 0xC
 
 glabel .L8008C550
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 8D150 8008C550 10000005 */  b          D_8008C568
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 8D150 8008C550 10000005 */  b          D_8008C568
     nop
     nop
     /* 8D154 8008C554 240EFFFF */   addiu     $t6, $zero, -0x1
@@ -73,28 +21,36 @@ endlabel .L8008C550
 nonmatching D_8008C55C, 0xC
 
 glabel D_8008C55C
-    jr $ra
-    nop
+    /* 8D15C 8008C55C 00000000 */  nop
+    /* 8D160 8008C560 05C0FFFB */  bltz       $t6, .L8008C550
+    /* 8D164 8008C564 00000000 */   nop
 endlabel D_8008C55C
 
 nonmatching D_8008C568, 0x8
 
 glabel D_8008C568
-    jr $ra
-    nop
+    /* 8D168 8008C568 44CDF800 */  ctc1       $t5, $31
+    /* 8D16C 8008C56C A06E001B */  sb         $t6, 0x1B($v1)
 endlabel D_8008C568
     /* 8D170 8008C570 00000000 */  nop
 
 nonmatching D_8008C574, 0x8
 
 glabel D_8008C574
-    jr $ra
-    nop
+    /* 8D174 8008C574 03E00008 */  jr         $ra
+    /* 8D178 8008C578 00000000 */   nop
 endlabel D_8008C574
 
 nonmatching func_8008C57C, 0x24
 
 glabel func_8008C57C
-    jr $ra
-    nop
+    /* 8D17C 8008C57C 27BDFFC8 */  addiu      $sp, $sp, -0x38
+    /* 8D180 8008C580 AFBF001C */  sw         $ra, 0x1C($sp)
+    /* 8D184 8008C584 AFB00018 */  sw         $s0, 0x18($sp)
+    /* 8D188 8008C588 8C900070 */  lw         $s0, 0x70($a0)
+    /* 8D18C 8008C58C 00803825 */  or         $a3, $a0, $zero
+    /* 8D190 8008C590 92060000 */  lbu        $a2, 0x0($s0)
+    /* 8D194 8008C594 30C80001 */  andi       $t0, $a2, 0x1
+    /* 8D198 8008C598 01000821 */  addu       $at, $t0, $zero
+    /* 8D19C 8008C59C 000840C0 */  sll        $t0, $t0, 3
 endlabel func_8008C57C

@@ -11,19 +11,53 @@
 nonmatching func_8007FF20, 0x48
 
 glabel func_8007FF20
-    jr $ra
-    nop
+    /* 80B20 8007FF20 44808000 */  mtc1       $zero, $ft4
+    /* 80B24 8007FF24 24170001 */  addiu      $s7, $zero, 0x1
+    /* 80B28 8007FF28 46305401 */  sub.d      $ft4, $ft3, $ft4
+    /* 80B2C 8007FF2C 44D7F800 */  ctc1       $s7, $31
+    /* 80B30 8007FF30 00000000 */  nop
+    /* 80B34 8007FF34 46208424 */  cvt.w.d    $ft4, $ft4
+    /* 80B38 8007FF38 4457F800 */  cfc1       $s7, $31
+    /* 80B3C 8007FF3C 00000000 */  nop
+    /* 80B40 8007FF40 32F70078 */  andi       $s7, $s7, 0x78
+    /* 80B44 8007FF44 16E00005 */  bnez       $s7, .L8007FF5C
+    /* 80B48 8007FF48 00000000 */   nop
+    /* 80B4C 8007FF4C 44178000 */  mfc1       $s7, $ft4
+    /* 80B50 8007FF50 3C018000 */  lui        $at, (0x80000000 >> 16)
+    /* 80B54 8007FF54 10000007 */  b          .L8007FF74
+    /* 80B58 8007FF58 02E1B825 */   or        $s7, $s7, $at
   .L8007FF5C:
-    jr $ra
-    nop
+    /* 80B5C 8007FF5C 10000005 */  b          .L8007FF74
+    /* 80B60 8007FF60 2417FFFF */   addiu     $s7, $zero, -0x1
+    /* 80B64 8007FF64 44178000 */  mfc1       $s7, $ft4
 endlabel func_8007FF20
 
 nonmatching D_8007FF68, 0x58
 
 glabel D_8007FF68
-    jr $ra
-    nop
+    /* 80B68 8007FF68 00000000 */  nop
+    /* 80B6C 8007FF6C 06E0FFFB */  bltz       $s7, .L8007FF5C
+    /* 80B70 8007FF70 00000000 */   nop
   .L8007FF74:
-    jr $ra
+    /* 80B74 8007FF74 86D80006 */  lh         $t8, 0x6($s6)
+    /* 80B78 8007FF78 44CFF800 */  ctc1       $t7, $31
+    /* 80B7C 8007FF7C 241E0001 */  addiu      $fp, $zero, 0x1
+    /* 80B80 8007FF80 44989000 */  mtc1       $t8, $ft5
+    /* 80B84 8007FF84 3C0141E0 */  lui        $at, (0x41E00000 >> 16)
+    /* 80B88 8007FF88 468090A1 */  cvt.d.w    $fv1, $ft5
+    /* 80B8C 8007FF8C 46221100 */  add.d      $ft0, $fv1, $fv1
+    /* 80B90 8007FF90 4459F800 */  cfc1       $t9, $31
+    /* 80B94 8007FF94 44DEF800 */  ctc1       $fp, $31
+    /* 80B98 8007FF98 00000000 */  nop
+    /* 80B9C 8007FF9C 462021A4 */  cvt.w.d    $ft1, $ft0
+    /* 80BA0 8007FFA0 445EF800 */  cfc1       $fp, $31
+    /* 80BA4 8007FFA4 00000000 */  nop
+    /* 80BA8 8007FFA8 33DE0078 */  andi       $fp, $fp, 0x78
+# PATCHED: # PATCHED: /* 80BAC 8007FFAC 53C00014 */  beql       $fp, $zero, D_80080000
     nop
+    nop
+    /* 80BB0 8007FFB0 441E3000 */   mfc1      $fp, $ft1
+    /* 80BB4 8007FFB4 44813800 */  mtc1       $at, $ft1f
+    /* 80BB8 8007FFB8 44803000 */  mtc1       $zero, $ft1
+    /* 80BBC 8007FFBC 241E0001 */  addiu      $fp, $zero, 0x1
 endlabel D_8007FF68

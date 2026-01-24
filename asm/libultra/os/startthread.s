@@ -25,59 +25,7 @@ glabel .L8008F890
     /* 904B8 8008F8B8 24C682C0 */  addiu      $a2, $a2, %lo(D_801C82C0)
     /* 904BC 8008F8BC 00071600 */  sll        $v0, $a3, 24
     /* 904C0 8008F8C0 A0C32887 */  sb         $v1, 0x2887($a2)
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 904C4 8008F8C4 100000F3 */  b          D_8008FC94
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 904C4 8008F8C4 100000F3 */  b          D_8008FC94
     nop
     nop
     /* 904C8 8008F8C8 00021603 */   sra       $v0, $v0, 24
@@ -85,59 +33,7 @@ glabel .L8008F890
     /* 904CC 8008F8CC 24C682C0 */  addiu      $a2, $a2, %lo(D_801C82C0)
     /* 904D0 8008F8D0 00071600 */  sll        $v0, $a3, 24
     /* 904D4 8008F8D4 A0C32888 */  sb         $v1, 0x2888($a2)
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 904D8 8008F8D8 100000EE */  b          D_8008FC94
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 904D8 8008F8D8 100000EE */  b          D_8008FC94
     nop
     nop
     /* 904DC 8008F8DC 00021603 */   sra       $v0, $v0, 24
@@ -145,59 +41,7 @@ glabel .L8008F890
     /* 904E0 8008F8E0 24C682C0 */  addiu      $a2, $a2, %lo(D_801C82C0)
     /* 904E4 8008F8E4 00071600 */  sll        $v0, $a3, 24
     /* 904E8 8008F8E8 A0C32889 */  sb         $v1, 0x2889($a2)
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 904EC 8008F8EC 100000E9 */  b          D_8008FC94
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 904EC 8008F8EC 100000E9 */  b          D_8008FC94
     nop
     nop
     /* 904F0 8008F8F0 00021603 */   sra       $v0, $v0, 24
@@ -242,59 +86,7 @@ glabel .L8008F890
     /* 90570 8008F970 00071600 */  sll        $v0, $a3, 24
     /* 90574 8008F974 00021603 */  sra        $v0, $v0, 24
     /* 90578 8008F978 352A0008 */  ori        $t2, $t1, 0x8
-# PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: # PATCHED: /* 9057C 8008F97C 100000C5 */  b          D_8008FC94
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
-    nop
+# PATCHED: # PATCHED: /* 9057C 8008F97C 100000C5 */  b          D_8008FC94
     nop
     nop
     /* 90580 8008F980 A06A0000 */   sb        $t2, 0x0($v1)
@@ -303,6 +95,35 @@ endlabel .L8008F890
 nonmatching D_8008F984, 0x5C
 
 glabel D_8008F984
-    jr $ra
+    /* 90584 8008F984 28810007 */  slti       $at, $a0, 0x7
+# PATCHED: # PATCHED: /* 90588 8008F988 14200025 */  bnez       $at, D_8008FA20
     nop
+    nop
+    /* 9058C 8008F98C 2881000D */   slti      $at, $a0, 0xD
+# PATCHED: # PATCHED: /* 90590 8008F990 10200023 */  beqz       $at, D_8008FA20
+    nop
+    nop
+    /* 90594 8008F994 2401000C */   addiu     $at, $zero, 0xC
+# PATCHED: # PATCHED: /* 90598 8008F998 1481001E */  bne        $a0, $at, D_8008FA14
+    nop
+    nop
+    /* 9059C 8008F99C 3C06801D */   lui       $a2, %hi(D_801C82C0)
+    /* 905A0 8008F9A0 24C682C0 */  addiu      $a2, $a2, %lo(D_801C82C0)
+    /* 905A4 8008F9A4 84C32B62 */  lh         $v1, 0x2B62($a2)
+    /* 905A8 8008F9A8 3C198007 */  lui        $t9, %hi(func_8006E0F0)
+    /* 905AC 8008F9AC 2739E0F0 */  addiu      $t9, $t9, %lo(func_8006E0F0)
+    /* 905B0 8008F9B0 28610002 */  slti       $at, $v1, 0x2
+# PATCHED: # PATCHED: /* 905B4 8008F9B4 10200012 */  beqz       $at, D_8008FA00
+    nop
+    nop
+    /* 905B8 8008F9B8 24650001 */   addiu     $a1, $v1, 0x1
+    /* 905BC 8008F9BC 8CC42960 */  lw         $a0, 0x2960($a2)
+    /* 905C0 8008F9C0 30A500FF */  andi       $a1, $a1, 0xFF
+    /* 905C4 8008F9C4 0320F809 */  jalr       $t9
+    /* 905C8 8008F9C8 AFA70044 */   sw        $a3, 0x44($sp)
+    /* 905CC 8008F9CC 3C038001 */  lui        $v1, %hi(func_800166F8)
+    /* 905D0 8008F9D0 246366F8 */  addiu      $v1, $v1, %lo(func_800166F8)
+    /* 905D4 8008F9D4 AFA3001C */  sw         $v1, 0x1C($sp)
+    /* 905D8 8008F9D8 0060F809 */  jalr       $v1
+    /* 905DC 8008F9DC 240401C3 */   addiu     $a0, $zero, 0x1C3
 endlabel D_8008F984

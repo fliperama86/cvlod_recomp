@@ -11,8 +11,20 @@
 nonmatching func_8008F470, 0x38
 
 glabel func_8008F470
-    jr $ra
-    nop
+    /* 90070 8008F470 30C6FFFF */  andi       $a2, $a2, 0xFFFF
+    /* 90074 8008F474 46262200 */  add.d      $ft2, $ft0, $ft1
+    /* 90078 8008F478 0006C040 */  sll        $t8, $a2, 1
+    /* 9007C 8008F47C 3C09800B */  lui        $t1, %hi(D_800B7B04)
+    /* 90080 8008F480 01384821 */  addu       $t1, $t1, $t8
+    /* 90084 8008F484 462054A0 */  cvt.s.d    $ft5, $ft3
+    /* 90088 8008F488 85297B04 */  lh         $t1, %lo(D_800B7B04)($t1)
+    /* 9008C 8008F48C E4AC0068 */  swc1       $fa0, 0x68($a1)
+    /* 90090 8008F490 462042A0 */  cvt.s.d    $ft3, $ft2
+    /* 90094 8008F494 E4B20050 */  swc1       $ft5, 0x50($a1)
+    /* 90098 8008F498 E4AE006C */  swc1       $fa1, 0x6C($a1)
+    /* 9009C 8008F49C A4A90060 */  sh         $t1, 0x60($a1)
+    /* 900A0 8008F4A0 03E00008 */  jr         $ra
+    /* 900A4 8008F4A4 E4AA0054 */   swc1      $ft3, 0x54($a1)
 endlabel func_8008F470
     /* 900A8 8008F4A8 00000000 */  nop
     /* 900AC 8008F4AC 00000000 */  nop
@@ -20,6 +32,12 @@ endlabel func_8008F470
 nonmatching func_8008F4B0, 0x20
 
 glabel func_8008F4B0
-    jr $ra
-    nop
+    /* 900B0 8008F4B0 27BDFFE8 */  addiu      $sp, $sp, -0x18
+    /* 900B4 8008F4B4 3C198000 */  lui        $t9, %hi(func_8000233C)
+    /* 900B8 8008F4B8 AFBF0014 */  sw         $ra, 0x14($sp)
+    /* 900BC 8008F4BC AFA5001C */  sw         $a1, 0x1C($sp)
+    /* 900C0 8008F4C0 2739233C */  addiu      $t9, $t9, %lo(func_8000233C)
+    /* 900C4 8008F4C4 AFA60020 */  sw         $a2, 0x20($sp)
+    /* 900C8 8008F4C8 AFA70024 */  sw         $a3, 0x24($sp)
+    /* 900CC 8008F4CC 0320F809 */  jalr       $t9
 endlabel func_8008F4B0

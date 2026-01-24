@@ -11,6 +11,8 @@
 nonmatching func_80088C40, 0x10
 
 glabel func_80088C40
-    jr $ra
-    nop
+    /* 89840 80088C40 46004400 */  add.s      $ft4, $ft2, $fv0
+    /* 89844 80088C44 44804000 */  mtc1       $zero, $ft2
+    /* 89848 80088C48 E4900054 */  swc1       $ft4, 0x54($a0)
+    /* 8984C 80088C4C 8CA2000C */  lw         $v0, 0xC($a1)
 endlabel func_80088C40

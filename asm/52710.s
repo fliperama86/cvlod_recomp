@@ -11,8 +11,10 @@
 nonmatching func_80051B10, 0x8
 
 glabel func_80051B10
-    jr $ra
+# PATCHED: # PATCHED: /* 52710 80051B10 100000AB */  b          D_80051DC0
     nop
+    nop
+    /* 52714 80051B14 00402025 */   or        $a0, $v0, $zero
 endlabel func_80051B10
 
 nonmatching D_80051B18, 0x1F8

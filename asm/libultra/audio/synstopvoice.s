@@ -11,32 +11,62 @@
 nonmatching func_8008FAE0, 0x8
 
 glabel func_8008FAE0
-    jr $ra
-    nop
+    /* 906E0 8008FAE0 00001025 */  or         $v0, $zero, $zero
+    /* 906E4 8008FAE4 80C82896 */  lb         $t0, 0x2896($a2)
 endlabel func_8008FAE0
 
 nonmatching D_8008FAE8, 0x20
 
 glabel D_8008FAE8
-    jr $ra
+    /* 906E8 8008FAE8 00071600 */  sll        $v0, $a3, 24
+    /* 906EC 8008FAEC 24030001 */  addiu      $v1, $zero, 0x1
+    /* 906F0 8008FAF0 11000003 */  beqz       $t0, .L8008FB00
+    /* 906F4 8008FAF4 00021603 */   sra       $v0, $v0, 24
+# PATCHED: # PATCHED: /* 906F8 8008FAF8 10000066 */  b          D_8008FC94
     nop
+    nop
+    /* 906FC 8008FAFC 2402FFFF */   addiu     $v0, $zero, -0x1
   .L8008FB00:
-    jr $ra
+# PATCHED: # PATCHED: /* 90700 8008FB00 10000064 */  b          D_8008FC94
     nop
+    nop
+    /* 90704 8008FB04 A0C32896 */   sb        $v1, 0x2896($a2)
 endlabel D_8008FAE8
 
 nonmatching D_8008FB08, 0x58
 
 glabel D_8008FB08
-    jr $ra
+    /* 90708 8008FB08 24010012 */  addiu      $at, $zero, 0x12
+    /* 9070C 8008FB0C 14810010 */  bne        $a0, $at, .L8008FB50
+    /* 90710 8008FB10 3C06801D */   lui       $a2, %hi(D_801C82C0)
+    /* 90714 8008FB14 24C682C0 */  addiu      $a2, $a2, %lo(D_801C82C0)
+    /* 90718 8008FB18 80C92896 */  lb         $t1, 0x2896($a2)
+    /* 9071C 8008FB1C 51200004 */  beql       $t1, $zero, .L8008FB30
+    /* 90720 8008FB20 80CA2895 */   lb        $t2, 0x2895($a2)
+# PATCHED: # PATCHED: /* 90724 8008FB24 1000005B */  b          D_8008FC94
     nop
+    nop
+    /* 90728 8008FB28 00001025 */   or        $v0, $zero, $zero
+    /* 9072C 8008FB2C 80CA2895 */  lb         $t2, 0x2895($a2)
   .L8008FB30:
-    jr $ra
+    /* 90730 8008FB30 00071600 */  sll        $v0, $a3, 24
+    /* 90734 8008FB34 24030001 */  addiu      $v1, $zero, 0x1
+    /* 90738 8008FB38 11400003 */  beqz       $t2, .L8008FB48
+    /* 9073C 8008FB3C 00021603 */   sra       $v0, $v0, 24
+# PATCHED: # PATCHED: /* 90740 8008FB40 10000054 */  b          D_8008FC94
     nop
+    nop
+    /* 90744 8008FB44 2402FFFF */   addiu     $v0, $zero, -0x1
   .L8008FB48:
-    jr $ra
+# PATCHED: # PATCHED: /* 90748 8008FB48 10000052 */  b          D_8008FC94
     nop
+    nop
+    /* 9074C 8008FB4C A0C32895 */   sb        $v1, 0x2895($a2)
   .L8008FB50:
-    jr $ra
+    /* 90750 8008FB50 24010014 */  addiu      $at, $zero, 0x14
+    /* 90754 8008FB54 10810003 */  beq        $a0, $at, .L8008FB64
+    /* 90758 8008FB58 24010015 */   addiu     $at, $zero, 0x15
+# PATCHED: # PATCHED: /* 9075C 8008FB5C 14810002 */  bne        $a0, $at, D_8008FB68
+    nop
     nop
 endlabel D_8008FB08

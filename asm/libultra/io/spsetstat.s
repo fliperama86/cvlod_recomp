@@ -11,6 +11,8 @@
 nonmatching func_8008F100, 0x10
 
 glabel func_8008F100
-    jr $ra
-    nop
+    /* 8FD00 8008F100 44814800 */  mtc1       $at, $ft2f
+    /* 8FD04 8008F104 44804000 */  mtc1       $zero, $ft2
+    /* 8FD08 8008F108 3C19800A */  lui        $t9, %hi(func_800A3A50)
+    /* 8FD0C 8008F10C 27393A50 */  addiu      $t9, $t9, %lo(func_800A3A50)
 endlabel func_8008F100

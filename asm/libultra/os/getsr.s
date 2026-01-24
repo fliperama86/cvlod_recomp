@@ -18,6 +18,6 @@ endlabel .L800824A0
 nonmatching D_800824A8, 0x8
 
 glabel D_800824A8
-    jr $ra
-    nop
+    /* 830A8 800824A8 94AD0000 */  lhu        $t5, 0x0($a1)
+    /* 830AC 800824AC 00001025 */  or         $v0, $zero, $zero
 endlabel D_800824A8

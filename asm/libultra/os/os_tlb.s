@@ -11,37 +11,67 @@
 nonmatching func_800802B0, 0xC
 
 glabel func_800802B0
-    jr $ra
-    nop
+    /* 80EB0 800802B0 0043C823 */  subu       $t9, $v0, $v1
+    /* 80EB4 800802B4 AFB9010C */  sw         $t9, 0x10C($sp)
+    /* 80EB8 800802B8 00405825 */  or         $t3, $v0, $zero
 endlabel func_800802B0
 
 nonmatching D_800802BC, 0xB4
 
 glabel D_800802BC
-    jr $ra
-    nop
+    /* 80EBC 800802BC 0085082A */  slt        $at, $a0, $a1
+    /* 80EC0 800802C0 14200002 */  bnez       $at, .L800802CC
+    /* 80EC4 800802C4 3C03801D */   lui       $v1, %hi(D_801C8316)
+    /* 80EC8 800802C8 00804025 */  or         $t0, $a0, $zero
   .L800802CC:
-    jr $ra
-    nop
+    /* 80ECC 800802CC 0047082A */  slt        $at, $v0, $a3
+    /* 80ED0 800802D0 14200002 */  bnez       $at, .L800802DC
+    /* 80ED4 800802D4 8FAF0110 */   lw        $t7, 0x110($sp)
+    /* 80ED8 800802D8 00404825 */  or         $t1, $v0, $zero
   .L800802DC:
-    jr $ra
-    nop
+    /* 80EDC 800802DC 3C02801D */  lui        $v0, %hi(D_801C8314)
+    /* 80EE0 800802E0 84428314 */  lh         $v0, %lo(D_801C8314)($v0)
+    /* 80EE4 800802E4 0142082A */  slt        $at, $t2, $v0
+    /* 80EE8 800802E8 14200002 */  bnez       $at, .L800802F4
+    /* 80EEC 800802EC 00000000 */   nop
+    /* 80EF0 800802F0 00405025 */  or         $t2, $v0, $zero
   .L800802F4:
-    jr $ra
-    nop
+    /* 80EF4 800802F4 84638316 */  lh         $v1, %lo(D_801C8316)($v1)
+    /* 80EF8 800802F8 0163082A */  slt        $at, $t3, $v1
+    /* 80EFC 800802FC 54200003 */  bnel       $at, $zero, .L8008030C
+    /* 80F00 80080300 0102082A */   slt       $at, $t0, $v0
+    /* 80F04 80080304 00605825 */  or         $t3, $v1, $zero
+    /* 80F08 80080308 0102082A */  slt        $at, $t0, $v0
   .L8008030C:
-    jr $ra
-    nop
+    /* 80F0C 8008030C 54200003 */  bnel       $at, $zero, .L8008031C
+    /* 80F10 80080310 0123082A */   slt       $at, $t1, $v1
+    /* 80F14 80080314 00404025 */  or         $t0, $v0, $zero
+    /* 80F18 80080318 0123082A */  slt        $at, $t1, $v1
   .L8008031C:
-    jr $ra
-    nop
+    /* 80F1C 8008031C 54200003 */  bnel       $at, $zero, .L8008032C
+    /* 80F20 80080320 95A60006 */   lhu       $a2, 0x6($t5)
+    /* 80F24 80080324 00604825 */  or         $t1, $v1, $zero
+    /* 80F28 80080328 95A60006 */  lhu        $a2, 0x6($t5)
   .L8008032C:
-    jr $ra
-    nop
+    /* 80F2C 8008032C 01FF9021 */  addu       $s2, $t7, $ra
+    /* 80F30 80080330 0246082A */  slt        $at, $s2, $a2
+    /* 80F34 80080334 54200004 */  bnel       $at, $zero, .L80080348
+    /* 80F38 80080338 8FAE010C */   lw        $t6, 0x10C($sp)
+    /* 80F3C 8008033C 00C09025 */  or         $s2, $a2, $zero
+    /* 80F40 80080340 AFA00100 */  sw         $zero, 0x100($sp)
+    /* 80F44 80080344 8FAE010C */  lw         $t6, 0x10C($sp)
   .L80080348:
-    jr $ra
-    nop
+    /* 80F48 80080348 8FA30100 */  lw         $v1, 0x100($sp)
+    /* 80F4C 8008034C 01CCF821 */  addu       $ra, $t6, $t4
+    /* 80F50 80080350 2BE10010 */  slti       $at, $ra, 0x10
+    /* 80F54 80080354 14200003 */  bnez       $at, .L80080364
+    /* 80F58 80080358 00000000 */   nop
+    /* 80F5C 8008035C 00001825 */  or         $v1, $zero, $zero
+    /* 80F60 80080360 241F0010 */  addiu      $ra, $zero, 0x10
   .L80080364:
-    jr $ra
+# PATCHED: # PATCHED: /* 80F64 80080364 506000AE */  beql       $v1, $zero, D_80080620
     nop
+    nop
+    /* 80F68 80080368 8FB901E4 */   lw        $t9, 0x1E4($sp)
+    /* 80F6C 8008036C 871882E4 */  lh         $t8, -0x7D1C($t8)
 endlabel D_800802BC

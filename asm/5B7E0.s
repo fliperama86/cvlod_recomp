@@ -11,42 +11,63 @@
 nonmatching func_8005ABE0, 0x10
 
 glabel func_8005ABE0
-    jr $ra
-    nop
+    /* 5B7E0 8005ABE0 8C42002C */  lw         $v0, 0x2C($v0)
+    /* 5B7E4 8005ABE4 5440FFFE */  bnel       $v0, $zero, func_8005ABE0
+    /* 5B7E8 8005ABE8 00401825 */   or        $v1, $v0, $zero
+    /* 5B7EC 8005ABEC AC65002C */  sw         $a1, 0x2C($v1)
 endlabel func_8005ABE0
 
 nonmatching D_8005ABF0, 0x1C
 
 glabel D_8005ABF0
-    jr $ra
-    nop
+    /* 5B7F0 8005ABF0 8CAE0000 */  lw         $t6, 0x0($a1)
+    /* 5B7F4 8005ABF4 3C010010 */  lui        $at, (0x100000 >> 16)
+    /* 5B7F8 8005ABF8 ACA30030 */  sw         $v1, 0x30($a1)
+    /* 5B7FC 8005ABFC 01C17825 */  or         $t7, $t6, $at
+    /* 5B800 8005AC00 10000015 */  b          .L8005AC58
+    /* 5B804 8005AC04 ACAF0000 */   sw        $t7, 0x0($a1)
+    /* 5B808 8005AC08 8CD80000 */  lw         $t8, 0x0($a2)
 endlabel D_8005ABF0
 
 nonmatching D_8005AC0C, 0x2C
 
 glabel D_8005AC0C
-    jr $ra
-    nop
+    /* 5B80C 8005AC0C 3C010040 */  lui        $at, (0x400000 >> 16)
+    /* 5B810 8005AC10 ACC50028 */  sw         $a1, 0x28($a2)
+    /* 5B814 8005AC14 0301C825 */  or         $t9, $t8, $at
+    /* 5B818 8005AC18 ACD90000 */  sw         $t9, 0x0($a2)
+    /* 5B81C 8005AC1C 8CA80000 */  lw         $t0, 0x0($a1)
+    /* 5B820 8005AC20 3C010020 */  lui        $at, (0x200000 >> 16)
+    /* 5B824 8005AC24 ACA60030 */  sw         $a2, 0x30($a1)
+    /* 5B828 8005AC28 01014825 */  or         $t1, $t0, $at
+    /* 5B82C 8005AC2C 1000000A */  b          .L8005AC58
+    /* 5B830 8005AC30 ACA90000 */   sw        $t1, 0x0($a1)
+    /* 5B834 8005AC34 8C6A000C */  lw         $t2, 0xC($v1)
 endlabel D_8005AC0C
 
 nonmatching D_8005AC38, 0x24
 
 glabel D_8005AC38
-    jr $ra
-    nop
+    /* 5B838 8005AC38 15400002 */  bnez       $t2, .L8005AC44
+    /* 5B83C 8005AC3C 00000000 */   nop
+    /* 5B840 8005AC40 AC65000C */  sw         $a1, 0xC($v1)
   .L8005AC44:
-    jr $ra
-    nop
+    /* 5B844 8005AC44 50E00004 */  beql       $a3, $zero, .L8005AC58
+    /* 5B848 8005AC48 AC650010 */   sw        $a1, 0x10($v1)
+    /* 5B84C 8005AC4C ACE5002C */  sw         $a1, 0x2C($a3)
+    /* 5B850 8005AC50 ACA70030 */  sw         $a3, 0x30($a1)
+    /* 5B854 8005AC54 AC650010 */  sw         $a1, 0x10($v1)
   .L8005AC58:
-    jr $ra
-    nop
+    /* 5B858 8005AC58 00A01025 */  or         $v0, $a1, $zero
 endlabel D_8005AC38
 
 nonmatching D_8005AC5C, 0x10
 
 glabel D_8005AC5C
-    jr $ra
-    nop
+    /* 5B85C 8005AC5C 8FBF0014 */  lw         $ra, 0x14($sp)
+    /* 5B860 8005AC60 27BD0020 */  addiu      $sp, $sp, 0x20
+    /* 5B864 8005AC64 03E00008 */  jr         $ra
+    /* 5B868 8005AC68 00000000 */   nop
 endlabel D_8005AC5C
 
 nonmatching func_8005AC6C, 0x254
