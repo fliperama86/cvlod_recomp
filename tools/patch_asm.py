@@ -3,7 +3,7 @@ import re
 
 def main():
     asm_dir = "asm"
-    stubs_file = "stubs.txt"
+    stubs_file = "symbols/stubs.txt"
     
     # Load functions to stub
     funcs_to_stub = set()

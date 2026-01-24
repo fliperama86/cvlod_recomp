@@ -1,7 +1,7 @@
 import re
 
 def main():
-    file_path = "castlevania2.yaml"
+    file_path = "config/castlevania2.yaml"
     with open(file_path, "r") as f:
         lines = f.readlines()
 

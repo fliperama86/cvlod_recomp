@@ -37,7 +37,7 @@ def main():
 
     # Patch ASM files (Hack to fix relocation truncation)
     print("Patching ASM...")
-    run_command("python3 patch_asm.py")
+    run_command("python3 tools/patch_asm.py")
 
     # Collect tasks
     asm_dir = "asm"
@@ -63,13 +63,13 @@ def main():
         pool.map(assemble_file, tasks)
 
     # Convert binary assets (ipl3)
-    if os.path.exists("assets/ipl3.bin"):
-        print("Converting assets/ipl3.bin...")
-        run_command("mips-linux-gnu-objcopy -I binary -O elf32-tradbigmips -B mips assets/ipl3.bin build/assets/ipl3.o --rename-section .data=.data")
+    if os.path.exists("assets/bin/ipl3.bin"):
+        print("Converting assets/bin/ipl3.bin...")
+        run_command("mips-linux-gnu-objcopy -I binary -O elf32-tradbigmips -B mips assets/bin/ipl3.bin build/assets/ipl3.o --rename-section .data=.data")
 
     # Link
     print("Linking...")
-    run_command("mips-linux-gnu-ld -m elf32btsmip -T castlevania2.ld -T undefined_syms_auto.txt -T undefined_funcs_auto.txt -Map build/castlevania2.map -o build/castlevania2.elf")
+    run_command("mips-linux-gnu-ld -m elf32btsmip -T config/castlevania2.ld -T symbols/undefined_syms_auto.txt -T symbols/undefined_funcs_auto.txt -Map build/castlevania2.map -o build/castlevania2.elf")
 
     print("Done! ELF created at build/castlevania2.elf")
 

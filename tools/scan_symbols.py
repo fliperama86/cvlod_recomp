@@ -3,7 +3,7 @@ import re
 
 def main():
     asm_dir = "asm"
-    symbol_file = "symbol_addrs.txt"
+    symbol_file = "symbols/symbol_addrs.txt"
     
     defined_labels = set()
     used_labels = set()

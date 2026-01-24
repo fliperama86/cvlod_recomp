@@ -4,7 +4,7 @@ import sys
 
 def main():
     asm_dir = "asm"
-    stubs_file = "stubs.txt"
+    stubs_file = "symbols/stubs.txt"
     
     # Only keep the absolute "hard" blockers
     banned_patterns = [

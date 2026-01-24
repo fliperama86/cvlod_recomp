@@ -29,7 +29,7 @@ def fix_symbols(log_output):
     matches = re.findall(r"undefined reference to `((.L|D_)([0-9A-Fa-f]+))'", log_output)
     
     added_count = 0
-    with open("symbol_addrs.txt", "a") as f:
+    with open("symbols/symbol_addrs.txt", "a") as f:
         for match in matches:
             full_name = match[0]
             prefix = match[1]
@@ -82,18 +82,18 @@ def fix_recomp_errors(log_output):
     # 3. Handle unhandled operations by scanning the whole codebase
     if unhandled_ops:
         print(f"Found new unhandled instructions: {unhandled_ops}. Scanning codebase...")
-        cmd = "python3 scan_stubs.py " + " ".join(unhandled_ops)
+        cmd = "python3 tools/scan_stubs.py " + " ".join(unhandled_ops)
         run_command(cmd)
 
     # 4. Add specific failing functions to stubs.txt
     current_stubs = set()
-    if os.path.exists("stubs.txt"):
-        with open("stubs.txt", "r") as f:
+    if os.path.exists("symbols/stubs.txt"):
+        with open("symbols/stubs.txt", "r") as f:
             for line in f:
                 current_stubs.add(line.strip())
     
     added = 0
-    with open("stubs.txt", "a") as f:
+    with open("symbols/stubs.txt", "a") as f:
         for func in funcs_to_stub:
             if func not in current_stubs:
                 print(f"Auto-stubbing failing function: {func}")
@@ -108,26 +108,26 @@ def main():
     # 1. Splat (Configuration)
     if not os.path.exists("asm"):
         print("--- Running Splat ---")
-        run_command("python3 -m splat split castlevania2.yaml")
+        run_command("python3 -m splat split config/castlevania2.yaml")
     else:
         print("--- Skipping Splat (asm/ exists) ---")
     
     # 1.4 Scan for Symbols (Pre-emptive)
     print("--- Scanning for Missing Symbols ---")
-    run_command("python3 scan_symbols.py")
+    run_command("python3 tools/scan_symbols.py")
     
     # 1.5 Scan for Stubs (Pre-emptive)
     print("--- Scanning for Unsupported Instructions ---")
-    run_command("python3 scan_stubs.py")
+    run_command("python3 tools/scan_stubs.py")
     
     # 2. Patch ASM
     print("--- Patching ASM ---")
-    run_command("python3 patch_asm.py")
+    run_command("python3 tools/patch_asm.py")
     
     # 3. Compile & Link
     print("--- Building ELF ---")
     try:
-        cmd = 'docker run --rm -v $(pwd):/work -w /work debian:bullseye-slim bash -c "apt-get update > /dev/null && apt-get install -y python3 binutils-mips-linux-gnu > /dev/null && python3 build.py"'
+        cmd = 'docker run --rm -v $(pwd):/work -w /work debian:bullseye-slim bash -c "apt-get update > /dev/null && apt-get install -y python3 binutils-mips-linux-gnu > /dev/null && python3 tools/build.py"'
         output = run_command(cmd, capture=True)
         print("Build successful (Phase 1).")
         
@@ -145,7 +145,7 @@ def main():
     # 4. N64Recomp
     print("--- Running N64Recomp ---")
     try:
-        cmd = "N64Recomp/build/N64Recomp recomp.toml"
+        cmd = "lib/N64Recomp/build/N64Recomp recomp.toml"
         output = run_command(cmd, capture=True)
         
         # Check for silent failures that exit with code 0

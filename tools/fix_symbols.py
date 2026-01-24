@@ -3,7 +3,7 @@ import os
 
 def main():
     log_file = "build_errors.log"
-    symbol_file = "symbol_addrs.txt"
+    symbol_file = "symbols/symbol_addrs.txt"
     
     if not os.path.exists(log_file):
         print(f"Log file {log_file} not found.")
