@@ -6,6 +6,7 @@
  */
 
 #include <cstdint>
+#include <cstdio>
 #include <unordered_map>
 #include "recomp.h"
 #include "funcs.h"
@@ -14,6 +15,7 @@
 static std::unordered_map<int32_t, recomp_func_t*> g_function_table;
 
 // Forward declarations for all recompiled functions
+extern "C" void game_main(uint8_t* rdram, recomp_context* ctx);  // main() at 0x80018678
 extern "C" void func_80000460(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8000053C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80000578(uint8_t* rdram, recomp_context* ctx);
@@ -4074,6 +4076,7 @@ void init_function_table() {
     g_function_table[0x800183A0] = static_5_800183A0;
     g_function_table[0x800183C0] = func_800183C0;
     g_function_table[0x800184E0] = func_800184E0;
+    g_function_table[0x80018678] = game_main;  // The main() function
     g_function_table[0x80018740] = func_80018740;
     g_function_table[0x8001875C] = func_8001875C;
     g_function_table[0x80018764] = func_80018764;
@@ -6853,9 +6856,15 @@ void init_function_table() {
     g_function_table[0x8018F634] = static_7_8018F634;
 }
 
+// Debug flag for tracing function lookups
+static bool g_trace_lookups = true;
+
 recomp_func_t* cvlod_get_function(int32_t vram) {
     auto it = g_function_table.find(vram);
     if (it != g_function_table.end()) {
+        if (g_trace_lookups) {
+            printf("[LOOKUP] 0x%08X -> found\n", (uint32_t)vram);
+        }
         return it->second;
     }
 
@@ -6863,5 +6872,6 @@ recomp_func_t* cvlod_get_function(int32_t vram) {
     // 1. A stubbed function
     // 2. A function we missed during recompilation
     // 3. An invalid address
+    printf("[LOOKUP] 0x%08X -> NOT FOUND!\n", (uint32_t)vram);
     return nullptr;
 }

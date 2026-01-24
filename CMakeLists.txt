@@ -48,33 +48,24 @@ target_compile_options(cvlod_recompiled PRIVATE
 )
 
 # =============================================================================
-# Game Runtime
+# Game Runtime (Standalone - no N64ModernRuntime dependency for now)
 # =============================================================================
 
 add_executable(cvlod_recomp
     src/main.cpp
-    src/game.cpp
     src/funcs.cpp
+    src/hardware.cpp
 )
 
 target_include_directories(cvlod_recomp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/recompiled/functions"
-    "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/librecomp/include"
-    "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include"
 )
 
 target_link_libraries(cvlod_recomp PRIVATE
     cvlod_recompiled
-    librecomp
-    ultramodern
 )
-
-if(BUILD_WITH_RT64)
-    target_link_libraries(cvlod_recomp PRIVATE rt64)
-    target_compile_definitions(cvlod_recomp PRIVATE USE_RT64=1)
-endif()
 
 # Platform-specific settings
 if(WIN32)

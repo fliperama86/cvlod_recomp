@@ -10,6 +10,10 @@ A project to statically recompile **Castlevania: Legacy of Darkness (N64)** into
 | Static Recompilation | ✅ 3,439 functions converted to C |
 | Runtime Skeleton | ✅ Compiles and runs |
 | Infrastructure Tests | ✅ All passing |
+| ROM Loading | ✅ 16MB loaded, format detected |
+| Boot Sequence | ✅ BSS clear, stack setup |
+| Entry Point | ✅ game_main() executes and returns |
+| Thread System | ⏳ Pending (game creates threads) |
 | Graphics (RT64) | ⏳ Pending |
 | Audio | ⏳ Pending |
 | Input | ⏳ Pending |
@@ -29,10 +33,13 @@ mkdir cmake-build && cd cmake-build
 cmake -DBUILD_WITH_RT64=OFF ..
 cmake --build . --parallel 8
 
-# Run
-./cvlod_recomp
+# Run (test mode - no ROM needed)
+./cvlod_recomp --test
 
-# Test
+# Run with ROM (will attempt execution)
+./cvlod_recomp path/to/game.z64
+
+# Test infrastructure
 ./cvlod_test
 ```
 
@@ -93,14 +100,17 @@ cvlod_recomp/
 - ✅ Register context (32 GPR, 32 FPR)
 - ✅ 64-bit arithmetic (DMULT, DDIV)
 - ✅ Function lookup for indirect calls
+- ✅ ROM loading (z64/v64/n64 formats)
+- ✅ Boot sequence (BSS clear, stack setup)
+- ✅ game_main() executes and returns normally
 
 ## What's Next
 
-1. **ROM Loading** - Load game data into memory
-2. **RT64 Graphics** - Enable `-DBUILD_WITH_RT64=ON`
-3. **Audio System** - Implement RSP callbacks
-4. **Input Handling** - Controller support via SDL2
-5. **Game Loop** - Frame timing and execution
+1. **Thread System** - Implement osCreateThread/osStartThread stubs
+2. **Hardware Emulation** - RSP/RDP/VI/AI/PI register stubs
+3. **RT64 Graphics** - Enable `-DBUILD_WITH_RT64=ON`
+4. **Audio System** - Implement RSP callbacks
+5. **Input Handling** - Controller support via SDL2
 
 ## Documentation
 

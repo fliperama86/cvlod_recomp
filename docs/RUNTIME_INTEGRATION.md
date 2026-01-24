@@ -2,9 +2,9 @@
 
 ## Current Status
 
-**Phase: Runtime Skeleton Complete**
+**Phase: ROM Loading & Entry Point Execution**
 
-The recompiled game code now compiles and links with N64ModernRuntime. Infrastructure tests pass. Full runtime integration (graphics, audio, input) is pending.
+The runtime can load the ROM, initialize RDRAM, and attempt to execute the game entry point. It crashes (as expected) when the code tries to access N64 hardware registers that aren't emulated yet.
 
 ### Progress Summary
 
@@ -16,11 +16,14 @@ The recompiled game code now compiles and links with N64ModernRuntime. Infrastru
 | Function Lookup | ✅ Working | 3,416 entries for indirect calls |
 | Memory Model | ✅ Working | 8MB RDRAM with sign-extended addresses |
 | Infrastructure Tests | ✅ Passing | Memory, registers, arithmetic verified |
-| ROM Loading | ❌ Not implemented | Need to load game data |
+| ROM Loading | ✅ Working | 16MB ROM loaded, format auto-detected |
+| Boot Sequence | ✅ Working | BSS clear, stack setup, game_main executes |
+| Entry Point | ✅ Working | game_main() runs and returns normally |
+| Thread/Scheduler | ❌ Not implemented | Game creates threads but they don't run |
 | Graphics Rendering | ❌ Not implemented | Need RT64 integration |
 | Audio | ❌ Not implemented | Need RSP audio callbacks |
 | Input | ❌ Not implemented | Need controller handling |
-| Game Loop | ❌ Not implemented | Need frame timing and execution |
+| Hardware Emulation | ❌ Not implemented | RSP/RDP/VI/AI/PI registers needed |
 
 ---
 
@@ -140,12 +143,16 @@ recomp_func_t* cvlod_get_function(int32_t vram) {
 
 ## Next Implementation Steps
 
-### 1. ROM Loading
+### 1. ROM Loading (Complete)
+
+ROM loading is implemented in `src/main.cpp`:
+- Loads z64/v64/n64 ROM formats
+- Auto-detects byte order via header magic
+- Copies boot code to RDRAM at startup
 
 ```cpp
-// Load ROM into simulated PI DMA space
-std::vector<uint8_t> rom = load_file("game.z64");
-// Copy to RDRAM on demand via PI DMA simulation
+./cvlod_recomp resources/castlevania_legacy_of_darkness.z64
+// Output: ROM loaded: 16777216 bytes (16.0 MB), format: z64
 ```
 
 ### 2. RT64 Integration
@@ -216,6 +223,23 @@ Results: 6 passed, 0 failed
 ---
 
 ## Progress Log
+
+### 2025-01-24 (continued - session 2)
+- Fixed entry point calling - now calling actual `game_main` instead of func_80000460
+- Implemented proper boot sequence:
+  - ROM copy to RDRAM at 0x80000400
+  - BSS clear (0x800C1520, 524KB)
+  - Stack setup at 0x800C3680
+  - TV type and memory size parameters
+- game_main executes successfully and returns!
+- Game initializes OS/threads but returns (expected - no thread scheduler yet)
+- Added hardware register stub framework (RSP, RDP, VI, PI, MI)
+
+### 2025-01-24 (continued)
+- Implemented ROM loading with format auto-detection
+- Added game entry point execution (crashes on HW access as expected)
+- Signal handlers catch crashes gracefully
+- All 6 infrastructure tests still passing
 
 ### 2025-01-24
 - Created runtime skeleton with N64ModernRuntime integration
