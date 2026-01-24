@@ -82,6 +82,24 @@ if(WIN32)
 endif()
 
 # =============================================================================
+# Test Executable (infrastructure only, no game code)
+# =============================================================================
+
+add_executable(cvlod_test
+    src/test_runtime.cpp
+    src/test_funcs_stub.cpp
+)
+
+target_include_directories(cvlod_test PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    "${CMAKE_CURRENT_SOURCE_DIR}/recompiled/functions"
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include"
+)
+
+# Note: We don't link cvlod_recompiled here since the test only
+# verifies the function table lookup, not actual function execution
+
+# =============================================================================
 # Installation
 # =============================================================================
 
