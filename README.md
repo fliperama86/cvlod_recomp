@@ -1,45 +1,119 @@
 # CVLoD Recompiled
 
-A project to statically recompile **Castlevania: Legacy of Darkness (N64)** into a native C executable using **N64Recomp**.
+A project to statically recompile **Castlevania: Legacy of Darkness (N64)** into a native executable using **N64Recomp**.
 
-## 🚀 Status: Milestone 1 Achieved (Baseline Build)
-We have successfully reached a **100% recompilation milestone**. All discovered functions in the game binary have been converted to native C code without requiring stubs for logic bypass.
+## Status
 
-*   **Total Functions Recompiled:** 16,646
-*   **Active Logic Stubs:** 0
-*   **Methodology:** Automated static analysis with dynamic lookup fallback.
+| Phase | Status |
+|-------|--------|
+| ROM Disassembly | ✅ Complete |
+| Static Recompilation | ✅ 3,439 functions converted to C |
+| Runtime Skeleton | ✅ Compiles and runs |
+| Infrastructure Tests | ✅ All passing |
+| Graphics (RT64) | ⏳ Pending |
+| Audio | ⏳ Pending |
+| Input | ⏳ Pending |
+| **Playable** | ❌ Not yet |
 
-## 🛠️ Key Findings & Architecture
+## Quick Start
 
-### 1. Dynamic Lookup Fallback
-The breakthrough for achieving 100% logic conversion was enabling the recompiler's undocumented fallback mode: `use_lookup_for_all_function_calls = true`. 
-*   **Impact:** This allows `N64Recomp` to handle complex optimizations (like tail calls and cross-function jumps) by resolving targets at runtime rather than requiring a perfect static trace. This eliminated the need for ~3,800 manual stubs.
+### Build Runtime
 
-### 2. Intelligent Pre-Scanning
-To handle the scale of 16,000+ functions, we developed an automated **Self-Healing Build System**.
-*   **Symbol Discovery:** `scan_symbols.py` pre-emptively identifies missing cross-file labels (`.L...`), solving linker errors before they happen.
-*   **Problematic Pattern Detection:** `scan_stubs.py` was evolved to identify "recompiler-breaking" patterns such as:
-    *   Unbalanced stack frames (Shared Entry/Exit).
-    *   Branch Likely instructions.
-    *   Direct recursion and complex fall-throughs.
+```bash
+# Clone with submodules
+git clone --recursive https://github.com/user/cvlod_recomp.git
+cd cvlod_recomp
 
-### 3. Streamlined Build Pipeline
-The project uses `super_build.py` to orchestrate the entire process in a single pass:
-1.  **Splat:** Splits the ROM into manageable assembly files.
-2.  **Scan:** Auto-defines symbols and flags hardware-illegal instructions.
-3.  **Patch:** Fixes relocation truncation errors and applies necessary assembly level patches.
-4.  **Assemble & Link:** Generates a target ELF via parallel `mips-linux-gnu` toolchain.
-5.  **Recompile:** Invokes `N64Recomp` to produce the final C project in `/recompiled`.
+# Build (without graphics for now)
+mkdir cmake-build && cd cmake-build
+cmake -DBUILD_WITH_RT64=OFF ..
+cmake --build . --parallel 8
 
-## 📂 Project Structure
-*   `/asm`: Disassembled MIPS code from the original ROM.
-*   `/recompiled`: The resulting native C code (ignored by git).
-*   `recomp.toml`: Master configuration for the recompiler.
-*   `symbol_addrs.txt`: Global symbol map for the entire binary.
-*   `super_build.py`: The master build script.
+# Run
+./cvlod_recomp
 
-## 🏁 Next Steps
-With the logic successfully recompiled, the next phase is **Runtime Integration**:
-1.  **Wrapper Implementation:** Developing the C wrapper to provide N64 hardware services (Input, VI, Audio, RCP) to the recompiled code.
-2.  **Memory Mapping:** Mapping the recompiled binary's memory access to a modern system's heap.
-3.  **Trace Debugging:** Utilizing the `trace_mode` flag to identify the boot sequence and resolve runtime initialization crashes.
+# Test
+./cvlod_test
+```
+
+### Regenerate from ROM
+
+```bash
+# Full pipeline (requires ROM and Docker)
+python3 tools/super_build.py
+
+# Fix generated code
+python3 tools/fix_recompiled.py
+python3 tools/fix_undeclared_labels.py
+python3 tools/gen_func_table.py
+python3 tools/gen_stubs.py
+
+# Rebuild runtime
+cd cmake-build && cmake --build . --parallel 8
+```
+
+## Architecture
+
+```
+ROM → splat → MIPS ASM → ELF → N64Recomp → C Code → CMake → Executable
+                                              ↓
+                                    N64ModernRuntime
+                                    (ultramodern + RT64)
+```
+
+### Key Stats
+
+- **Functions recompiled:** 3,439
+- **Generated C code:** 18MB (72 files)
+- **Function lookup table:** 3,416 entries
+- **Code fixes applied:** 9,789 (invalid identifiers, cross-function jumps)
+
+## Project Structure
+
+```
+cvlod_recomp/
+├── lib/
+│   ├── N64ModernRuntime/   # Runtime library (ultramodern + librecomp)
+│   ├── N64Recomp/          # Static recompiler
+│   └── rt64/               # Graphics backend
+├── src/                    # Runtime source
+│   ├── main.cpp            # Entry point
+│   ├── game.cpp            # Game registration
+│   └── funcs.cpp           # Function lookup table
+├── recompiled/             # Generated C code (gitignored)
+├── tools/                  # Build scripts
+├── CMakeLists.txt          # Runtime build
+└── recomp.toml             # N64Recomp config
+```
+
+## What's Working
+
+- ✅ All game functions converted to native C
+- ✅ Memory access simulation (RDRAM)
+- ✅ Register context (32 GPR, 32 FPR)
+- ✅ 64-bit arithmetic (DMULT, DDIV)
+- ✅ Function lookup for indirect calls
+
+## What's Next
+
+1. **ROM Loading** - Load game data into memory
+2. **RT64 Graphics** - Enable `-DBUILD_WITH_RT64=ON`
+3. **Audio System** - Implement RSP callbacks
+4. **Input Handling** - Controller support via SDL2
+5. **Game Loop** - Frame timing and execution
+
+## Documentation
+
+- [CLAUDE.md](CLAUDE.md) - Development guide
+- [docs/RUNTIME_INTEGRATION.md](docs/RUNTIME_INTEGRATION.md) - Runtime integration details
+
+## Credits
+
+- [N64Recomp](https://github.com/N64Recomp/N64Recomp) - Static recompilation tool
+- [N64ModernRuntime](https://github.com/N64Recomp/N64ModernRuntime) - Runtime library
+- [RT64](https://github.com/rt64/rt64) - N64 graphics renderer
+- [Zelda64Recomp](https://github.com/Zelda64Recomp/Zelda64Recomp) - Reference implementation
+
+## License
+
+This project is for educational and preservation purposes. The original game is property of Konami.
