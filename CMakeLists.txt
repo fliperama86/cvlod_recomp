@@ -55,6 +55,7 @@ add_executable(cvlod_recomp
     src/main.cpp
     src/funcs.cpp
     src/hardware.cpp
+    src/libultra_wrappers.cpp
 )
 
 target_include_directories(cvlod_recomp PRIVATE
@@ -63,12 +64,14 @@ target_include_directories(cvlod_recomp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include"
     "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/librecomp/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty"
+    "${CMAKE_CURRENT_SOURCE_DIR}/lib/N64ModernRuntime/thirdparty/concurrentqueue"
 )
 
 target_link_libraries(cvlod_recomp PRIVATE
     cvlod_recompiled
     ultramodern
-    librecomp
+    # librecomp  # Not linking for now - provides conflicting symbols
 )
 
 # Platform-specific settings

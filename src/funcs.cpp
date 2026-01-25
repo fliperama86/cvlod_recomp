@@ -6875,3 +6875,19 @@ recomp_func_t* cvlod_get_function(int32_t vram) {
     printf("[LOOKUP] 0x%08X -> NOT FOUND!\n", (uint32_t)vram);
     return nullptr;
 }
+
+// Set a libultra wrapper function, overriding the stubbed recompiled version
+void set_libultra_wrapper(int32_t vram, recomp_func_t* wrapper) {
+    auto it = g_function_table.find(vram);
+    if (it != g_function_table.end()) {
+        printf("[WRAPPER] Replacing function at 0x%08X\n", (uint32_t)vram);
+    } else {
+        printf("[WRAPPER] Adding function at 0x%08X\n", (uint32_t)vram);
+    }
+    g_function_table[vram] = wrapper;
+}
+
+// Disable/enable function lookup tracing
+void set_trace_lookups(bool enable) {
+    g_trace_lookups = enable;
+}

@@ -19,6 +19,10 @@
 // Forward declarations from funcs.cpp
 extern void init_function_table();
 extern recomp_func_t* cvlod_get_function(int32_t vram);
+extern void set_trace_lookups(bool enable);
+
+// Forward declaration from libultra_wrappers.cpp
+extern void install_libultra_wrappers();
 
 // Forward declarations for game functions
 extern "C" void func_80000460(uint8_t* rdram, recomp_context* ctx);
@@ -277,6 +281,10 @@ int main(int argc, char* argv[]) {
     init_function_table();
     printf("Function table initialized\n");
 
+    // Install libultra wrappers to replace stubbed functions with ultramodern
+    install_libultra_wrappers();
+    printf("libultra wrappers installed\n");
+
     // Try to load ROM
     if (rom_path) {
         if (!load_rom(rom_path)) {
@@ -352,10 +360,53 @@ extern "C" {
         fprintf(stderr, "Syscall at 0x%08X\n", instruction_vram);
     }
 
-    void pause_self(uint8_t* rdram) {
-        // Pause current thread - stub for now
-    }
+    // Note: pause_self is provided by ultramodern/scheduling.cpp
 
     // Section addresses for relocations
     int32_t* section_addresses = nullptr;
+
+    // osYieldThread - stub (ultramodern declares but doesn't define it)
+    void osYieldThread(uint8_t* rdram) {
+        printf("[STUB] osYieldThread() called\n");
+        // For now, this is a no-op since we don't have proper thread scheduling yet
+    }
+}
+
+// Symbols required by ultramodern
+#include <atomic>
+#ifndef MOODYCAMEL_DELETE_FUNCTION
+#define MOODYCAMEL_DELETE_FUNCTION = delete
+#endif
+#include "lightweightsemaphore.h"
+
+std::atomic_bool exited{false};
+moodycamel::LightweightSemaphore graphics_shutdown_ready;
+
+namespace ultramodern {
+    bool is_game_started() {
+        // Always return false for now since we're not fully running the game loop
+        return false;
+    }
+}
+
+// Function to run a thread's entry point
+// This is called by ultramodern when starting a thread
+void run_thread_function(uint8_t* rdram, uint64_t addr, uint64_t sp, uint64_t arg) {
+    printf("[THREAD] run_thread_function(addr=0x%08llX, sp=0x%08llX, arg=0x%08llX)\n",
+           (unsigned long long)addr, (unsigned long long)sp, (unsigned long long)arg);
+
+    // Get the function pointer from our function table
+    recomp_func_t* func = cvlod_get_function((int32_t)addr);
+    if (func) {
+        // Set up a minimal context
+        recomp_context ctx;
+        memset(&ctx, 0, sizeof(ctx));
+        ctx.r29 = sp;  // Stack pointer
+        ctx.r4 = arg;  // First argument (a0)
+
+        // Call the function
+        func(rdram, &ctx);
+    } else {
+        fprintf(stderr, "[THREAD] Function not found at 0x%08llX!\n", (unsigned long long)addr);
+    }
 }
