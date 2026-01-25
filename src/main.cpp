@@ -23,7 +23,7 @@ extern recomp_func_t* cvlod_get_function(int32_t vram);
 // Forward declarations for game functions
 extern "C" void func_80000460(uint8_t* rdram, recomp_context* ctx);
 extern "C" void game_main(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80017720(uint8_t* rdram, recomp_context* ctx); // Near main
+extern "C" void func_8001783C(uint8_t* rdram, recomp_context* ctx); // Main thread entry (0x800186DC)
 
 // Global RDRAM allocation
 static uint8_t* g_rdram = nullptr;
@@ -220,13 +220,21 @@ void try_execute_game() {
     }
 
     printf("\nCalling game_main (0x80018678)...\n");
-    printf("(This will likely crash without full hardware emulation)\n\n");
 
     // Call game_main - the actual main function after boot
+    // This initializes OS and creates threads (all stubbed)
     game_main(g_rdram, &ctx);
+    printf("game_main returned (OS init complete, threads stubbed)\n");
+
+    printf("\nCalling main thread entry func_8001783C (0x800186DC)...\n");
+    printf("(This is what osStartThread would run)\n\n");
+
+    // Call the main thread entry function directly
+    // This bypasses the thread system and runs the game logic
+    func_8001783C(g_rdram, &ctx);
 
     g_in_game_code = false;
-    printf("game_main returned!\n");
+    printf("Main thread returned!\n");
 }
 
 void print_usage(const char* prog) {
