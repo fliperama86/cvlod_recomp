@@ -1,0 +1,7 @@
+# OS metadata
+.DS_Store
+
+# Temporary files
+*.log
+*.tmp
+resources/
