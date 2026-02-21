@@ -1,0 +1,57 @@
+# N64Recomp config for Castlevania: Legacy of Darkness (ND4E)
+
+[input]
+entrypoint = 0x80000400
+output_func_path = "RecompiledFuncs"
+relocatable_sections_path = "overlays.txt"
+symbols_file_path = "castlevania2.syms.toml"
+rom_file_path = "resources/castlevania_legacy_of_darkness.z64"
+
+[patches]
+# Stub out functions with unsupported instructions (cop0/TLB/cache/eret/trunc.l)
+# or incorrect boundaries detected by splat
+stubs = [
+    # TLB mapping (mfc0/mtc0 EntryHi/Lo, tlbwi)
+    "func_80017720",
+    "func_80097730",
+    "func_800A02F0",
+    "func_800A4D40",
+    # __osUnmapTLBAll
+    "func_800A11D0",
+    # __osProbeTLB (tlbp, tlbr)
+    "func_8009B230",
+    # __osDispatchThread (eret)
+    "func_80098224",
+    # Exception handler / __osEnqueueAndYield
+    "func_80097AB0",
+    "func_80097FE4",
+    # Cache operations
+    "func_80099440",
+    "func_800A13E0",
+    "func_800A1490",
+    "func_800A69E0",
+    # cop0 Count/Cause/Compare
+    "func_8009B9D0",
+    "func_800A2C10",
+    "func_800A4ED0",
+    # trunc.l.d / trunc.l.s (MIPS III unsupported by this N64Recomp version)
+    "func_800A6C20",
+    "func_800A6C3C",
+    # Branch to RSP IMEM / multi-register cop0
+    "func_800AADA0",
+    "func_800AADA8",
+    # Boundary issue: branches past common section end
+    "func_80176104",
+    "func_8018C680",
+    # Overlay functions with boundary issues
+    "map_ovl_29_func_802E4E9C",
+    "map_ovl_29_func_802E534C",
+    # Overlay functions with branches to unmapped addresses
+    "map_ovl_42_func_802E8A80",
+    "map_ovl_42_func_802E8A88",
+    "map_ovl_42_func_802E8AAC",
+    "map_ovl_42_func_802E8AD0",
+    "map_ovl_42_func_802E8AF4",
+]
+
+ignored = []

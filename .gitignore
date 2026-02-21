@@ -4,4 +4,18 @@
 # Temporary files
 *.log
 *.tmp
+
+# ROM (user-provided, not distributed)
 resources/
+
+# splat generated output (regenerated from ROM + YAML config)
+asm/
+assets/
+build/
+castlevania2.ld
+castlevania2.d
+undefined_funcs_auto.txt
+undefined_syms_auto.txt
+
+# N64Recomp generated output (regenerated from ROM + config)
+RecompiledFuncs/

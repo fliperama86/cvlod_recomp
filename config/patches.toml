@@ -1,0 +1,21 @@
+# Config file for recompiling LoD patch ELF output.
+# This is a bootstrap template and requires generated patch ELF + symbol files.
+
+[input]
+elf_path = "patches/patches.elf"
+output_func_path = "RecompiledPatches"
+single_file_output = true
+use_absolute_symbols = true
+
+func_reference_syms_file = "symbols/lod.nd4e.syms.toml"
+data_reference_syms_files = [
+    "symbols/lod.nd4e.datasyms.toml",
+    "symbols/lod.nd4e.datasyms_static.toml",
+    "patches/custom_syms.toml"
+]
+
+output_binary_path = "patches/patches.bin"
+unpaired_lo16_warnings = false
+allow_exports = true
+strict_patch_mode = true
+

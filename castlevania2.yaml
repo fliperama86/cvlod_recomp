@@ -1,0 +1,798 @@
+name: Castlevania2 (North America)
+sha1: 879ead98f197fd05edda867655da5b1ce25aa5b8
+options:
+  basename: castlevania2
+  target_path: resources/castlevania_legacy_of_darkness.z64
+  elf_path: build/castlevania2.elf
+  base_path: .
+  platform: n64
+  compiler: IDO
+
+  # asm_path: asm
+  # src_path: src
+  # build_path: build
+  # create_asm_dependencies: True
+
+  ld_script_path: castlevania2.ld
+  ld_dependencies: True
+
+  find_file_boundaries: True
+  header_encoding: ASCII
+
+  o_as_suffix: True
+  use_legacy_include_asm: False
+  mips_abi_float_regs: o32
+
+  # section_order: [".text", ".data", ".rodata", ".bss"]
+  # auto_link_sections: [".data", ".rodata", ".bss"]
+
+  symbol_addrs_path:
+    - symbol_addrs.txt
+  reloc_addrs_path:
+    - reloc_addrs.txt
+
+  # undefined_funcs_auto_path: undefined_funcs_auto.txt
+  # undefined_syms_auto_path: undefined_syms_auto.txt
+
+  extensions_path: tools/splat_ext
+
+  # string_encoding: ASCII
+  # data_string_encoding: ASCII
+  rodata_string_guesser_level: 2
+  data_string_guesser_level: 2
+  libultra_symbols: True
+  hardware_regs: True
+  gfx_ucode: f3dex2
+segments:
+  - name: header
+    type: header
+    start: 0x0
+
+  - name: ipl3
+    type: bin
+    start: 0x40
+
+  - name: entry
+    type: code
+    start: 0x1000
+    vram: 0x80000400
+    subsegments:
+      - [0x1000, hasm]
+
+  - name: main
+    type: code
+    start: 0x1060
+    vram: 0x80000460
+    follows_vram: entry
+    subsegments:
+      - [0x1060, asm]
+      - [0x1B30, asm]
+      - [0x2B30, asm]
+      - [0x3710, asm]
+      - [0x3B60, asm]
+      - [0x5280, asm]
+      - [0x54A0, asm]
+      - [0x56B0, asm]
+      - [0x58B0, asm]
+      - [0xD430, asm]
+      - [0xDEE0, asm]
+      - [0xFCB0, asm]
+      - [0x110D0, asm]
+      - [0x113F0, asm]
+      - [0x11AA0, asm]
+      - [0x121E0, asm]
+      - [0x122A0, asm]
+      - [0x13AD0, asm]
+      - [0x13D50, asm]
+      - [0x146E0, asm]
+      - [0x14ED0, asm]
+      - [0x150D0, asm]
+      - [0x157F0, asm]
+      - [0x18320, asm]
+      - [0x190E0, asm]
+      - [0x19AE0, asm]
+      - [0x19DA0, asm]
+      - [0x1A1E0, asm]
+      - [0x1AE30, asm]
+      - [0x1B070, asm]
+      - [0x1B0E0, asm]
+      - [0x1C8D0, asm]
+      - [0x1D8C0, asm]
+      - [0x1E110, asm]
+      - [0x1E680, asm]
+      - [0x1F730, asm]
+      - [0x1FBA0, asm]
+      - [0x1FE60, asm]
+      - [0x21560, asm]
+      - [0x25960, asm]
+      - [0x26C80, asm]
+      - [0x2C7A0, asm]
+      - [0x2EB60, asm]
+      - [0x315E0, asm]
+      - [0x34570, asm]
+      - [0x364D0, asm]
+      - [0x38330, asm]
+      - [0x39B60, asm]
+      - [0x3EEF0, asm]
+      - [0x40660, asm]
+      - [0x40B80, asm]
+      - [0x410D0, asm]
+      - [0x43F70, asm]
+      - [0x45380, asm]
+      - [0x46240, asm]
+      - [0x46D20, asm]
+      - [0x48220, asm]
+      - [0x4D170, asm]
+      - [0x4DA60, asm]
+      - [0x4F1D0, asm]
+      - [0x50350, asm]
+      - [0x51C50, asm]
+      - [0x53090, asm]
+      - [0x53740, asm]
+      - [0x583C0, asm]
+      - [0x58B40, asm]
+      - [0x59490, asm]
+      - [0x5AB00, asm]
+      - [0x60690, asm]
+      - [0x606A0, asm]
+      - [0x606B0, asm]
+      - [0x606C0, asm]
+      - [0x606D0, asm]
+      - [0x606E0, asm]
+      - [0x606F0, asm]
+      - [0x60700, asm]
+      - [0x60710, asm]
+      - [0x60720, asm]
+      - [0x60730, asm]
+      - [0x60740, asm]
+      - [0x60750, asm]
+      - [0x60760, asm]
+      - [0x60770, asm]
+      - [0x60780, asm]
+      - [0x60790, asm]
+      - [0x607A0, asm]
+      - [0x607B0, asm]
+      - [0x607C0, asm]
+      - [0x607D0, asm]
+      - [0x7E5F0, asm]
+      - [0x83BE0, asm]
+      - [0x85E80, asm]
+      - [0x86D20, asm]
+      - [0x87B90, asm]
+      - [0x881E0, asm]
+      - [0x8B690, asm]
+      - [0x8D3B0, asm]
+      - [0x900B0, asm]
+      - [0x90AF0, asm]
+      - [0x90C90, asm]
+      - [0x90E50, asm]
+      - [0x90ED0, asm]
+      - [0x91800, asm]
+      - [0x94030, asm]
+      - [0x95500, asm]
+      - [0x974B0, asm]
+      - [0x97650, asm]
+      - [0x978E0, asm]
+      - [0x97A20, asm]
+      - [0x97D70, asm]
+      - [0x98040, asm]
+      - [0x98330, asm]
+      - [0x983F0, asm]
+      - [0x98FB0, asm]
+      - [0x99100, asm]
+      - [0x99140, asm]
+      - [0x99540, asm]
+      - [0x99750, asm]
+      - [0x99930, asm]
+      - [0x99D90, asm]
+      - [0x99FC0, asm]
+      - [0x9A040, asm]
+      - [0x9A0C0, asm]
+      - [0x9A410, asm]
+      - [0x9A510, asm]
+      - [0x9A530, asm]
+      - [0x9A640, asm]
+      - [0x9A6D0, asm]
+      - [0x9A780, asm]
+      - [0x9A840, asm]
+      - [0x9A890, asm]
+      - [0x9AD00, asm]
+      - [0x9AF30, asm]
+      - [0x9B1A0, asm]
+      - [0x9B210, asm]
+      - [0x9BA60, asm]
+      - [0x9BE30, asm]
+      - [0x9BEF0, asm]
+      - [0x9C540, asm]
+      - [0x9C5D0, asm]
+      - [0x9C5E0, asm]
+      - [0x9D160, asm]
+      - [0x9D270, asm]
+      - [0x9D390, asm]
+      - [0x9DA10, asm]
+      - [0x9E1C0, asm]
+      - [0x9EF70, asm]
+      - [0x9F080, asm]
+      - [0x9FD00, asm]
+      - [0xA0000, asm]
+      - [0xA01D0, asm]
+      - [0xA0D20, asm]
+      - [0xA0DE0, asm]
+      - [0xA0DF0, asm]
+      - [0xA0EC0, asm]
+      - [0xA0EF0, asm]
+      - [0xA0F30, asm]
+      - [0xA1BF0, asm]
+      - [0xA1C10, asm]
+      - [0xA1DD0, asm]
+      - [0xA1E20, asm]
+      - [0xA1F00, asm]
+      - [0xA1F40, asm]
+      - [0xA1FE0, asm]
+      - [0xA2060, asm]
+      - [0xA2090, asm]
+      - [0xA2140, asm]
+      - [0xA21E0, asm]
+      - [0xA2300, asm]
+      - [0xA2380, asm]
+      - [0xA23B0, asm]
+      - [0xA23E0, asm]
+      - [0xA2480, asm]
+      - [0xA26D0, asm]
+      - [0xA2830, asm]
+      - [0xA2DD0, asm]
+      - [0xA3150, asm]
+      - [0xA31E0, asm]
+      - [0xA3630, asm]
+      - [0xA3780, asm]
+      - [0xA3810, asm]
+      - [0xA3820, asm]
+      - [0xA3B30, asm]
+      - [0xA3BB0, asm]
+      - [0xA3C10, asm]
+      - [0xA3E80, asm]
+      - [0xA3F10, asm]
+      - [0xA4050, asm]
+      - [0xA4350, asm]
+      - [0xA4380, asm]
+      - [0xA44F0, asm]
+      - [0xA4650, asm]
+      - [0xA46F0, asm]
+      - [0xA4870, asm]
+      - [0xA49D0, asm]
+      - [0xA4A50, asm]
+      - [0xA4C40, asm]
+      - [0xA4F50, asm]
+      - [0xA5900, asm]
+      - [0xA5940, asm]
+      - [0xA59A0, asm]
+      - [0xA59F0, asm]
+      - [0xA5AE0, asm]
+      - [0xA5D30, asm]
+      - [0xA5F60, asm]
+      - [0xA60D0, asm]
+      - [0xA6230, asm]
+      - [0xA6310, asm]
+      - [0xA6DD0, asm]
+      - [0xA6F60, asm]
+      - [0xA7200, asm]
+      - [0xA7250, asm]
+      - [0xA72A0, asm]
+      - [0xA72B0, asm]
+      - [0xA72C0, asm]
+      - [0xA75D0, asm]
+      - [0xA75E0, asm]
+      - [0xA7610, asm]
+      - [0xA7670, asm]
+      - [0xA7680, asm]
+      - [0xA7820, asm]
+      - [0xA7A30, asm]
+      - [0xA7CB0, asm]
+      - [0xA7D10, asm]
+      - [0xA7DB0, asm]
+      - [0xA7E30, asm]
+      - [0xA7E40, asm]
+      - [0xA7EF0, asm]
+      - [0xA7FA0, asm]
+      - [0xA8A40, asm]
+      - [0xA9BF0, asm]
+      - [0xA9DA0, asm]
+      - [0xA9E10, asm]
+      - [0xA9FE0, asm]
+      - [0xAB480, asm]
+
+  # Main segment data/rodata (pointer tables, float constants, jump tables, strings)
+  - name: main_data
+    type: bin
+    start: 0xAB9F0
+
+  # "Common" code segment — NOT contiguous with main VRAM.
+  # Contains game logic code (effects, enemies, player, stage systems).
+  # VRAM 0x80141870 determined by brute-force jal cross-reference analysis.
+  # The 0x8014xxxx–0x8018xxxx "undefined" functions from main code are HERE.
+  - name: common
+    type: code
+    start: 0xC2120
+    vram: 0x80141870
+    subsegments:
+      - [0xC2120, asm]
+      - [0xC2DE0, asm]
+      - [0xC3840, asm]
+      - [0xC3B70, asm]
+      - [0xC63A0, asm]
+      - [0xC7100, asm]
+      - [0xC7370, asm]
+      - [0xC7F80, asm]
+      - [0xC9000, asm]
+      - [0xCABA0, asm]
+      - [0xCBBB0, asm]
+      - [0xCCBB0, asm]
+      - [0xD06C0, asm]
+      - [0xD2CF0, asm]
+      - [0xD88D0, asm]
+      - [0xDA3C0, asm]
+      - [0xDB6C0, asm]
+      - [0xDD120, asm]
+      - [0xDDDC0, asm]
+      - [0xDE640, asm]
+      - [0xE10C0, asm]
+      - [0xE4E20, asm]
+      - [0xE5390, asm]
+      - [0xE5980, asm]
+      - [0xE5EB0, asm]
+      - [0xE6A30, asm]
+      - [0xE77F0, asm]
+      - [0xE8B80, asm]
+      - [0xEB6C0, asm]
+      - [0xED710, asm]
+      - [0xEFBC0, asm]
+      - [0xF2CE0, asm]
+      - [0xF3BD0, asm]
+      - [0xF4780, asm]
+      - [0xF4A80, asm]
+      - [0xF4F70, asm]
+      - [0xF6FD0, asm]
+      - [0xF7890, asm]
+      - [0xF7A90, asm]
+      - [0xF9260, asm]
+      - [0xF9FD0, asm]
+      - [0xFAEB0, asm]
+      - [0xFB390, asm]
+      - [0xFC360, asm]
+      - [0xFE420, asm]
+      - [0xFF5A0, asm]
+      - [0x100B00, asm]
+      - [0x1027A0, asm]
+      - [0x1032D0, asm]
+      - [0x103670, asm]
+      - [0x104DD0, asm]
+      - [0x1060D0, asm]
+      - [0x1076A0, asm]
+      - [0x108FE0, asm]
+      - [0x109900, asm]
+      - [0x109F40, asm]
+      - [0x10AA30, asm]
+
+  # Common segment trailing data (structured data, asset offset tables, animation data)
+  - name: common_data
+    type: bin
+    start: 0x10D000
+
+  # Data/asset region between common_data and overlay code.
+  # Contains structured data, possibly DMA file table entries.
+  - name: asset_data
+    type: bin
+    start: 0x140000
+
+  # Overlay 0 — "system" overlay, always resident(?).
+  # VRAM ~0x801CAEA0 (approximate, based on jal cross-reference).
+  # Contains .text, .data, .rodata sections.
+  - name: overlay_system
+    type: code
+    start: 0x745230
+    vram: 0x801CAEA0
+    subsegments:
+      - [0x745230, asm]
+      - [0x745510, asm]
+      - [0x746380, asm]
+      - [0x74A200, asm]
+      - [0x74AB20, asm]
+      - [0x74B130, asm]
+
+  # Overlay 0 trailing data (.data + .rodata)
+  - name: overlay_system_data
+    type: bin
+    start: 0x74CD10
+
+  # Map/stage overlays — 47 overlays sharing VRAM 0x802E3B70.
+  # Overlay table at ROM 0x0B39E8. Each overlay loaded via DMA at runtime.
+  # Similar to cv64's exclusive_ram_id: ovl_map_objects pattern.
+  - name: map_ovl_00
+    type: code
+    start: 0x76CD00
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x76CD00, asm]
+
+  - name: map_ovl_01
+    type: code
+    start: 0x779510
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x779510, asm]
+
+  - name: map_ovl_02
+    type: code
+    start: 0x77E200
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x77E200, asm]
+
+  - name: map_ovl_03
+    type: code
+    start: 0x783140
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x783140, asm]
+
+  - name: map_ovl_04
+    type: code
+    start: 0x786030
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x786030, asm]
+
+  - name: map_ovl_05
+    type: code
+    start: 0x78A020
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x78A020, asm]
+
+  - name: map_ovl_06
+    type: code
+    start: 0x7932D0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7932D0, asm]
+
+  - name: map_ovl_07
+    type: code
+    start: 0x79B110
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x79B110, asm]
+
+  - name: map_ovl_08
+    type: code
+    start: 0x7A2D70
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7A2D70, asm]
+
+  - name: map_ovl_09
+    type: code
+    start: 0x7A60F0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7A60F0, asm]
+
+  - name: map_ovl_10
+    type: code
+    start: 0x7AB090
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7AB090, asm]
+
+  - name: map_ovl_11
+    type: code
+    start: 0x7AE430
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7AE430, asm]
+
+  - name: map_ovl_12
+    type: code
+    start: 0x7B1F60
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7B1F60, asm]
+
+  - name: map_ovl_13
+    type: code
+    start: 0x7B4C30
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7B4C30, asm]
+
+  - name: map_ovl_14
+    type: code
+    start: 0x7B6A20
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7B6A20, asm]
+
+  - name: map_ovl_15
+    type: code
+    start: 0x7B92A0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7B92A0, asm]
+
+  - name: map_ovl_16
+    type: code
+    start: 0x7BA1D0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7BA1D0, asm]
+
+  - name: map_ovl_17
+    type: code
+    start: 0x7BE8D0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7BE8D0, asm]
+
+  - name: map_ovl_18
+    type: code
+    start: 0x7C2CB0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7C2CB0, asm]
+
+  - name: map_ovl_19
+    type: code
+    start: 0x7C6D00
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7C6D00, asm]
+
+  - name: map_ovl_20
+    type: code
+    start: 0x7C89A0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7C89A0, asm]
+
+  - name: map_ovl_21
+    type: code
+    start: 0x7CDDE0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7CDDE0, asm]
+
+  - name: map_ovl_22
+    type: code
+    start: 0x7CF890
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7CF890, asm]
+
+  - name: map_ovl_23
+    type: code
+    start: 0x7CF960
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7CF960, asm]
+
+  - name: map_ovl_24
+    type: code
+    start: 0x7D2800
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D2800, asm]
+
+  - name: map_ovl_25
+    type: code
+    start: 0x7D3C90
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D3C90, asm]
+
+  - name: map_ovl_26
+    type: code
+    start: 0x7D4420
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D4420, asm]
+
+  - name: map_ovl_27
+    type: code
+    start: 0x7D6B20
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D6B20, asm]
+
+  - name: map_ovl_28
+    type: code
+    start: 0x7D7B90
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D7B90, asm]
+
+  - name: map_ovl_29
+    type: code
+    start: 0x7D9790
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7D9790, asm]
+
+  - name: map_ovl_30
+    type: code
+    start: 0x7E0850
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7E0850, asm]
+
+  - name: map_ovl_31
+    type: code
+    start: 0x7E2610
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7E2610, asm]
+
+  - name: map_ovl_32
+    type: code
+    start: 0x7E5650
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7E5650, asm]
+
+  - name: map_ovl_33
+    type: code
+    start: 0x7E7990
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7E7990, asm]
+
+  - name: map_ovl_34
+    type: code
+    start: 0x7EF5E0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x7EF5E0, asm]
+
+  - name: map_ovl_35
+    type: code
+    start: 0x805C70
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x805C70, asm]
+
+  - name: map_ovl_36
+    type: code
+    start: 0x80A4F0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x80A4F0, asm]
+
+  - name: map_ovl_37
+    type: code
+    start: 0x814DF0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x814DF0, asm]
+
+  - name: map_ovl_38
+    type: code
+    start: 0x81B010
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x81B010, asm]
+
+  - name: map_ovl_39
+    type: code
+    start: 0x81E040
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x81E040, asm]
+
+  - name: map_ovl_40
+    type: code
+    start: 0x829220
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x829220, asm]
+
+  - name: map_ovl_41
+    type: code
+    start: 0x82A690
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x82A690, asm]
+
+  - name: map_ovl_42
+    type: code
+    start: 0x82E330
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x82E330, asm]
+
+  - name: map_ovl_43
+    type: code
+    start: 0x835D10
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x835D10, asm]
+
+  - name: map_ovl_44
+    type: code
+    start: 0x8363B0
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x8363B0, asm]
+
+  - name: map_ovl_45
+    type: code
+    start: 0x836940
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x836940, asm]
+
+  - name: map_ovl_46
+    type: code
+    start: 0x837800
+    vram: 0x802E3B70
+    exclusive_ram_id: map_overlays
+    subsegments:
+      - [0x837800, asm]
+
+  # Nisitenma-Ichigo compressed data assets (textures, models, audio).
+  # NO code overlays — confirmed by full decompression + MIPS scan.
+  # File table at ROM 0x0B1B88: 471 compressed entries covering 0x85C590–0xEEBC80.
+  - name: compressed_assets
+    type: bin
+    start: 0x8381C0
+
+  # Zero padding to 16 MB (real data ends at ~0xEEE924)
+  - name: padding
+    type: bin
+    start: 0xEEE930
+
+  - [0x1000000]

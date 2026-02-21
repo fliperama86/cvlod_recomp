@@ -1,0 +1,3 @@
+# Placeholder list of relocatable section names (one per line).
+# Populate from confirmed symbol/section metadata.
+

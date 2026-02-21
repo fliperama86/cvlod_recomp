@@ -1,0 +1,97 @@
+// Visit https://github.com/ethteck/splat/wiki/Adding-Symbols for documentation about this file
+entrypoint = 0x80000400; // type:func
+main = 0x800177E0; // type:func
+
+// Compiler runtime (IDO __ll/__ull helpers)
+__ll_rshift = 0x800977F0; // type:func
+__ull_rem   = 0x8009781C; // type:func
+__ull_div   = 0x80097858; // type:func
+__ll_lshift = 0x80097894; // type:func
+
+// OS Thread
+osCreateThread     = 0x80098A00; // type:func
+osStartThread      = 0x800A6E30; // type:func
+osSetThreadPri     = 0x800A19D0; // type:func
+osGetThreadPri     = 0x800A1AB0; // type:func
+__osDequeueThread  = 0x80096EC0; // type:func
+__osEnqueueThread  = 0x80096EF0; // type:func
+__osDispatchThread = 0x80098224; // type:func
+
+// OS Message Queue
+osCreateMesgQueue = 0x800A1460; // type:func
+osSendMesg        = 0x800A1880; // type:func
+osRecvMesg        = 0x80096CE0; // type:func
+osSetEventMesg    = 0x800A0120; // type:func
+
+// OS Interrupt / Status
+osSetIntMask       = 0x80096E20; // type:func
+__osDisableInt     = 0x800A3280; // type:func
+__osRestoreInt     = 0x800A32F0; // type:func
+__osSetSR          = 0x80099910; // type:func
+__osGetSR          = 0x80099920; // type:func
+__osGetCause       = 0x800A4ED0; // type:func
+__osSetCompare     = 0x800A2C10; // type:func
+osGetCount         = 0x8009B9D0; // type:func
+
+// OS Video Interface
+osViSetMode                = 0x8009A5A0; // type:func
+osViSwapBuffer             = 0x800A1C30; // type:func
+osViSetEvent               = 0x800A3A80; // type:func
+osViBlack                  = 0x80099B80; // type:func
+osViSetSpecialFeatures     = 0x800A38F0; // type:func
+osViGetCurrentFramebuffer  = 0x800A7320; // type:func
+osCreateViManager          = 0x800A66C0; // type:func
+__osViInit                 = 0x800A3310; // type:func
+__osViSwapContext          = 0x800A3450; // type:func
+
+// OS Peripheral Interface (PI)
+osCreatePiManager    = 0x8009B2F0; // type:func
+osEPiStartDma        = 0x800A1220; // type:func
+__osEPiRawStartDma   = 0x800A21D0; // type:func
+osEPiLinkHandle      = 0x800A3C70; // type:func
+
+// OS SP (Signal Processor)
+__osSpSetStatus = 0x800A66A0; // type:func
+__osSpGetStatus = 0x800A66B0; // type:func
+__osSpSetPc     = 0x800A7360; // type:func
+
+// OS Audio Interface
+osAiSetFrequency = 0x800A2A30; // type:func
+
+// OS Memory / Cache
+osVirtualToPhysical  = 0x800993C0; // type:func
+osWritebackDCache    = 0x80099440; // type:func
+osWritebackDCacheAll = 0x800A69E0; // type:func
+osInvalICache        = 0x800A13E0; // type:func
+osInvalDCache        = 0x800A1490; // type:func
+
+// OS TLB
+__osProbeTLB    = 0x8009B230; // type:func
+__osUnmapTLBAll = 0x800A11D0; // type:func
+
+// GU (Graphics Utility)
+guPerspectiveF   = 0x80096A50; // type:func
+guPerspective    = 0x80096C80; // type:func
+guRotateF        = 0x80096F80; // type:func
+guMtxF2L         = 0x8009A330; // type:func
+guMtxIdentF      = 0x8009A430; // type:func
+guLookAtF        = 0x80098D30; // type:func
+guLookAt         = 0x80098EF0; // type:func
+guTranslateF     = 0x800A17E0; // type:func
+guTranslate      = 0x800A1828; // type:func
+guOrthoF         = 0x800A1010; // type:func
+guOrtho          = 0x800A1164; // type:func
+guNormalize      = 0x800A2B80; // type:func
+guRotateRPYF     = 0x800A6A80; // type:func
+guRotateRPY      = 0x800A6BCC; // type:func
+guLookAtReflectF = 0x800A1C80; // type:func
+guLookAtReflect  = 0x800A1F38; // type:func
+
+// C Library / Math
+sinf    = 0x80097170; // type:func
+__cosf  = 0x800A3780; // type:func
+sqrtf   = 0x800A01E0; // type:func
+bzero   = 0x80000F30; // type:func
+bcopy   = 0x800A2C20; // type:func
+memcpy  = 0x800A1340; // type:func
+strlen  = 0x800A136C; // type:func

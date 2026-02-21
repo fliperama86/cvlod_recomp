@@ -1,0 +1,16 @@
+# Config file for Castlevania: Legacy of Darkness (game code ND4E) recompilation.
+# This is a bootstrap template and requires real entrypoint/symbol metadata.
+
+[input]
+# TODO: Set real entrypoint once confirmed from symbols/ELF.
+# entrypoint = 0x80000000
+
+output_func_path = "RecompiledFuncs"
+relocatable_sections_path = "config/overlays.nd4e.txt"
+symbols_file_path = "symbols/lod.nd4e.syms.toml"
+rom_file_path = "resources/castlevania_legacy_of_darkness.z64"
+
+[patches]
+stubs = []
+ignored = []
+
