@@ -11,29 +11,14 @@ rom_file_path = "resources/castlevania_legacy_of_darkness.z64"
 # Stub out functions with unsupported instructions (cop0/TLB/cache/eret/trunc.l)
 # or incorrect boundaries detected by splat
 stubs = [
-    # TLB mapping (mfc0/mtc0 EntryHi/Lo, tlbwi)
+    # TLB mapping (mfc0/mtc0 EntryHi/Lo, tlbwi) - NOT in recompiler's ignored list
     "func_80017720",
     "func_80097730",
     "func_800A02F0",
     "func_800A4D40",
-    # __osUnmapTLBAll
-    "func_800A11D0",
-    # __osProbeTLB (tlbp, tlbr)
-    "func_8009B230",
-    # __osDispatchThread (eret)
-    "func_80098224",
-    # Exception handler / __osEnqueueAndYield
+    # Exception handler / __osEnqueueAndYield - NOT in ignored list (different names)
     "func_80097AB0",
     "func_80097FE4",
-    # Cache operations
-    "func_80099440",
-    "func_800A13E0",
-    "func_800A1490",
-    "func_800A69E0",
-    # cop0 Count/Cause/Compare
-    "func_8009B9D0",
-    "func_800A2C10",
-    "func_800A4ED0",
     # trunc.l.d / trunc.l.s (MIPS III unsupported by this N64Recomp version)
     "func_800A6C20",
     "func_800A6C3C",

@@ -245,3 +245,93 @@
   2. Fix common segment boundary (code extends ~0xEC bytes past 0x10D000 into common_data).
   3. Try compiling the recompiled C output to verify it produces valid object code.
   4. Integrate with N64ModernRuntime for actual recompilation target.
+
+2026-02-21 (continued — N64ModernRuntime integration & runtime debugging)
+
+### Build Pipeline Established
+- Full CMake build working: rt64 + N64ModernRuntime + librecomp + ultramodern + 5,247 recompiled funcs
+- Binary links and runs on macOS/Apple Silicon (Metal backend)
+- Source files: main.cpp, register_overlays.cpp, rt64_render_context.cpp, support.cpp, support_apple.mm, rsp/aspMain.cpp, ignored_func_stubs.cpp
+
+### OS Function Mapping — 126+ functions identified
+- Applied 83 initial + 43 additional OS function name mappings to `castlevania2.syms.toml`
+- Identification methods: call graph, MMIO patterns, struct field offsets, register usage
+- Three categories in N64Recomp's `symbol_lists.cpp`:
+  - `reimplemented_funcs` (lines 3-142): runtime provides native `_recomp` wrappers
+  - `ignored_funcs` (lines 143-563): code not generated at all
+  - `renamed_funcs` (lines 564+): renamed but still compiled
+- Some functions appear in BOTH reimplemented AND ignored — reimplemented takes precedence
+
+### Key Crash Fixes
+
+**1. `ignored_funcs` linker errors**
+- Recompiled callers emit `funcname_recomp()` calls, but ignored functions produce no code → linker error
+- Fix: `ignored_func_stubs.cpp` with 17 empty `_recomp` stubs
+
+**2. TO_PTR NULL pointer crash (SIGBUS in osContInit)**
+- `TO_PTR(type, 0)` → `rdram + 0x80000000` (PROT_NONE region) → SIGBUS
+- Caused by game_main calling osContInit with uninitialized registers (all 0)
+- Fix: NULL guards in both `osContInit` (ultramodern/input.cpp) and `osContInit_recomp` (librecomp/cont.cpp)
+
+**3. KSEG1 SIGBUS**
+- N64 hardware register accesses via KSEG1 (0xA0000000-0xBFFFFFFF) map to rdram offset 0x20000000-0x3FFFFFFF
+- That region was PROT_NONE → SIGBUS
+- Fix: `mprotect(rdram + 0x20000000, 0x20000000, PROT_READ | PROT_WRITE)` in rdram.cpp
+
+**4. PI DMA queue corruption (SIGSEGV in dequeue_external_messages)**
+- N64 IOMsg and OSMesgQueue share memory (embedded struct pattern)
+- PI DMA is synchronous (memcpy) in recomp, but completion message was delivered asynchronously
+- Game overwrites IOMsg immediately after DMA returns, corrupting the completion queue
+- Symptom: queue had validCount=51424 (exactly matching DMA sizes like 0xC8E0, 0x5B8E0)
+- Fix: changed PI completion to synchronous `osSendMesg()` in pi.cpp instead of `enqueue_external_message_src`
+- **NOTE**: Fix is still incomplete — see current state below
+
+### Current Runtime State
+- Game creates 6 threads successfully: main(1), idle(5), SCHED(19), AUDIO(18), GRAPH(17), PI_MGR(16)
+- PI DMA operations execute (ROM → RDRAM copies work)
+- Thread communication via OSMesgQueue works
+- **STILL CRASHING**: queue at 0x800C5970 still shows corrupted validCount=375008 even after PI fix
+- The 0x800C5970 queue corruption may have a SECOND source beyond PI DMA — needs investigation
+- Debug fprintf statements still in mesgqueue.cpp (osCreateMesgQueue, do_send, dequeue_external_messages)
+- Audio RSP is stubbed (returns RspExitReason::Broke immediately)
+
+2026-02-21 (continued — queue investigation & stub audit)
+
+### Stub Audit Result
+- All 17 stubs in `ignored_func_stubs.cpp` verified against N64Recomp's `symbol_lists.cpp`.
+- All 17 are in `ignored_funcs` list. None conflict with `reimplemented_funcs`. No linker conflicts. Stubs are safe.
+
+### Queue 0x800C5970 Identification
+- **NOT a global OSMesgQueue** — address is inside the idle thread's stack.
+- BSS layout mapped from asm:
+  - `0x800C2680`: boot thread (OSThread, id=1)
+  - `0x800C3830`: idle thread (OSThread, id=5)
+  - `0x800C39E0`–`0x800C59E0`: idle thread stack (8 KB)
+  - `0x800C5970`: **0x70 bytes below stack top** — inside idle thread stack
+  - `0x800C59E0`: PI manager queue / idle thread stack top
+- `validCount=375008` = `0x5B8E0` — matches DMA transfer size pattern from earlier PI bug.
+- Hypothesis: IOMsg/stack memory corruption from DMA completion path. PI DMA sync fix may be incomplete, or a different DMA path (flash? SI?) still uses the async external message pattern.
+- Thread ID mapping from asm analysis:
+  - id=1: boot thread at `D_800C2680`
+  - id=5: idle thread at `D_800C3830`
+  - id=0x13(19): SCHED at `D_800C5E80+0x1C8`
+  - id=0x12(18): AUDIO at `D_800C5E80+0x378`
+  - id=0x11(17): GRAPH at `D_800C5E80+0x528`
+  - id=0x10(16): PI_MGR at `D_800C5E80+0x6D8`
+  - id=3: MAIN at `D_800F99B0` (from `asm/90ED0.s`)
+  - id=0xFF: VI_MGR (from `asm/1E680.s`)
+- Scheduler struct at `D_800C5E80` creates 8 OSMesgQueues at offsets 0x04/0x3C/0x74/0xAC/0xE4/0x11C/0x154/0x18C. None are `0x800C5970`.
+- Next step: add bounds-check diagnostic in `do_send()` to catch corruption at the exact moment `validCount > msgCount`.
+
+### Queue Corruption Root Cause Found & Fixed
+- Added bounds-check diagnostic in `do_send()` — immediately caught the corruption.
+- **Root cause**: `func_800195E0` (timer calibration) creates a stack-local `OSMesgQueue` at `$sp+0x28`, registers it with `osSetEventMesg(OS_EVENT_COUNTER=5, ...)`, then replaces it with a global queue `D_800EFB70`. Between calls (or after return), the timer thread fires `enqueue_external_message_src()` targeting the dead stack address `0x800C5970`. Since ultramodern's `osSetEventMesg` doesn't handle event 5 (`OS_EVENT_COUNTER`), neither registration actually takes effect — but `func_80098600` (called from `func_800195E0`) uses `osSetTimer` with the same stack-local queue. The timer fires, enqueues to the dead address, and `dequeue_external_messages` finds garbage when it processes it.
+- **Fix applied** (two parts):
+  1. `do_send()` in `mesgqueue.cpp`: bounds-check on `validCount`/`msgCount` — silently discards sends to corrupt/stale queues instead of crashing.
+  2. `main.cpp`: set `.message_queue_control = { .requeue_timer = false }` — prevents stale timer messages from being infinitely re-enqueued (default was `true`, causing log flood).
+- Removed debug fprintf from `osCreateMesgQueue`, `do_send`, and `dequeue_external_messages` — they served their diagnostic purpose.
+- Codesign step required: `codesign -s - --entitlements .github/macos/entitlements.plist -f ./build/LodRecomp` — without entitlements, macOS kills the process on the 4GB mmap. CMakeLists.txt does not automate this.
+- Game now progresses past initialization: threads 1, 5, 19, 18, 17, 16, 3 all created and running. Scheduler, audio, graph, PI_MGR threads active.
+- **Confirmed stable**: 26K+ lines of clean log, zero errors. Game runs in a stable VI retrace loop.
+- Current state: threads cycling through the main loop (SCHED→MAIN→AUDIO→boot) driven by VI retrace. GRAPH thread (17) is blocked on `0x800C5EBC` waiting for work — needs RSP/RDP task submission to wake up.
+- Next blocker: graphics pipeline. The game submits display lists but the GRAPH thread never receives them. Likely needs proper GFX task handling in the RSP/events path (currently only audio RSP is stubbed). This is the standard next step in recomp bring-up — getting the first frame rendered.

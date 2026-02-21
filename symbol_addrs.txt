@@ -1,6 +1,6 @@
 // Visit https://github.com/ethteck/splat/wiki/Adding-Symbols for documentation about this file
 entrypoint = 0x80000400; // type:func
-main = 0x800177E0; // type:func
+game_main = 0x800177E0; // type:func
 
 // Compiler runtime (IDO __ll/__ull helpers)
 __ll_rshift = 0x800977F0; // type:func
@@ -51,12 +51,26 @@ __osEPiRawStartDma   = 0x800A21D0; // type:func
 osEPiLinkHandle      = 0x800A3C70; // type:func
 
 // OS SP (Signal Processor)
+osSpTaskLoad    = 0x8009755C; // type:func
+osSpTaskStartGo = 0x800976EC; // type:func
+osSpTaskYield   = 0x80099C90; // type:func
+osSpTaskYielded = 0x800A23B0; // type:func
+__osSpDeviceBusy = 0x800A1780; // type:func
 __osSpSetStatus = 0x800A66A0; // type:func
 __osSpGetStatus = 0x800A66B0; // type:func
 __osSpSetPc     = 0x800A7360; // type:func
 
 // OS Audio Interface
-osAiSetFrequency = 0x800A2A30; // type:func
+osAiSetFrequency  = 0x800A2A30; // type:func
+osAiGetLength     = 0x800A4CF0; // type:func
+osAiGetStatus     = 0x800A72F0; // type:func
+osAiSetNextBuffer = 0x800A7240; // type:func
+
+// OS Serial Interface
+osContInit        = 0x800994C0; // type:func
+__osSiDeviceBusy  = 0x800A17B0; // type:func
+__osSiRawReadIo   = 0x80099C40; // type:func
+__osSiRawWriteIo  = 0x800A6600; // type:func
 
 // OS Memory / Cache
 osVirtualToPhysical  = 0x800993C0; // type:func
