@@ -121,6 +121,17 @@ if (APPLE)
     find_package(Threads REQUIRED)
 
     target_link_libraries(LodRecomp PRIVATE ${CMAKE_DL_LIBS} Threads::Threads SDL2::SDL2)
+
+    # Ad-hoc codesign with entitlements after linking.
+    # Required because the recomp runtime uses RWX memory (JIT/mmap).
+    # Without this, macOS kills the binary with SIGKILL (Code Signature Invalid).
+    set(ENTITLEMENTS_FILE "${CMAKE_SOURCE_DIR}/.github/macos/entitlements.plist")
+    if (EXISTS ${ENTITLEMENTS_FILE})
+        add_custom_command(TARGET LodRecomp POST_BUILD
+            COMMAND codesign --force --sign - --entitlements "${ENTITLEMENTS_FILE}" "$<TARGET_FILE:LodRecomp>"
+            COMMENT "Ad-hoc codesigning LodRecomp with entitlements"
+        )
+    endif()
 endif()
 
 # ── Platform: Linux ─────────────────────────────────────────────────
