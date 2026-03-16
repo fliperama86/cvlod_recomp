@@ -8,6 +8,7 @@
 #include <numeric>
 #include <stdexcept>
 #include <cinttypes>
+#include <fstream>
 #include <thread>
 #include <chrono>
 #include <filesystem>
@@ -392,15 +393,36 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
 
     std::u8string game_id = u8"castlevania2.n64.us";
 
-    auto result = recomp::select_rom(rom_path, game_id);
-    if (result != recomp::RomValidationError::Good) {
-        fprintf(stderr, "ROM validation failed (error %d) for: %s\n", (int)result, rom_path.string().c_str());
-        // Try loading from previously stored ROM
-        if (!recomp::load_stored_rom(game_id)) {
-            fprintf(stderr, "No stored ROM found either, cannot start game.\n");
-            return;
+    // Try the decompressed ROM first (NI files pre-decompressed for direct DMA)
+    std::filesystem::path decomp_rom = "resources/castlevania2_decompressed.z64";
+    bool using_decomp = false;
+    if (std::filesystem::exists(decomp_rom) && std::filesystem::file_size(decomp_rom) > 0) {
+        auto result = recomp::select_rom(decomp_rom, game_id);
+        if (result == recomp::RomValidationError::Good) {
+            fprintf(stderr, "[LodRecomp] Using decompressed ROM\n");
+            using_decomp = true;
+        } else {
+            // Force-load the decompressed ROM even if hash doesn't match
+            std::ifstream decomp_file(decomp_rom, std::ios::binary);
+            if (decomp_file) {
+                std::vector<uint8_t> decomp_data((std::istreambuf_iterator<char>(decomp_file)),
+                                                  std::istreambuf_iterator<char>());
+                recomp::set_rom_contents(std::move(decomp_data));
+                fprintf(stderr, "[LodRecomp] Force-loaded decompressed ROM (%zu bytes)\n", recomp::get_rom().size());
+                using_decomp = true;
+            }
         }
-        fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
+    }
+    if (!using_decomp) {
+        auto result = recomp::select_rom(rom_path, game_id);
+        if (result != recomp::RomValidationError::Good) {
+            fprintf(stderr, "ROM validation failed (error %d) for: %s\n", (int)result, rom_path.string().c_str());
+            if (!recomp::load_stored_rom(game_id)) {
+                fprintf(stderr, "No stored ROM found either, cannot start game.\n");
+                return;
+            }
+            fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
+        }
     }
 
     fprintf(stderr, "[LodRecomp] ROM loaded successfully, starting game...\n");
