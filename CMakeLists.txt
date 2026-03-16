@@ -74,6 +74,7 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/register_overlays.cpp
     ${CMAKE_SOURCE_DIR}/src/main/rt64_render_context.cpp
     ${CMAKE_SOURCE_DIR}/src/main/ignored_func_stubs.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp

@@ -395,7 +395,12 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
     auto result = recomp::select_rom(rom_path, game_id);
     if (result != recomp::RomValidationError::Good) {
         fprintf(stderr, "ROM validation failed (error %d) for: %s\n", (int)result, rom_path.string().c_str());
-        return;
+        // Try loading from previously stored ROM
+        if (!recomp::load_stored_rom(game_id)) {
+            fprintf(stderr, "No stored ROM found either, cannot start game.\n");
+            return;
+        }
+        fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
     }
 
     fprintf(stderr, "[LodRecomp] ROM loaded successfully, starting game...\n");
