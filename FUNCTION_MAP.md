@@ -33,8 +33,8 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | L_80017C78 | Main loop top | osRecvMesg on queue 0x800C5D38, dispatches by msg_type |
 | — | msg_type=1 | Retrace → L_80017CB8: checks guard (0x800B0088) |
 | — | msg_type=2 | L_80017CFC: frame counter increment, osViBlack, osViSetYScale/XScale |
-| — | msg_type=3 | L_80017D50: pre-NMI handler → func_80091108(0xA) |
-| L_80017CB8 | Retrace dispatch | If guard==0 → func_80017DB8 (init). If guard!=0 → func_80017EC0 (frame SM) |
+| — | msg_type=3 | L_80017D50: scheduler-ready handler. Sets guard=1 at 0x800B0088. **In recomp: simulated after 4 init retraces** |
+| L_80017CB8 | Retrace dispatch | If guard==0 → func_80017DB8 (init, dispatches objects). If guard!=0 → func_80017EC0 (frame SM, no object dispatch). **Currently stays in init mode for object dispatch** |
 
 ## Frame Processing
 
@@ -49,9 +49,13 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | Address | Name | cv64 Equivalent | Description |
 |---------|------|-----------------|-------------|
 | 0x80002950 | `func_80002950` | `object_execute` | Executes one object. Path A (bit 0x2000 set): calls mapOverlay → func from table → func_8001123C. Path B (no overlay): calls func from table directly. Recurses for child objects via func_80000578 |
-| 0x80011060 | `func_80011060` | `mapOverlay` | Maps overlay code via TLB for objects with OBJ_FLAG_MAP_OVERLAY (bit 0x2000). Uses overlay descriptor table at 0x800AEA8C. **TLB is stubbed — overlay objects don't execute** |
+| 0x80011060 | `func_80011060` | `mapOverlay` | Maps overlay code via TLB for objects with OBJ_FLAG_MAP_OVERLAY (bit 0x2000). Uses overlay descriptor table at 0x800AEA8C. TLB implemented in `src/main/tlb_segment.cpp` |
 | 0x8001123C | `func_8001123C` | `unmapOverlay`? | Called after overlay object execution to unmap TLB |
-| 0x80000578 | `func_80000578` | `object_executeChildObject` | Recursive child object execution — iterates linked list of children calling func_80002950 |
+| 0x80000578 | `func_80000578` | `root_object_handler` | Root object handler (ID=1). Reads scene_arg from obj+0x24, dispatches to scene handler. State 0: init (func_80010B84 creates children). State 1: frame (func_80010C80 dispatches children). State 2+: func_80010DD4 |
+| 0x80010B84 | `func_80010B84` | `object_createChildren` | Processes child spec entries at obj+0x34..0x74. For each non-zero entry, extracts index (lower 11 bits), looks up overlay descriptor at 0x800AEA8C, creates child via func_80002410 |
+| 0x80010C80 | `func_80010C80` | `object_dispatchChildren` | Per-frame child dispatch — iterates child spec slots, calls func_80002950 on each valid child object |
+| 0x80010EFC | `func_80010EFC` | `object_loadOverlay` | Sets bit 0x2000 in flags2 (overlay pending), searches loaded overlay list, triggers DMA if needed. **Bypassed in recomp**: always returns success since all overlays pre-loaded |
+| 0x80002410 | `func_80002410` | `object_createChild` | Allocates child object via func_8000224C, loads overlay via func_80010EFC if descriptor exists |
 | 0x80000460 | `func_80000460` | Overlay/object loader | Takes index, looks up function table, calls loader, calls func_80001090 (memcpy) to init object from template |
 | 0x80001090 | `func_80001090` | `memcpy` | Copies N bytes from src to dest. Used to copy object template data to allocated objects |
 | 0x8000233C | `func_8000233C` | Object allocator? | Called from func_80000460, returns object pointer (e.g. 0x8031AC78) |
@@ -98,6 +102,16 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | 0x8001A42C | `func_8001A42C` | DMA loader | Called during init for ROM→RAM transfers (DMA #1 and #2) |
 | 0x80090C00 | `func_80090C00` | | Called during init, between DMA #2 and overlay loading |
 
+## Game State Handler / NI System
+
+| Address | Name | cv64 Equivalent | Description |
+|---------|------|-----------------|-------------|
+| 0x80177860 | `func_80177860` | `gameStateHandler_main` | Main game state handler. Gated by sys+0x2908 bit 28 (`sll 3, bgez`). Calls func_8017A600, func_80177948/80177B4C, func_801780C4, func_80013CF8 |
+| 0x8017A600 | `func_8017A600` | `NI_processFrame` | **KEY GATE**: Checks sys+0x295C, sys+0x2B6C, sys+0x2B70 — all must be non-zero. If any NULL, returns immediately (no rendering). Calls func_8017A790 → func_80181EF0 |
+| 0x8017A790 | `func_8017A790` | `NI_renderFrame` | Actual frame rendering. Reads sys+0x2E2C, calls func_80180710, func_801797B8. Only reached when all 3 NI pointers are valid |
+| 0x8001A8C4 | `func_8001A8C4` | `NI_createObjects` | Creates NI subsystem objects via func_8000233C. Sets sys+0x294C (spec 0x185), sys+0x2954 (spec 0x6), sys+0x2B70 (spec 0x89). **Not called in recomp — no caller in dispatch chain** |
+| 0x801CB5CC | `overlay_system_func_801CB5CC` | `NI_init` | NI file system initializer. Allocates 0x314 bytes via func_80002808, initializes NI file manager. Sets sys+0x295C. In overlay_system section |
+
 ## Utility / Misc
 
 | Address | Name | Description |
@@ -112,7 +126,7 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 
 | Address | Type | Description |
 |---------|------|-------------|
-| 0x800B0088 | u16 | Guard variable — set to 1 by pre-NMI scheduler handler. Controls retrace dispatch path |
+| 0x800B0088 | u16 | Guard variable — controls retrace dispatch (0=init, 1=frame SM). Set by msg_type=3 handler. **In recomp: simulated** |
 | 0x800B008C | u16 | Frame state machine state (0x00-0x10 = init frames, 0x11+ = done) |
 | 0x800B00C4 | table | Overlay entry table — pairs of ROM start/end addresses per overlay (segment 0x06 addresses) |
 | 0x800AD640 | table | `Objects_functions` — function pointer/segment address table indexed by obj ID & 0x7FF |
@@ -124,7 +138,11 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | 0x800C5E80 | struct | Scheduler struct (0x8A0+ bytes). +0x888=client list head, +0x89C=pending count |
 | 0x800C5EBC | OSMesgQueue | GRAPH thread input queue |
 | 0x800EFB70 | OSMesgQueue | SI event queue (controller completion) |
-| 0x800F3F54 | i16 | **Overlay selector** — determines which overlay to load for overlay objects. Set by gamestate_change (func_8002A6DC). Currently 0 (uninitialized) because game state system can't bootstrap |
+| 0x800F3F54 | i16 | **Overlay selector** — determines which overlay to load for overlay objects. Set by gamestate_change (func_8002A6DC) |
+| 0x801CABC8 | u32 | **Execution flags** (sys+0x2908). Bit 28 gates func_80177860. Forced to 0x380080C8 in recomp |
+| 0x801CAC1C | ptr | **NI file manager** (sys+0x295C). Set to object 12 (0x8031AF30) by overlay dispatch. Gates func_8017A600 |
+| 0x801CAE2C | ptr | sys+0x2B6C — set naturally to 0x8031ADD4 |
+| 0x801CAE30 | ptr | sys+0x2B70 — set by func_8001A8C4. Gates func_8017A600. **NULL in recomp** |
 | 0x800F9B60 | OSMesgQueue | Second client queue (registered with scheduler, likely GFX-related) |
 | 0x801C82C0 | struct | Game state struct base (`lui 0x801D; addiu -0x7D40`). +0x00=frame counter, +0x28=game state field, +0x88=timer, +0x534=controller status |
 | 0x801C82E8 | i16 | Game state field — read by func_80002E3C to determine if state manager is initialized |
@@ -134,21 +152,21 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 
 ## Segment Address System
 
-The game uses N64 TLB-based segment addresses in data structures. These are **NOT** resolved in the current recomp.
+The game uses N64 TLB-based segment addresses. TLB implemented in `src/main/tlb_segment.cpp` with page-aligned mprotect + memcpy.
 
 | Segment | Address Pattern | Maps To | Status |
 |---------|----------------|---------|--------|
-| 0x09 | 0x9000XXXX | Unknown ROM/data region | **NOT RESOLVED** — root cause of black screen |
-| 0x0C | 0x0C000000+ | TLB page (size varies) | Stubbed |
-| 0x0D | 0x0D000000+ | TLB page (size varies) | Stubbed |
-| 0x0E | 0x0E000000+ | TLB page (size varies) | Stubbed |
-| 0x0F | 0x0F000000+ | overlay_system (0x801CAEA0) | **Function calls translated**, data access NOT |
+| 0x09 | 0x9000XXXX | **KSEG0** (not a segment!) | **RESOLVED** — 0x9000XXXX = KSEG0, physical = addr - 0x80000000. ROM data at physical 0x10000000+ |
+| 0x0C-0x0E | 0x0C/0D/0E000000+ | TLB-mapped overlay data | osMapTLB implemented, pages copied from physical RDRAM |
+| 0x0F | 0x0F000000+ | overlay_system or DMA target | TLB-mapped. Function calls translated via segment→vram lookup. Data copied via osMapTLB |
 
-### Known segment 9 addresses in game data
-- `0x9000C87C` — root object command list pointer (at obj+0x34)
-- `0x90000864` — unknown (at obj+0x38)
-- `0x9000C914` — unknown (at obj+0x4C)
-- `0x900065DC` — unknown (at obj+0x50)
-- `0x90000A30` — unknown (at obj+0x54)
+### KSEG0 addresses (not TLB)
+- `0x9000C87C` — root object command list pointer (ROM offset 0xC87C via KSEG0→physical 0x1000C87C)
+- `0x90000864`, `0x9000C914`, `0x900065DC`, `0x90000A30` — ROM data pointers
 
-These span offsets 0x0864–0xC914 (~50KB range) within segment 9. Need to find the physical ROM base address for this segment.
+### Framebuffers
+- cfb[0] = 0x801DA800 (physical 0x1DA800) — **DL renders here**
+- cfb[1] = 0x80200000 (physical 0x200000)
+- cfb[2] = 0x80225800 (physical 0x225800)
+- cfb[3] = 0x8024B000 (physical 0x24B000)
+- VI rotates cfb[1-3] but DL always targets cfb[0]. Fixed by forcing osViSwapBuffer to cfb[0]
