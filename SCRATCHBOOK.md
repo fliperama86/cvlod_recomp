@@ -335,3 +335,303 @@
 - **Confirmed stable**: 26K+ lines of clean log, zero errors. Game runs in a stable VI retrace loop.
 - Current state: threads cycling through the main loop (SCHED→MAIN→AUDIO→boot) driven by VI retrace. GRAPH thread (17) is blocked on `0x800C5EBC` waiting for work — needs RSP/RDP task submission to wake up.
 - Next blocker: graphics pipeline. The game submits display lists but the GRAPH thread never receives them. Likely needs proper GFX task handling in the RSP/events path (currently only audio RSP is stubbed). This is the standard next step in recomp bring-up — getting the first frame rendered.
+
+2026-02-21 (continued — GFX pipeline investigation)
+
+### Diagnostic Round 1: RSP task tracing
+- Added fprintf diagnostics in 3 locations:
+  1. `osSpTaskStartGo_recomp` (sp.cpp): logs every RSP task with type and data_ptr
+  2. `submit_rsp_task` (events.cpp): logs GFX vs non-GFX routing
+  3. `osSendMesg`/`osJamMesg`/`osRecvMesg` (mesgqueue.cpp): traces messages targeting GRAPH queue `0x800C5EBC`
+
+### Key Finding: No GFX tasks are ever submitted
+- Over 10 seconds of runtime, ONLY `type=2` (`M_AUDTASK`) tasks reach `osSpTaskStartGo`. Zero `type=1` (`M_GFXTASK`).
+- GRAPH thread (17) blocks on `osRecvMesg(0x800C5EBC, blocking=yes)` with `validCount=0` and never wakes.
+- No message is ever sent to `0x800C5EBC` (GRAPH queue) — neither via `osSendMesg` nor `osJamMesg`.
+- Audio path works correctly: AUDIO thread (18) → scheduler → AUDIO thread → osSpTaskStartGo(type=2) cycles normally.
+
+### Architecture Understanding: Scheduler task flow
+- Scheduler struct at `D_800C5E80`, initialized by `func_800184E0`:
+  - `sched[0] = 1` (halfword) — VI retrace task type code (→ GFX)
+  - `sched[2] = 3` (halfword) — PRE-NMI/audio task type code
+  - Queue at `sched+0xAC`: receives VI retrace (0x29A) and PRE-NMI (0x29D) events
+  - Queue at `sched+0x3C` (`0x800C5EBC`): GRAPH thread input queue
+  - Queue at `sched+0x4` (`0x800C5E84`): AUDIO thread input queue
+- SCHED thread (`func_80018774`, thread 19):
+  - Receives VI retrace → calls `func_80018968(sched, sched)` → dispatches tasks with type `1`
+  - Receives PRE-NMI → calls `func_80018968(sched, sched+2)` → dispatches with type `3`
+  - `func_80018968` walks linked list at `sched+0x888`, jams messages to task reply queues
+  - **SCHED thread IS running and receiving VI retraces** (confirmed in logs)
+- MAIN thread (`func_800905D8`, thread 3):
+  - Submits ONE initial task to scheduler via `func_80018890` at startup
+  - Waits on `D_800F9B60` for completion messages
+  - Message type `1` → calls `func_80090744` (frame builder) → builds display list → submits GFX task
+  - Message type `3` → skip (audio completion)
+  - Message type `0x20` → exit
+- GFX tasks bypass `get_rsp_microcode` entirely — they go directly to the runtime's graphics thread via `action_queue` in `submit_rsp_task`
+
+### Diagnostic Round 2: Tracing frame building and task flow
+- Added fprintf in recompiled `func_80090744` (funcs_37.c) to trace `func_8009CA90` return value (display list builder).
+  - Required `#include <stdio.h>` (not `<cstdio>` — recompiled C files are compiled as C, not C++).
+- **Result: `func_80090744` IS being called repeatedly.** `func_8009CA90` returns non-zero values (e.g., `dl_ptr=0x0000009B`, `0x000000BA`, `0x000000D9`). Display lists ARE being built.
+- But the task `func_80090744` submits via `osJamMesg(sched+0x4, ...)` is always `type=2` (AUDIO task), not GFX.
+- **`func_80090744` is an AUDIO task builder**, not a GFX task builder.
+
+### Confirmed Architecture: Separate GFX and AUDIO submission paths
+- **AUDIO path** (working): Main thread (`func_80090744`) → `osJamMesg(sched+0x4)` → AUDIO thread → `osSpTaskStartGo(type=2)` ✓
+- **GFX path** (broken): `func_80019034` → `func_80018E30(sched, graph_queue, task)` → `osJamMesg(sched+0x3C)` → GRAPH thread → `osSpTaskStartGo(type=1)` ✗ Never happens
+- `func_80019034` builds the GFX OSTask (type=1), writes RDP end commands (0xE9000000, 0xDF000000), and sends to GRAPH thread via `func_80018E30`.
+
+### GFX task submission callers (who invokes `func_80019034`)
+1. `func_80017EC0` (in funcs_11.c) — called from thread 5 entry function `func_800178D0` (render/drawing thread, priority 0xA).
+2. `func_80000A30` (in funcs_0.c) — called indirectly via function pointer (overlay/recomp_overlays.inl entry).
+
+### `osSpTaskYielded` fix applied (necessary but not sufficient)
+- Changed `osSpTaskYielded_recomp` in `lib/N64ModernRuntime/librecomp/src/sp.cpp` from returning 0 to returning 1.
+- Rationale: AUDIO thread checks `osSpTaskYielded` after running audio tasks. If non-zero, it runs the pending GFX task stored at `sched->0x88C`. Previous `return 0` prevented this.
+- **Not sufficient alone**: `sched->0x88C` is only set by the GRAPH thread when it receives a GFX task. Since no GFX tasks reach the GRAPH thread, `sched->0x88C` stays 0 regardless.
+
+### GRAPH thread / `sched->0x88C` mechanism
+- `sched->0x888`: linked list head for pending tasks (used by scheduler dispatch)
+- `sched->0x88C`: current GFX task pointer — set ONLY by GRAPH thread (`func_80018B50`) when it receives a GFX task on queue `sched+0x3C`
+- `sched->0x898`: frame submission counter (incremented by `func_80018E30`, capped at 3)
+- `sched->0x89C`: another counter (checked by `func_80000A30`, if >= 2 skips GFX submission)
+- GRAPH thread flow: receive on `sched+0x3C` → store at `sched->0x88C` → `osSpTaskLoad` + `osSpTaskStartGo` → clear `sched->0x88C = 0`
+- AUDIO thread checks `sched->0x88C` after audio: if non-zero, participates in GFX/audio interleaving via yield mechanism
+
+### Diagnostic Round 3: Is `func_80019034` ever called?
+- Added fprintf at entry of recompiled `func_80019034` (funcs_12.c). Added `#include <stdio.h>` to funcs_12.c.
+- **Result: `func_80019034` is NEVER called.** Zero invocations in 15 seconds of runtime.
+- This confirms the problem is upstream — thread 5 (`func_800178D0`) either never runs, never reaches `func_80017EC0`, or `func_80017EC0` never reaches the `func_80019034` call. Similarly `func_80000A30` is never invoked.
+
+### Diagnostic Round 4: Thread 5 crash & lldb investigation
+- Initial fprintf diagnostic in `func_800178D0` (funcs_11.c) caused a SIGSEGV.
+- Used lldb to catch crash: `EXC_BAD_ACCESS (code=1, address=0x4000b008a)` at `func_800178D0 + 2844`.
+- **Root cause of crash: bad diagnostic code.** `MEM_HU(0X800B0088, 0)` in fprintf used a 32-bit positive literal `0x800B0088` which doesn't get sign-extended to 64-bit, causing the address subtraction `- 0xFFFFFFFF80000000` in the macro to produce an out-of-bounds address (`rdram + 0x1000B008A`). Lesson: NEVER use raw N64 addresses in MEM_* macros in diagnostic code — they need proper sign extension or use register values as the recompiled code does.
+- Fixed by removing the `MEM_HU` call from the diagnostic fprintf.
+
+### Diagnostic Round 4 (continued): Thread 5 runs but only gets one message
+- After crash fix, added checkpoints throughout `func_800178D0` init sequence.
+- **Thread 5 runs fully**: enters → `func_8001A350` → `osUnmapTLBAll` → bzero → struct init → main loop. All checkpoints reached.
+- Thread 5 main loop at `L_80017C78`: `osRecvMesg(0x800C5D38, blocking)` → checks msg type → dispatches.
+- **Receives exactly ONE message: type=1** (VI retrace completion from scheduler dispatch).
+- On type=1, checks `D_800B0088` (halfword at `0x800B0088`):
+  - If `D_800B0088 == 0` → calls `func_80017DB8` (init/calibration) → loops back
+  - If `D_800B0088 != 0` → calls `osViSetYScale`, `osViSetXScale`, `osViBlack(1)`, then `func_80017EC0` (GFX submit!) → loops back
+- After the first message, thread 5 blocks forever on `osRecvMesg` — no more messages arrive.
+
+### ROOT CAUSE FOUND: `OS_EVENT_PRENMI` not supported by runtime
+
+- `D_800B0088` is set to 1 ONLY by the SCHED thread (`func_80018774`) when it receives message `0x29D`.
+- Message `0x29D` is registered via `osSetEventMesg(OS_EVENT_PRENMI=14, sched_queue, 0x29D)` during scheduler init (`func_800184E0`).
+- **`osSetEventMesg` in `ultramodern/src/events.cpp` (line 143-163) does NOT handle event 14 (`OS_EVENT_PRENMI`).** The switch only covers `OS_EVENT_SP`, `OS_EVENT_DP`, `OS_EVENT_AI`, `OS_EVENT_SI`. Event 14 falls through silently.
+- Therefore `0x29D` is never sent to the scheduler queue, `D_800B0088` stays 0, and thread 5 never transitions from init to the GFX rendering loop.
+- This game uses `OS_EVENT_PRENMI` as a "video system ready" initialization signal — unusual (normally PRE-NMI means reset button pressed), but confirmed by code analysis:
+  - The `0x29D` handler in SCHED calls `func_80091108` (video init), `osViSetYScale(1.0)`, `osViSetXScale(1.0)`, `osViBlack(1)` (unblank screen), stores `1` to `D_800B0088`, then dispatches tasks.
+  - This is the ONE-TIME initialization that unlocks the GFX rendering loop.
+
+### Scheduler event registration (from `func_800184E0`)
+- `osViSetEvent(sched+0xAC_queue, 0x29A, retrace_count)` — VI retrace → `0x29A`
+- `osSetEventMesg(OS_EVENT_SP=4, sched+0xAC_queue, 0x29B)` — SP done → `0x29B`
+- `osSetEventMesg(OS_EVENT_DP=9, sched+0xAC_queue, 0x29C)` — DP done → `0x29C`
+- `osSetEventMesg(OS_EVENT_PRENMI=14, sched+0xAC_queue, 0x29D)` — PRE-NMI → `0x29D` ← **SILENTLY IGNORED**
+
+### Current state of diagnostics in codebase
+- `sp.cpp`: fprintf in `osSpTaskStartGo_recomp` (task type/data_ptr)
+- `sp.cpp`: `osSpTaskYielded_recomp` returns 1 (was 0)
+- `events.cpp`: fprintf in `submit_rsp_task` (GFX vs non-GFX routing)
+- `mesgqueue.cpp`: fprintf in osSendMesg/osJamMesg/osRecvMesg for GRAPH queue `0x800C5EBC`
+- `funcs_37.c`: fprintf in `func_80090744` tracing dl_ptr (+ `#include <stdio.h>`)
+- `funcs_12.c`: fprintf at entry of `func_80019034` (+ `#include <stdio.h>`)
+- `funcs_11.c`: fprintf at entry/checkpoints of `func_800178D0` (+ `#include <stdio.h>`)
+
+### FIX APPLIED: OS_EVENT_PRENMI support (Option 2)
+- Added `prenmi` struct (mq, msg, fired flag) to `events_context` in `events.cpp`.
+- Added `case OS_EVENT_PRENMI:` to `osSetEventMesg` switch — registers the queue/msg pair.
+- Fire the event ONCE on the first VI retrace after game start (in the VI thread loop, after VI/AI messages).
+- Uses `enqueue_external_message` (not `_src`) with `requeue_if_blocked=false` — one-shot, no requeue.
+- **RESULT: GFX pipeline unlocked!**
+  - Thread 5 receives `type=3` (PRE-NMI message `0x29D`) → sets `D_800B0088 = 1`
+  - Subsequent `type=1` messages now take the GFX path → `func_80017EC0` → `func_80019034`
+  - `func_80019034` builds GFX OSTask (type=1) and sends to GRAPH thread via `func_80018E30`
+  - GRAPH thread receives, calls `osSpTaskStartGo(type=1)` → `submit_rsp_task` → RT64 `action_queue`
+  - **First GFX frame submitted: `data_ptr=0x801B42C0`**
+  - ~5 GFX tasks submitted in 10 seconds (throttled by RT64 display list processing)
+- Files changed: `lib/N64ModernRuntime/ultramodern/src/events.cpp`
+
+### Milestone: GFX tasks flowing to RT64 renderer
+- Both AUDIO (type=2) and GFX (type=1) RSP tasks now reach the runtime.
+- GFX tasks route to RT64's `action_queue` for display list interpretation.
+- Frame rate is low (~0.5 fps) — likely blocked in RT64 display list processing or waiting for completion signals.
+
+### Diagnostic Round 5: Low frame rate investigation (2026-02-21)
+
+**Verified facts (via lldb SIGSTOP-attach, no debugger interference):**
+- RT64 Workload thread is ALIVE and healthy (no crash). Previous EXC_BREAKPOINT crash was debugger-induced.
+- Only 3 `send_dl` calls in 15 seconds — RT64 processes them instantly, not the bottleneck.
+- All game threads blocked on `osRecvMesg` → `semaphore_wait_trap`.
+- Game thread `func_800178D0` (SCHED/thread 5) received 800+ msg type=1 (VI retrace) but only 3 msg type=2 (dp_complete) before they stop arriving.
+- `func_80019034` (GFX submit) called 5 times total, then stops — because it waits for msg type=2 after each submit.
+- 5 GFX tasks submitted but only 3 `send_dl` — 2 GFX tasks were dropped/lost.
+
+**Root cause hypothesis: message queue overflow dropping dp_complete/sp_complete signals**
+- `dp_complete()` and `sp_complete()` call `enqueue_external_message_src()` which calls `do_send(block=false)`.
+- If the target queue is full, `do_send` returns false.
+- `requeue_dp` and `requeue_sp` both default to false in `message_queue_control`.
+- Therefore if the scheduler's message queue is full of VI retrace messages when dp_complete arrives, the dp_complete message is SILENTLY DROPPED.
+- The game then waits forever for the "frame done" signal → deadlock.
+- VI thread fires at 60Hz, flooding the scheduler queue. If the queue depth is small (e.g., 8 slots), it fills up almost immediately.
+
+**Fix options:**
+1. Set `requeue_sp = true` and `requeue_dp = true` in message_queue_control config — messages will be re-enqueued until the queue has space.
+2. Increase the game's scheduler message queue depth (harder — would need to patch recompiled code).
+3. Both.
+
+### Fix attempt: requeue SP/DP (2026-02-21)
+- Applied `.requeue_sp = true, .requeue_dp = true` in message_queue_control.
+- Result: msg type=2 now delivered (msgs #4,#5,#7) — better than before (was 0), but still stalls after 3 frames.
+- `func_80019034` called 5 times, only 3 GFX tasks reach `osSpTaskStartGo` — game's internal scheduler drops 2.
+
+### Diagnostic: update_screen and osViSwapBuffer tracing
+- `update_screen`: 600+ calls in 20s — RT64 asked to present every VI retrace. Working.
+- `osViSwapBuffer`: **only 1 call** (fb=0x80200000) — game sets framebuffer once after send_dl #1, then never again.
+- Timeline: update_screen x3 → send_dl #1 → osViSwapBuffer #1 → update_screen #4 → send_dl #2 → send_dl #3 → then only update_screen forever.
+- Game's double-buffer logic stalls: it rendered into both buffers but never gets "buffer freed" signal.
+
+### Current hypothesis: scheduler internal GFX slot deadlock
+- Game scheduler has a limited number of GFX task "slots" (likely 2, matching double-buffered framebuffers).
+- After submitting GFX tasks, it waits for DP_COMPLETE to free the slot before allowing the next submit.
+- With requeue enabled, DP_COMPLETE messages DO arrive (3 of them), but the game submitted 5 tasks total.
+- 2 tasks never reached osSpTaskStartGo → scheduler internally rejected them (slot occupied).
+- After all slots fill up, the game spins waiting for a free slot that will never come.
+
+### Scheduler architecture deep dive (2026-02-21)
+- Scheduler struct has multiple queues: `sched+0xAC` (events), `sched+0xE4` (SP task done), `sched+0x11C`, etc.
+- `osSetEventMesg(OS_EVENT_SP)` → `sched+0xAC` (main event queue, receives 0x29B)
+- Audio/task thread (`func_800189B8`) waits on `sched+0xE4` for task completion — NOT sched+0xAC.
+- `func_80018968` dispatches from a linked list at `sched->0x888` — sends messages to registered client queues.
+- `sched->0x88C`: currently running GFX task ptr (0 = none). When non-zero, scheduler yields it before starting new task.
+- `sched->0x890`: current task being run
+- `sched->0x894`: DP complete notification flag
+- `sched->0x888`: linked list of event notification clients
+
+### Key observation: osViBlack(1) called every frame
+- msg type 1 (VI retrace) handler calls `osViBlack(1)` → blanks screen
+- msg type 2 (dp_complete) handler calls `osViBlack(0)` → unblanks screen
+- Since type 2 stops arriving after 3 frames, screen stays permanently black
+
+### Recompiled code quality
+- Mechanically appears correct — direct MIPS-to-C translation with proper delay slot handling
+- Cannot fully verify without original disassembly comparison
+- The `bnel` (branch-not-equal-likely) pattern looks correctly handled with goto/skip
+
+### CV64 decomp cross-reference (2026-02-21)
+Source: `/Users/dudu/Projects/recomp/references/cv64_decomp` (k64ret/cv64)
+- `include/ultra64/PR/sched.h` — N64 SDK scheduler structs (OSSched, OSScTask, OSScClient, OSScMsg)
+- `linker/symbol_addrs.txt` — named functions for CV64
+
+**Function name mapping (LoD addr → CV64 name → CV64 addr):**
+| LoD Address | Name | CV64 Address | Description |
+|---|---|---|---|
+| 0x800184E0 | scheduler_create | 0x80015aa0 | Init scheduler struct, create queues, register events |
+| 0x8001876C | scheduler_getAudioCmdQ | 0x80015d2c | Returns audio request message queue |
+| 0x80018774 | scheduler_eventHandler | 0x80015d44 | Scheduler thread: receives VI/SP/DP events, dispatches |
+| 0x80018968 | scheduler_eventBroadcast | 0x80015ed8 | Iterates client list, sends msg to each client's queue |
+| 0x800189B8 | scheduler_executeAudio | 0x80015f28 | Audio thread: runs audio+GFX tasks on RSP |
+| 0x80018B50 | scheduler_executeGraphics | 0x800160b0 | Graphics thread (thread 17) |
+| 0x80018E30 | scheduler_taskDispatch | — | Sends task to scheduler via osJamMesg, checks OS_SC_SWAPBUFFER |
+| 0x80019034 | createGraphicTasks | 0x80016440 | Builds GFX task struct, submits to scheduler |
+| 0x800178D0 | graphThread_entrypoint | — | Thread 5: main render loop, receives retrace/done msgs |
+| 0x800905D8 | mainThread_entrypoint | — | Main game logic thread |
+
+**OSSched struct field mapping (from sched.h + recompiled code analysis):**
+| Offset | Type | Name | Description |
+|---|---|---|---|
+| 0x000 | short | retrace_count | |
+| 0x002 | short | numFields | |
+| 0x004 | OSMesgQueue | cmdQ | Task command queue |
+| 0x03C | OSMesgQueue | queue2 | |
+| 0x074 | OSMesgQueue | queue3 | |
+| 0x0AC | OSMesgQueue | interruptQ | Main event queue (VI, SP, DP, PRE-NMI events) |
+| 0x0E4 | OSMesgQueue | spDoneQ | SP task completion queue |
+| 0x11C | OSMesgQueue | queue5 | |
+| 0x154 | OSMesgQueue | dpDoneQ | DP completion notification queue |
+| 0x18C | OSMesgQueue | queue7 | |
+| 0x888 | OSScClient* | clientList | Linked list of event notification clients |
+| 0x88C | OSScTask* | curRSPTask | Currently running GFX task on RSP |
+| 0x890 | OSScTask* | curTask | Current task being run |
+| 0x894 | u32 | dpNotify | DP completion notification pending |
+| 0x898 | u32 | swapCount | Swapbuffer tracking counter |
+| 0x89C | u32 | swapCount2 | Swapbuffer tracking counter 2 |
+| 0x8A0 | u32 | field_8A0 | Init to 1 |
+| 0x8A4 | u32 | field_8A4 | Init to 1 |
+
+**OSScTask struct (from sched.h):**
+| Offset | Type | Name | Description |
+|---|---|---|---|
+| 0x00 | OSScTask* | next | Linked list pointer |
+| 0x04 | u32 | state | |
+| 0x08 | u32 | flags | OS_SC_SWAPBUFFER=0x40 |
+| 0x0C | void* | framebuffer | Used by graphics tasks |
+| 0x10 | OSTask | list | The actual RSP task struct (0x40 bytes) |
+| 0x50 | OSMesgQueue* | msgQ | Where to send completion msg |
+| 0x54 | OSMesg | msg | Completion message value |
+
+**Key insight: OS_SC_SWAPBUFFER (0x40) flag**
+- `scheduler_taskDispatch` checks `task->flags & 0x40`
+- When set, scheduler tracks swapbuffer state in sched+0x898/0x89C
+- The scheduler only calls osViSwapBuffer when the flagged task completes
+- This is why only 1 osViSwapBuffer call happens — the flag/completion tracking stalls
+
+### Updated symbol_addrs.txt
+- Added all scheduler and game function names to `symbol_addrs.txt`
+
+### Next step
+- With named functions, can now investigate the specific stall point more methodically
+- Key question: does `scheduler_executeAudio` receive the SP completion message on `sched+0xE4`?
+- The SP event goes to `sched+0xAC` (interruptQ), handled by `scheduler_eventHandler`, which should forward to `scheduler_executeAudio`'s completion queue
+- Need to trace this forwarding path to find where the message gets lost
+
+### 2026-02-21 — Process management lesson (post-reboot)
+- **Problem**: launching LodRecomp with `&` (shell background) and killing with `kill -9` caused UNE (uninterruptible sleep) zombie processes. Accumulated 5+ unkillable processes that required a reboot.
+- **Root cause**: the app opens a macOS Metal/AppKit window (WindowServer connection). When killed in background without proper GUI teardown, the WindowServer connection gets stuck → UNE state.
+- **`sample` tool limitation**: couldn't see real threads (only showed 160K footprint, stuck in dyld) — even for the "alive" process.
+- **lldb attach also failed**: `lldb -b -o "process attach -p $PID"` → "Aborted" error. SIP/entitlements prevent external attach to JIT-entitled processes.
+- **Safe approach going forward**:
+  1. NEVER background the app with `&` — use `lldb -b -o "run"` which manages the full process lifecycle
+  2. ALWAYS wrap with `timeout` to ensure termination: `timeout 20 lldb -b -o "run" ...`
+  3. Use fprintf diagnostics instead of external debugger attachment for thread inspection
+  4. After each test, verify no stale processes: `pgrep -la LodRecomp`
+- **Next diagnostic**: add fprintf tracing in scheduler forwarding path (scheduler_eventHandler → spDoneQ) to trace where SP/DP completion messages get lost
+
+### 2026-02-21 — Critical fix: osViGetNextFramebuffer misidentification
+
+#### Root cause
+- `func_80099970` at vram 0x80099970 was misidentified as `osGetThreadId` in `castlevania2.syms.toml`.
+- The function loads `D_800BB914 + 0x4` — actually `__osViNext->buffer` (next framebuffer pointer), NOT `__osRunningThread->id`.
+- Both `osViGetCurrentFramebuffer` (D_800BB910+0x4) and this function (D_800BB914+0x4) have identical instruction patterns but operate on different globals.
+- The misidentification caused `osGetThreadId_recomp` to be called (returns small integer thread ID) instead of `osViGetNextFramebuffer_recomp` (returns framebuffer pointer).
+- In `scheduler_executeGraphics` (func_80018B50), the double-buffer wait logic compares `osViGetNextFramebuffer() == task->framebuffer` to decide if the framebuffer is still pending display. With the wrong function, the comparison was always `threadId != framebufferPtr`, breaking the swap wait logic.
+- Result: after 3 frames, `curFB == taskFB` triggered the swap wait loop, which called `func_80018890` + `osRecvMesg(sched+0x154)` in a tight loop because `osViGetNextFramebuffer()` never returned the expected value.
+
+#### Fix applied
+1. Renamed `osGetThreadId` → `osViGetNextFramebuffer` in `castlevania2.syms.toml` (vram 0x80099970).
+2. Search-and-replaced `osGetThreadId_recomp` → `osViGetNextFramebuffer_recomp` in `RecompiledFuncs/funcs_12.c`, `funcs.h`, `recomp_overlays.inl`.
+3. Fixed N64Recomp truncation artifacts in `funcs.h`, `funcs_102.c`, and `recomp_overlays.inl` (overlay_system section causes tool crash at output phase — manually completed the truncated entries).
+4. Made SDL audio device failure non-fatal (CoreAudio error -66681 intermittent on macOS after repeated test sessions).
+
+#### Other changes (reverted to Zelda-aligned approach)
+- `sp_complete()` / `dp_complete()` in `events.cpp`: reverted back to `enqueue_external_message_src` with `requeue_sp=true, requeue_dp=true` (not `osSendMesg` — runtime's `osSendMesg` routes non-game-thread calls to `enqueue_external_message` with `requeue=false`, silently dropping messages).
+- `osSpTaskYielded_recomp` in `sp.cpp`: returns 0 (task yield requests ignored, matches Zelda).
+- `message_queue_control` in `main.cpp`: `requeue_sp=true, requeue_dp=true` re-enabled.
+
+#### Result
+- GFX pipeline now renders continuously: 17 frames in 25s (~0.7 fps).
+- Framebuffers cycle correctly: 0x80200000, 0x80225800, 0x8024B000.
+- `nextFB!=taskFB` check consistently passes — no more swap wait deadlock.
+- Frame rate is still low; likely bottlenecked by audio scheduling overhead and other factors.
+
+#### Next steps
+- Investigate low frame rate (0.7 fps target ~20+ fps).
+- Check if audio stub completion rate floods SP done queue, starving GFX tasks.
+- Consider profiling the game thread scheduling to identify bottleneck.
