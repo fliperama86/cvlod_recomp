@@ -239,7 +239,11 @@ def write_raw_files(input, buffer, table_addr):
         copy_buffer_from_pos_with_len(input, file_buf, file_addrs[i], file_sizes[i])
 
         if skip_files[i] != 1:
-            file_buf = bytearray(decompress_buffer(file_buf))
+            try:
+                file_buf = bytearray(decompress_buffer(file_buf))
+            except (IndexError, Exception) as e:
+                print(f"  WARNING: file {i} decompression failed ({e}), copying raw")
+                pass  # keep the raw/compressed data as-is
 
         copy_buffer_to_pos_with_len(
             file_buf, buffer, new_file_addrs[i], new_file_sizes[i]
