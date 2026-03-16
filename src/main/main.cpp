@@ -1,11 +1,15 @@
 #include <cstdio>
 #include <cassert>
+#include <csignal>
+#include <cstdlib>
+#include <unistd.h>
 #include <vector>
 #include <array>
 #include <numeric>
 #include <stdexcept>
 #include <cinttypes>
 #include <thread>
+#include <chrono>
 #include <filesystem>
 
 #include "ultramodern/ultra64.h"
@@ -186,9 +190,10 @@ void reset_audio(uint32_t output_freq) {
 
     audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
     if (audio_device == 0) {
-        exit_error("SDL error opening audio device: %s\n", SDL_GetError());
+        fprintf(stderr, "[WARN] SDL error opening audio device: %s (continuing without audio)\n", SDL_GetError());
+    } else {
+        SDL_PauseAudioDevice(audio_device, 0);
     }
-    SDL_PauseAudioDevice(audio_device, 0);
 
     output_sample_rate = output_freq;
     update_audio_converter();
@@ -237,6 +242,19 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_S]) *y -= 1.0f;
     if (keys[SDL_SCANCODE_A]) *x -= 1.0f;
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
+
+    // DEBUG: Auto-press START/A to advance past title/splash screens
+    {
+        static auto first = std::chrono::steady_clock::now();
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - first).count();
+        if (ms > 2000 && ms < 2200) *buttons |= 0x1000; // START
+        if (ms > 3000 && ms < 3200) *buttons |= 0x8000; // A
+        if (ms > 4000 && ms < 4200) *buttons |= 0x1000; // START
+        if (ms > 5000 && ms < 5200) *buttons |= 0x8000; // A
+        if (ms > 6000 && ms < 6200) *buttons |= 0x1000; // START
+        if (ms > 7000 && ms < 7200) *buttons |= 0x8000; // A
+    }
 
     return true;
 }
@@ -373,9 +391,21 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
     recomp::start_game(game_id);
 }
 
+// ── Signal handling ─────────────────────────────────────────────────
+
+static void signal_handler(int sig) {
+    fprintf(stderr, "\n[LodRecomp] Caught signal %d, shutting down...\n", sig);
+    ultramodern::quit();
+    // Give threads a moment to clean up, then force exit
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    _exit(0);
+}
+
 // ── Main ────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
+    std::signal(SIGINT, signal_handler);
+    std::signal(SIGTERM, signal_handler);
     recomp::Version project_version{};
     recomp::Version::from_string("0.1.0", project_version);
 
@@ -466,7 +496,7 @@ int main(int argc, char** argv) {
         .events_callbacks = events_callbacks,
         .error_handling_callbacks = error_handling_callbacks,
         .threads_callbacks = threads_callbacks,
-        .message_queue_control = { .requeue_timer = false },
+        .message_queue_control = { .requeue_timer = false, .requeue_sp = true, .requeue_dp = true },
     };
 
     fprintf(stderr, "[LodRecomp] Calling recomp::start()...\n");

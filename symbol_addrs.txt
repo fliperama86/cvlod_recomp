@@ -101,6 +101,34 @@ guRotateRPY      = 0x800A6BCC; // type:func
 guLookAtReflectF = 0x800A1C80; // type:func
 guLookAtReflect  = 0x800A1F38; // type:func
 
+// Scheduler (names from CV64 decomp cross-reference, k64ret/cv64)
+scheduler_create           = 0x800184E0; // type:func  // CV64: scheduler_create (0x80015aa0)
+scheduler_getAudioCmdQ     = 0x8001876C; // type:func  // CV64: scheduler_getAudioRequestMQ (0x80015d2c)
+scheduler_eventHandler     = 0x80018774; // type:func  // CV64: scheduler_eventHandler (0x80015d44)
+scheduler_eventBroadcast   = 0x80018968; // type:func  // CV64: scheduler_eventBroadcast (0x80015ed8)
+scheduler_executeAudio     = 0x800189B8; // type:func  // CV64: scheduler_executeAudio (0x80015f28)
+scheduler_executeGraphics  = 0x80018B50; // type:func  // CV64: scheduler_executeGraphics (0x800160b0)
+scheduler_taskDispatch     = 0x80018E30; // type:func  // sends task to scheduler cmdQ via osJamMesg
+createGraphicTasks         = 0x80019034; // type:func  // CV64: createGraphicTasks (0x80016440)
+
+// Game threads (names from CV64 decomp cross-reference)
+game_main                  = 0x800177E0; // type:func  // already defined above
+graphThread_entrypoint     = 0x800178D0; // type:func  // thread 5 / render thread, receives VI/DP msgs
+mainThread_entrypoint      = 0x800905D8; // type:func  // main game loop thread
+
+// Game rendering
+func_80017DB8              = 0x80017DB8; // type:func  // called when D_800B0088==0 (pre-init frame)
+func_80017EC0              = 0x80017EC0; // type:func  // main frame render function (builds display list)
+func_80018D28              = 0x80018D28; // type:func  // thread 16 entry
+func_80091108              = 0x80091108; // type:func  // video init (called on PRE-NMI signal)
+func_80090744              = 0x80090744; // type:func  // frame builder, calls display list builder
+func_8009CA90              = 0x8009CA90; // type:func  // display list builder (returns dl size)
+func_8001A350              = 0x8001A350; // type:func  // called during graphThread init
+
+// Key globals
+D_800B0088 = 0x800B0088; // type:data  // "video ready" flag, set to 1 by scheduler on PRE-NMI event
+gDisplayListHead = 0x800CE760; // type:data  // current display list write pointer
+
 // C Library / Math
 sinf    = 0x80097170; // type:func
 __cosf  = 0x800A3780; // type:func

@@ -247,12 +247,22 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
 lod::renderer::RT64Context::~RT64Context() = default;
 
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
+    static int dl_count = 0;
+    dl_count++;
+    fprintf(stderr, "[RT64] send_dl #%d: ucode=0x%08X ucode_data=0x%08X data_ptr=0x%08X\n",
+            dl_count, (uint32_t)task->t.ucode, (uint32_t)task->t.ucode_data, (uint32_t)task->t.data_ptr);
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->processDisplayLists(app->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
+    fprintf(stderr, "[RT64] send_dl #%d completed\n", dl_count);
 }
 
 void lod::renderer::RT64Context::update_screen() {
+    static int screen_count = 0;
+    screen_count++;
+    if (screen_count <= 20 || (screen_count % 200 == 0)) {
+        fprintf(stderr, "[RT64] update_screen #%d\n", screen_count);
+    }
     app->updateScreen();
 }
 

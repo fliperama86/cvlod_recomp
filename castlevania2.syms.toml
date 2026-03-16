@@ -2076,7 +2076,7 @@ functions = [
     { name = "__osSetSR", vram = 0x80099910, size = 0x10 },
     { name = "__osGetSR", vram = 0x80099920, size = 0xC },
     { name = "func_80099930", vram = 0x80099930, size = 0x40 },
-    { name = "osGetThreadId", vram = 0x80099970, size = 0x40 },
+    { name = "osViGetNextFramebuffer", vram = 0x80099970, size = 0x40 },
     { name = "func_800999B0", vram = 0x800999B0, size = 0x8C },
     { name = "__osSpRawStartDma", vram = 0x80099A40, size = 0x84 },
     { name = "__osSiRawStartDma", vram = 0x80099AD0, size = 0xAC },
