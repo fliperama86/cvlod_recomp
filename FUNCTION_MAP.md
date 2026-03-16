@@ -2,6 +2,8 @@
 
 Known functions discovered through debugging. Reference: [k64ret/cv64](https://github.com/k64ret/cv64) decomp (same engine, different game).
 
+> **TODO**: Once we have enough confidence in the names, rename the actual functions in `castlevania2.syms.toml` and re-run N64Recomp to regenerate the C files with meaningful names (e.g. `func_80018890` → `scheduler_register_client`). This will make future debugging and the codebase much more readable.
+
 ## Boot / Entry
 
 | Address | Name | cv64 Equivalent | Description |
