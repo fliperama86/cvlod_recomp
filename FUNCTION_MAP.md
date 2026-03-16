@@ -99,8 +99,10 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 |---------|------|-----------------|-------------|
 | 0x8001A25C | `func_8001A25C` | Display list submit? | Called after object system update. Submits GFX task to scheduler |
 | 0x8001A230 | `func_8001A230` | | Called twice during init — possibly framebuffer setup |
-| 0x8001A42C | `func_8001A42C` | DMA loader | Called during init for ROM→RAM transfers (DMA #1 and #2) |
+| 0x8001A42C | `func_8001A42C` | `NI_fileLoad` | NI file loader. Reads NI table ptr from 0x800F13F8, calls func_8001A374 for ROM DMA. Called by DMAMgr state 1 handler |
 | 0x80090C00 | `func_80090C00` | | Called during init, between DMA #2 and overlay loading |
+| 0x801771E0 | `func_801771E0` | `renderContext_buildDL` | Builds display list commands (matrices, G_DL branches). Called by overlay state handlers. Calls func_80013CF8 |
+| 0x80013CF8 | `func_80013CF8` | `gfx_appendCommands` | Appends view/projection matrix + sub-DL commands to the current display list |
 
 ## Game State Handler / NI System
 
@@ -109,8 +111,15 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | 0x80177860 | `func_80177860` | `gameStateHandler_main` | Main game state handler. Gated by sys+0x2908 bit 28 (`sll 3, bgez`). Calls func_8017A600, func_80177948/80177B4C, func_801780C4, func_80013CF8 |
 | 0x8017A600 | `func_8017A600` | `NI_processFrame` | **KEY GATE**: Checks sys+0x295C, sys+0x2B6C, sys+0x2B70 — all must be non-zero. If any NULL, returns immediately (no rendering). Calls func_8017A790 → func_80181EF0 |
 | 0x8017A790 | `func_8017A790` | `NI_renderFrame` | Actual frame rendering. Reads sys+0x2E2C, calls func_80180710, func_801797B8. Only reached when all 3 NI pointers are valid |
-| 0x8001A8C4 | `func_8001A8C4` | `NI_createObjects` | Creates NI subsystem objects via func_8000233C. Sets sys+0x294C (spec 0x185), sys+0x2954 (spec 0x6), sys+0x2B70 (spec 0x89). **Not called in recomp — no caller in dispatch chain** |
+| 0x8001A8C4 | `func_8001A8C4` | `NI_createObjects` | Creates NI subsystem objects via func_8000233C. Sets sys+0x294C (spec 0x185), sys+0x2954 (spec 0x6), sys+0x2B70 (spec 0x89). **Called before root child creation in recomp** |
 | 0x801CB5CC | `overlay_system_func_801CB5CC` | `NI_init` | NI file system initializer. Allocates 0x314 bytes via func_80002808, initializes NI file manager. Sets sys+0x295C. In overlay_system section |
+| 0x80011D10 | `func_80011D10` | `DMAMgr_entry` | DMAMgr object entry (ID=4). Same state machine pattern as overlays. State 0: init (func_80011D80), State 1: processing (func_80011E48) |
+| 0x80011D80 | `func_80011D80` | `DMAMgr_init` | DMAMgr state 0: allocates 0x988 bytes, registers self at 0x800C1600 (overlay load manager ptr) |
+| 0x80011E48 | `func_80011E48` | `DMAMgr_processLoad` | DMAMgr state 1: checks pending count at ctx+0x846, processes load requests, calls func_8001A42C for ROM DMA. Transitions to state 2 on success |
+| 0x800119CC | `func_800119CC` | `overlay_loadSection` | Overlay section loader. Reads load_mgr from 0x800C1600, processes overlay descriptor entries, queues DMA to DMAMgr |
+| 0x80010EA0 | `func_80010EA0` | `overlay_initiateLoad` | Initiates overlay load. Reads 0x800C1600 (load_mgr) and descriptor, calls func_800119CC |
+| 0x80142388 | `func_80142388` | `NI_checkTiming` | Reads game timing from sys+0x2B2C. Returns 0 when timing data not initialized |
+| 0x8014314C | `func_8014314C` | `NI_checkFileReady` | Checks NI file readiness. Reads obj+0x70 (file handle), falls through to func_80142388 if NULL |
 
 ## Utility / Misc
 
@@ -142,7 +151,14 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | 0x801CABC8 | u32 | **Execution flags** (sys+0x2908). Bit 28 gates func_80177860. Forced to 0x380080C8 in recomp |
 | 0x801CAC1C | ptr | **NI file manager** (sys+0x295C). Set to object 12 (0x8031AF30) by overlay dispatch. Gates func_8017A600 |
 | 0x801CAE2C | ptr | sys+0x2B6C — set naturally to 0x8031ADD4 |
-| 0x801CAE30 | ptr | sys+0x2B70 — set by func_8001A8C4. Gates func_8017A600. **NULL in recomp** |
+| 0x801CAE30 | ptr | sys+0x2B70 — set by func_8001A8C4. Gates func_8017A600 |
+| 0x801CADEC | ptr | sys+0x2B2C — game timing ptr. Read by func_80142388. NULL during Konami logo |
+| 0x801C8830 | ptr[] | sys+0x570 — `Nisitenma_Ichigo_loaded_files_ptr[]` array (indexed by file ID) |
+| 0x801C83EC | u32[64] | sys+0x12C — NI loaded files bitmask (64 × 32-bit = 2048 bits) |
+| 0x800C1600 | ptr | Overlay load manager pointer. Set by DMAMgr state 0 (func_80011D80) to DMAMgr obj |
+| 0x800C1604 | u32 | Current NI file ID being loaded by DMAMgr |
+| 0x800F13F8 | ptr | NI file table ROM pointer. Set during boot by func_80090C00 |
+| 0x800CE768 | u8 | DMA busy flag. Set to 1 during DMA, cleared after |
 | 0x800F9B60 | OSMesgQueue | Second client queue (registered with scheduler, likely GFX-related) |
 | 0x801C82C0 | struct | Game state struct base (`lui 0x801D; addiu -0x7D40`). +0x00=frame counter, +0x28=game state field, +0x88=timer, +0x534=controller status |
 | 0x801C82E8 | i16 | Game state field — read by func_80002E3C to determine if state manager is initialized |
