@@ -48,9 +48,26 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 
 | Address | Name | cv64 Equivalent | Description |
 |---------|------|-----------------|-------------|
-| 0x80002950 | `func_80002950` | `object_execute`? | Takes object pointer, checks flags (bit 0x2000), calls func_80011060. **Currently hangs** |
-| 0x80011060 | `func_80011060` | Object update handler? | Called from func_80002950. Unknown — needs investigation |
+| 0x80002950 | `func_80002950` | `object_execute` | Executes one object. Path A (bit 0x2000 set): calls mapOverlay → func from table → func_8001123C. Path B (no overlay): calls func from table directly. Recurses for child objects via func_80000578 |
+| 0x80011060 | `func_80011060` | `mapOverlay` | Maps overlay code via TLB for objects with OBJ_FLAG_MAP_OVERLAY (bit 0x2000). Uses overlay descriptor table at 0x800AEA8C. **TLB is stubbed — overlay objects don't execute** |
+| 0x8001123C | `func_8001123C` | `unmapOverlay`? | Called after overlay object execution to unmap TLB |
+| 0x80000578 | `func_80000578` | `object_executeChildObject` | Recursive child object execution — iterates linked list of children calling func_80002950 |
 | 0x80000460 | `func_80000460` | Overlay/object loader | Takes index, looks up function table, calls loader, calls func_80001090 to init object |
+
+### Object Flags
+- Bit 0x2000 in ID (halfword at obj+0x00): `OBJ_FLAG_MAP_OVERLAY` — needs TLB overlay mapping before execution
+- Lower 11 bits of ID (& 0x7FF): index into `Objects_functions` table at 0x800AD640
+- Halfword at obj+0x02: secondary flags
+
+### Function Table (Objects_functions)
+- Base: 0x800AD640 (in data gap between ..main and ..common)
+- Entries 0-10: direct function pointers (0x80xxxxxx)
+- Entries 11-14: overlay ROM addresses (0x0F000000) — need TLB/overlay loading
+- Entry 15: 0x0F000B60 — another overlay ROM address
+
+### Overlay Descriptor Table
+- Base: 0x800AEA8C (0x800B0000 - 0x1574)
+- Contains overlay metadata (ROM address, size, target vram) used by mapOverlay
 
 ## Controller / Input
 
