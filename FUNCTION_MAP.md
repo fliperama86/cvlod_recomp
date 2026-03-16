@@ -52,7 +52,18 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 | 0x80011060 | `func_80011060` | `mapOverlay` | Maps overlay code via TLB for objects with OBJ_FLAG_MAP_OVERLAY (bit 0x2000). Uses overlay descriptor table at 0x800AEA8C. **TLB is stubbed — overlay objects don't execute** |
 | 0x8001123C | `func_8001123C` | `unmapOverlay`? | Called after overlay object execution to unmap TLB |
 | 0x80000578 | `func_80000578` | `object_executeChildObject` | Recursive child object execution — iterates linked list of children calling func_80002950 |
-| 0x80000460 | `func_80000460` | Overlay/object loader | Takes index, looks up function table, calls loader, calls func_80001090 to init object |
+| 0x80000460 | `func_80000460` | Overlay/object loader | Takes index, looks up function table, calls loader, calls func_80001090 (memcpy) to init object from template |
+| 0x80001090 | `func_80001090` | `memcpy` | Copies N bytes from src to dest. Used to copy object template data to allocated objects |
+| 0x8000233C | `func_8000233C` | Object allocator? | Called from func_80000460, returns object pointer (e.g. 0x8031AC78) |
+| 0x8002A790 | `func_8002A790` | `objectOverlayExec` | Reads overlay selector from 0x800F3F54, writes it to obj ID, then calls mapOverlay. Called from func_8017747C |
+| 0x8017747C | `func_8017747C` | Overlay dispatcher | Reads state byte from obj+0x9, indexes function table at 0x801927C8, dispatches call. Used by objects with idx=136 (flags=0x0088) |
+
+## Game State System
+
+| Address | Name | cv64 Equivalent | Description |
+|---------|------|-----------------|-------------|
+| 0x80002E3C | `func_80002E3C` | `gameStateMgr_update` | Game state manager. Reads state field from 0x801C82E8 and cmd_list from obj+0x34. Processes command list to create/destroy game states. Object #2 (flags=0x0002) |
+| 0x8002A6DC | `func_8002A6DC` | `gamestate_change` | Sets overlay selector at 0x800F3F54. Never called directly — only via LOOKUP_FUNC/jalr. Called when game transitions between states (e.g., logo → title) |
 
 ### Object Flags
 - Bit 0x2000 in ID (halfword at obj+0x00): `OBJ_FLAG_MAP_OVERLAY` — needs TLB overlay mapping before execution
@@ -103,12 +114,41 @@ Known functions discovered through debugging. Reference: [k64ret/cv64](https://g
 |---------|------|-------------|
 | 0x800B0088 | u16 | Guard variable — set to 1 by pre-NMI scheduler handler. Controls retrace dispatch path |
 | 0x800B008C | u16 | Frame state machine state (0x00-0x10 = init frames, 0x11+ = done) |
-| 0x800C1520 | ptr | Pointer to main game object (set by func_80000460 during overlay loading) |
+| 0x800B00C4 | table | Overlay entry table — pairs of ROM start/end addresses per overlay (segment 0x06 addresses) |
+| 0x800AD640 | table | `Objects_functions` — function pointer/segment address table indexed by obj ID & 0x7FF |
+| 0x800AEA8C | table | Overlay descriptor pointer table — per-function-index, points to overlay descriptor structs |
+| 0x800C1520 | ptr | Pointer to root game object (set by func_80000460 during overlay loading) |
+| 0x800C15E4 | u32 | Current overlay slot index (used by mapOverlay state table) |
+| 0x800C15E8+ | table | Overlay state table — vram targets, sizes, ROM pages per slot |
 | 0x800C5D38 | OSMesgQueue | Main loop message queue (8 slots) |
-| 0x800C5E80 | struct | Scheduler struct (0x8A0+ bytes) |
+| 0x800C5E80 | struct | Scheduler struct (0x8A0+ bytes). +0x888=client list head, +0x89C=pending count |
 | 0x800C5EBC | OSMesgQueue | GRAPH thread input queue |
-| 0x800CE760 | u32 | Written by func_80017E9C — function pointer? |
 | 0x800EFB70 | OSMesgQueue | SI event queue (controller completion) |
+| 0x800F3F54 | i16 | **Overlay selector** — determines which overlay to load for overlay objects. Set by gamestate_change (func_8002A6DC). Currently 0 (uninitialized) because game state system can't bootstrap |
 | 0x800F9B60 | OSMesgQueue | Second client queue (registered with scheduler, likely GFX-related) |
-| 0x801C82C0 | struct | Game state struct base (accessed via `lui 0x801D; addiu -0x7D40`). Fields at +0x00 (frame counter), +0x88 (timer/counter), +0x534 area (controller status) |
-| 0x8031AC78 | object | Main game object loaded during init (passed to func_80002950) |
+| 0x801C82C0 | struct | Game state struct base (`lui 0x801D; addiu -0x7D40`). +0x00=frame counter, +0x28=game state field, +0x88=timer, +0x534=controller status |
+| 0x801C82E8 | i16 | Game state field — read by func_80002E3C to determine if state manager is initialized |
+| 0x8031AC78 | object | Root game object. +0x34=cmd_list_ptr (0x9000C87C after init). Children: game state mgr, overlay dispatcher, etc. |
+| 0x8031ACEC | object | Game state manager object (ID=0x0002). +0x34=cmd_list_ptr (should contain game state commands but reads as 0) |
+| 0x8031AF30 | object | Overlay object (ID=0x200C). Calls mapOverlay → dispatches to overlay_system function |
+
+## Segment Address System
+
+The game uses N64 TLB-based segment addresses in data structures. These are **NOT** resolved in the current recomp.
+
+| Segment | Address Pattern | Maps To | Status |
+|---------|----------------|---------|--------|
+| 0x09 | 0x9000XXXX | Unknown ROM/data region | **NOT RESOLVED** — root cause of black screen |
+| 0x0C | 0x0C000000+ | TLB page (size varies) | Stubbed |
+| 0x0D | 0x0D000000+ | TLB page (size varies) | Stubbed |
+| 0x0E | 0x0E000000+ | TLB page (size varies) | Stubbed |
+| 0x0F | 0x0F000000+ | overlay_system (0x801CAEA0) | **Function calls translated**, data access NOT |
+
+### Known segment 9 addresses in game data
+- `0x9000C87C` — root object command list pointer (at obj+0x34)
+- `0x90000864` — unknown (at obj+0x38)
+- `0x9000C914` — unknown (at obj+0x4C)
+- `0x900065DC` — unknown (at obj+0x50)
+- `0x90000A30` — unknown (at obj+0x54)
+
+These span offsets 0x0864–0xC914 (~50KB range) within segment 9. Need to find the physical ROM base address for this segment.
