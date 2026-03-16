@@ -220,6 +220,11 @@ void poll_inputs() {
 }
 
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+    {
+        static int input_calls = 0; input_calls++;
+        if (input_calls <= 3 || (input_calls % 1000 == 0))
+            fprintf(stderr, "[INPUT] get_n64_input called #%d, controller=%d\n", input_calls, controller_num);
+    }
     if (controller_num != 0) return false;
 
     *buttons = 0;
@@ -244,16 +249,22 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
     // DEBUG: Auto-press START/A to advance past title/splash screens
+    // Timing adjusted: game needs ~3s to boot (0.5s auto-start + 2s VI delay + init)
     {
         static auto first = std::chrono::steady_clock::now();
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - first).count();
-        if (ms > 2000 && ms < 2200) *buttons |= 0x1000; // START
-        if (ms > 3000 && ms < 3200) *buttons |= 0x8000; // A
-        if (ms > 4000 && ms < 4200) *buttons |= 0x1000; // START
-        if (ms > 5000 && ms < 5200) *buttons |= 0x8000; // A
-        if (ms > 6000 && ms < 6200) *buttons |= 0x1000; // START
-        if (ms > 7000 && ms < 7200) *buttons |= 0x8000; // A
+        if (ms > 5000  && ms < 5500)  *buttons |= 0x1000; // START
+        if (ms > 7000  && ms < 7500)  *buttons |= 0x8000; // A
+        if (ms > 9000  && ms < 9500)  *buttons |= 0x1000; // START
+        if (ms > 11000 && ms < 11500) *buttons |= 0x8000; // A
+        if (ms > 13000 && ms < 13500) *buttons |= 0x1000; // START
+        if (ms > 15000 && ms < 15500) *buttons |= 0x8000; // A
+        if (*buttons != 0) {
+            static int input_log_count = 0;
+            if (input_log_count++ < 10)
+                fprintf(stderr, "[INPUT] auto-press buttons=0x%04X at t=%lldms\n", *buttons, ms);
+        }
     }
 
     return true;

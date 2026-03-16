@@ -4,6 +4,8 @@
 // These are all handled natively by ultramodern, so empty stubs are safe.
 
 #include <cstdint>
+#include <cstdio>
+#include "ultramodern/ultramodern.hpp"
 
 struct recomp_context;  // forward declare
 
@@ -20,7 +22,12 @@ void __ll_rshift_recomp(uint8_t* rdram, recomp_context* ctx) {}
 // Batch 2: additional ignored functions called by recompiled code
 void __osSiGetAccess_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osSiRelAccess_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {}
+void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // Send SI completion message so the game doesn't hang waiting for SI DMA.
+    // The actual DMA (PIF RAM read/write) is a no-op — controller data is
+    // populated elsewhere. We just need the completion signal.
+    ultramodern::send_si_message();
+}
 void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osPackRequestData_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osPiRawReadIo_recomp(uint8_t* rdram, recomp_context* ctx) {}
