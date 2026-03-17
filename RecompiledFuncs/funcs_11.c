@@ -3474,10 +3474,9 @@ L_80017CB8:
                             ctx->r4 = ni_obj;
                             overlay_system_func_801CB5CC(rdram, ctx);
                             ctx->r4 = saved_r4;
-                            // NOTE: File[97] (segment 6 scene data) NOT copied to low RDRAM.
-                            // Raw copying breaks internal pointers in the file data.
-                            // The NI system needs to properly load+relocate the data.
-                            // Without this, segment 6 sub-DLs remain invalid (0 base).
+                            // Note: file pointers NOT re-applied here. Setting them
+                            // breaks overlay/TLB. send_dl() fixes segment 6 at DL time
+                            // using the ni_decompressed_addrs[] table.
                             uint32_t result = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
                             fprintf(stderr, "[NI_INIT] done, sys+0x295C=0x%08X, file[97]=0x%08X\n",
                                     result, (uint32_t)MEM_W(S32(0x801C89B4), 0));

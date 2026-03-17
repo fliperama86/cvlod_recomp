@@ -248,44 +248,155 @@ lod::renderer::RT64Context::~RT64Context() = default;
 
 static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb address
 
+// Decompressed NI file table (defined in recomp.cpp)
+extern uint32_t ni_decompressed_addrs[1024];
+extern int ni_decompressed_count;
+
+// Check if an opcode byte is a valid F3DEX2/RDP command.
+static bool is_valid_gbi_opcode(uint8_t op) {
+    return op == 0x01 || (op >= 0x04 && op <= 0x07) || op >= 0xD7;
+}
+
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
+    uint8_t* rdram = app->core.RDRAM;
+    static int dl_n = 0; dl_n++;
+    bool do_log = (dl_n <= 5 || (dl_n % 200 == 0));
 
-    // No KSEG0 mirror — RT64's fromSegmented handles KSEG0 natively.
-    // 0x800B0090 → segment[0] + 0x0B0090 → physical 0x0B0090.
+    // ni_decompressed_addrs/count declared at file scope above
 
-    // NOP out segment 6 sub-DL branches. Segment 6 base = 0 (NI file not loaded),
-    // so 0x06XXXXXX addresses resolve to low RDRAM containing MIPS code.
-    // RT64 hangs trying to interpret code as GBI. Replace with G_NOOP.
+    // === Fix segment 6 values in the DL ===
+    // The game sets segment[6] = file_ptr_array[file_id], but file_ptrs are 0
+    // (can't set them without breaking overlay/TLB). Instead, we rewrite
+    // segment 6 G_MOVEWORD commands to use our decompressed data addresses.
+    //
+    // Strategy: collect all segment-6 G_DL offsets, cross-validate against
+    // decompressed files to find the matching file, then rewrite segment 6.
     {
-        uint8_t* rdram = app->core.RDRAM;
+        // Collect segment-6 G_DL offsets
+        uint32_t seg6_offsets[64];
+        int seg6_count = 0;
+        bool has_seg6_zero = false;
+
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            // NOP ALL G_DL branches in the main DL. Sub-DLs contain nested
-            // branches to zeroed memory and segment 6 (invalid) that crash RT64.
-            // Until NI file loading provides valid sub-DL content, all branches
-            // must be disabled for stability.
-            if (((w0 >> 24) & 0xFF) == 0xDE) {
-                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+            uint8_t opcode = (w0 >> 24) & 0xFF;
+
+            if (opcode == 0xDB && ((w0 >> 16) & 0xFF) == 0x06) {
+                int seg_idx = (w0 & 0xFFFF) / 4;
+                if (seg_idx == 6 && w1 == 0) has_seg6_zero = true;
             }
-            if (((w0 >> 24) & 0xFF) == 0xDF) break;
+
+            if (opcode == 0xDE && seg6_count < 64) {
+                int seg_idx = (w1 >> 24) & 0x0F;
+                if (seg_idx == 6) {
+                    seg6_offsets[seg6_count++] = w1 & 0x00FFFFFF;
+                }
+            }
+            if (opcode == 0xDF) break;
+        }
+
+        // If segment 6 is 0 and there are G_DL branches to it, find the file
+        static uint32_t cached_seg6_addr = 0;
+
+        if (has_seg6_zero && seg6_count > 0) {
+            if (cached_seg6_addr == 0) {
+                // Cross-validate: find the file where ALL offsets have valid data.
+                // NI files mix vertex data (interpreted as G_NOOP by RSP) with
+                // actual GBI commands. Vertex data has opcode 0x00 (NOOP) with
+                // non-zero w1 (coordinates). Real GBI starts at later offsets.
+                // Require: all offsets non-zero, AND at least one has a real
+                // GBI opcode (0xD7+), AND the second offset has real GBI.
+                for (int f = 0; f < ni_decompressed_count && f < 1024; f++) {
+                    uint32_t ext = ni_decompressed_addrs[f];
+                    if (ext == 0) continue;
+                    uint32_t phys = ext & 0x7FFFFFFF;
+
+                    // Validate by checking a GBI SEQUENCE at the second
+                    // DL offset (first may be vertex data = NOOPs).
+                    // Real GBI has: E2 (SETOTHERMODE_H), D9 (GEOMETRYMODE),
+                    // D7 (TEXTURE), etc. Texture data has repeating bytes.
+                    bool match = false;
+                    if (seg6_count >= 2) {
+                        uint32_t addr2 = phys + seg6_offsets[1]; // second DL offset
+                        // Check first 4 commands at this offset
+                        int gbi_cmds = 0;
+                        for (int k = 0; k < 4; k++) {
+                            uint32_t w = *(uint32_t*)(rdram + addr2 + k * 8);
+                            uint8_t op = (w >> 24) & 0xFF;
+                            // Count commands that are definitively GBI state setup
+                            if (op == 0xE2 || op == 0xE3 || op == 0xD9 ||
+                                op == 0xD7 || op == 0xDA || op == 0xFC) {
+                                gbi_cmds++;
+                            }
+                        }
+                        match = (gbi_cmds >= 3); // at least 3 of 4 are state setup
+                    }
+                    if (match) {
+                        cached_seg6_addr = ext;
+                        fprintf(stderr, "[DL#%d] Found seg6 file[%d] = 0x%08X (%d offsets validated)\n",
+                                dl_n, f, ext, seg6_count);
+                        break;
+                    }
+                }
+            }
+
+            // Rewrite segment[6] = 0 → decompressed file address
+            if (cached_seg6_addr != 0) {
+                for (int i = 0; i < 200; i++) {
+                    uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+                    uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+                    uint8_t opcode = (w0 >> 24) & 0xFF;
+
+                    if (opcode == 0xDB && ((w0 >> 16) & 0xFF) == 0x06) {
+                        int seg_idx = (w0 & 0xFFFF) / 4;
+                        if (seg_idx == 6 && w1 == 0) {
+                            *(uint32_t*)(rdram + data_addr + i * 8 + 4) = cached_seg6_addr;
+                        }
+                    }
+                    if (opcode == 0xDF) break;
+                }
+            }
         }
     }
 
+    if (do_log) {
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            uint8_t opcode = (w0 >> 24) & 0xFF;
+
+            if (opcode == 0xDB && ((w0 >> 16) & 0xFF) == 0x06) {
+                int seg_idx = (w0 & 0xFFFF) / 4;
+                if (seg_idx < 16) {
+                    fprintf(stderr, "[DL#%d cmd%d] G_MOVEWORD segment[%d] = 0x%08X\n",
+                            dl_n, i, seg_idx, w1);
+                }
+            }
+            if (opcode == 0xDE) {
+                fprintf(stderr, "[DL#%d cmd%d] G_DL target=0x%08X\n", dl_n, i, w1);
+            }
+            if (opcode == 0xDF) break;
+        }
+    }
+
+    // Inject extendRDRAM GBI command: RT64 treats bit-31 addresses as extended
+    // RDRAM (bypass DMA mask). Needed for decompressed NI files at 0x14XXXXXX.
+    *(uint32_t*)(rdram + data_addr - 8) = 0x6400002C;
+    *(uint32_t*)(rdram + data_addr - 4) = 0x00000001;
+    uint32_t extended_data_addr = data_addr - 8;
+
     // Track the last SETCIMG address for VI_ORIGIN fixup.
-    // The second SETCIMG is the displayed framebuffer (first is cfb[0] clear).
     {
-        uint8_t* rdram = app->core.RDRAM;
         int cimg_count = 0;
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            if (((w0 >> 24) & 0xFF) == 0xFF) { // G_SETCIMG
+            if (((w0 >> 24) & 0xFF) == 0xFF) {
                 cimg_count++;
                 if (cimg_count == 2) {
-                    last_displayed_cfb = w1; // physical address of displayed cfb
+                    last_displayed_cfb = w1;
                     break;
                 }
             }
@@ -293,11 +404,9 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
-    static int dl_n = 0; dl_n++;
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
-    app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
-
+    app->processDisplayLists(app->core.RDRAM, extended_data_addr, 0, true);
 }
 
 void lod::renderer::RT64Context::update_screen() {
