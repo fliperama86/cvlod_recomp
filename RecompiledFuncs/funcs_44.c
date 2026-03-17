@@ -4181,9 +4181,9 @@ L_8014313C:
 
 ;}
 RECOMP_FUNC void func_8014314C(uint8_t* rdram, recomp_context* ctx) {
-    // PATCH: All NI files are pre-loaded during init (decompressed ROM, bitmask=0xFFFFFFFF).
-    // Always return 1 (ready) since the original code checks obj+0x70 (file handle)
-    // which is never set in the recomp overlay loading path.
+    // PATCH: Always return 1 (ready). Without this, the overlay's inner state
+    // machine hangs and DL generation stops after frame 4. The NI file loading
+    // doesn't work because obj+0x70 (file handle) is never set.
     {
         ctx->r2 = 1;
         return;
