@@ -251,9 +251,8 @@ static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb addr
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
-    // Sync KSEG0 RDRAM mirror. RT64 accesses RDRAM with raw KSEG0 addresses
-    // from G_DL, G_MTX, G_MOVEMEM etc. (e.g., 0x800B0090 → rdram[0x800B0090]).
-    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000); // 8MB
+    // No KSEG0 mirror — RT64's fromSegmented handles KSEG0 natively.
+    // 0x800B0090 → segment[0] + 0x0B0090 → physical 0x0B0090.
 
     // NOP out segment 6 sub-DL branches. Segment 6 base = 0 (NI file not loaded),
     // so 0x06XXXXXX addresses resolve to low RDRAM containing MIPS code.
@@ -263,9 +262,10 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            // NOP ALL G_DL branches — both segment 6 (invalid data) and KSEG0
-            // (memcpy race condition). This isolates the inline DL commands.
-            if (((w0 >> 24) & 0xFF) == 0xDE) {
+            // NOP segment 6 G_DL branches (segment base = 0, data is MIPS code).
+            // KSEG0 branches (0x800XXXXX) are handled natively by RT64's
+            // fromSegmented: segment[0x8>>4&0xF=0] + offset → physical address.
+            if (((w0 >> 24) & 0xFF) == 0xDE && (w1 & 0xFF000000) == 0x06000000) {
                 *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
                 *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
             }
