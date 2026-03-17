@@ -255,6 +255,24 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     // from G_DL, G_MTX, G_MOVEMEM etc. (e.g., 0x800B0090 → rdram[0x800B0090]).
     memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000); // 8MB
 
+    // NOP out segment 6 sub-DL branches. Segment 6 base = 0 (NI file not loaded),
+    // so 0x06XXXXXX addresses resolve to low RDRAM containing MIPS code.
+    // RT64 hangs trying to interpret code as GBI. Replace with G_NOOP.
+    {
+        uint8_t* rdram = app->core.RDRAM;
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            // NOP ALL G_DL branches — both segment 6 (invalid data) and KSEG0
+            // (memcpy race condition). This isolates the inline DL commands.
+            if (((w0 >> 24) & 0xFF) == 0xDE) {
+                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+            }
+            if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+    }
+
     // Track the last SETCIMG address for VI_ORIGIN fixup.
     // The second SETCIMG is the displayed framebuffer (first is cfb[0] clear).
     {
@@ -274,9 +292,11 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
+    static int dl_n = 0; dl_n++;
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
+
 }
 
 void lod::renderer::RT64Context::update_screen() {
