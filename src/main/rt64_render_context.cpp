@@ -249,7 +249,11 @@ lod::renderer::RT64Context::~RT64Context() = default;
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
-    // PATCH: Replace segment 6 G_DL branches with G_NOOP to prevent RT64 hang.
+    // PATCH: Fix DL addresses for RT64 compatibility.
+    // 1. Replace segment 6 G_DL branches (0x06XXXXXX) with NOOPs (segment 6 = 0).
+    // 2. Convert direct physical G_DL addresses to KSEG0 format (add 0x80000000).
+    //    RT64 may apply KSEG0 masking internally, so raw physical addresses like
+    //    0x000B2F80 need the 0x80000000 prefix to avoid double-masking issues.
     // Segment 6 base = 0 (NI file system doesn't set it correctly yet), so
     // sub-DL addresses like 0x060084B0 resolve to physical 0x84B0 which is
     // MIPS code, not GBI data. RT64 hangs trying to interpret it.
@@ -259,15 +263,19 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            // G_DL (0xDE) with segment 6 address (0x06XXXXXX)
-            if (((w0 >> 24) & 0xFF) == 0xDE && (w1 & 0xFF000000) == 0x06000000) {
-                // Replace with G_NOOP
+            if (((w0 >> 24) & 0xFF) == 0xDE) {
+                // NOP ALL sub-DL branches to isolate crash source
                 *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
                 *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
             }
             if (((w0 >> 24) & 0xFF) == 0xDF) break; // G_ENDDL
         }
     }
+
+    // Sync KSEG0 RDRAM mirror before RT64 processes the DL.
+    // RT64 accesses rdram[0x80XXXXXX] for KSEG0 addresses without masking.
+    // Keep the mirror in sync with the actual RDRAM data.
+    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
 
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
