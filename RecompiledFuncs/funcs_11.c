@@ -3474,8 +3474,40 @@ L_80017CB8:
                             ctx->r4 = ni_obj;
                             overlay_system_func_801CB5CC(rdram, ctx);
                             ctx->r4 = saved_r4;
+                            // Re-populate NI file pointers — the NI init clears them.
+                            // Read the NI table from the byte-swapped ROM in RDRAM.
+                            // ROM is at rdram + 0x10000000, byte-swapped (native word order).
+                            {
+                                // NI table magic "Nisitenma-Ichigo" at known ROM offset 0xB1B88
+                                // Table entries start at 0xB1B98 (after 16-byte magic)
+                                uint32_t rom_base = 0x10000000;
+                                uint32_t tbl_off = 0xB1B98; // known from init log
+                                uint32_t fpa = 0x801C8830;  // sys+0x570
+                                uint32_t bma = 0x801C83EC;  // sys+0x12C
+                                int count = 0;
+                                for (uint32_t pos = 0; pos < 4000; pos += 4) {
+                                    // Read entry from byte-swapped ROM via MEM_W
+                                    uint32_t entry = (uint32_t)MEM_W(S32(0x80000000 + rom_base + tbl_off + pos), 0);
+                                    // Entry is 4 bytes: flag(8) + addr(24)
+                                    uint32_t addr = entry & 0x00FFFFFF;
+                                    if (addr == 0) break;
+                                    int idx = pos / 4;
+                                    // Physical address = ROM base + offset
+                                    uint32_t phys = rom_base + addr;
+                                    uint32_t off = (fpa + idx * 4) - 0x80000000;
+                                    if (off + 4 <= 0x800000)
+                                        *(int32_t*)(rdram + off) = (int32_t)phys;
+                                    count++;
+                                }
+                                // Re-set bitmask (all files loaded)
+                                uint32_t bm_off = bma - 0x80000000;
+                                for (int i = 0; i < 64; i++)
+                                    *(int32_t*)(rdram + bm_off + i*4) = (int32_t)0xFFFFFFFF;
+                                fprintf(stderr, "[NI_INIT] Re-populated %d NI file pointers\n", count);
+                            }
                             uint32_t result = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
-                            fprintf(stderr, "[NI_INIT] overlay_system_func_801CB5CC done, sys+0x295C=0x%08X\n", result);
+                            fprintf(stderr, "[NI_INIT] done, sys+0x295C=0x%08X, file[97]=0x%08X\n",
+                                    result, (uint32_t)MEM_W(S32(0x801C89B4), 0));
                         }
                     }
                     // NOTE: 0x800C671C is event_struct+0x89C = frame completion counter.

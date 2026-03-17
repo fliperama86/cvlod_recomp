@@ -86,12 +86,18 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // Copy data from physical address to the virtual segment region.
     // The game DMAs overlay/asset data to physical RDRAM, then maps it via TLB.
     // We replicate this by copying from rdram+paddr to the segment region.
-    if (even_paddr != 0xFFFFFFFF && even_paddr < 0x00800000) {
-        memcpy(target, rdram + even_paddr, page_size);
-    }
-    if (odd_paddr != 0xFFFFFFFF && odd_paddr < 0x00800000) {
-        memcpy(target + page_size, rdram + odd_paddr, page_size);
-    }
+    // Copy from physical address to the segment region in RDRAM.
+    // Handles both low RDRAM addresses (0x1000-0x7FFFFF, DMA'd overlay data)
+    // and ROM-mapped addresses (0x10000000+, NI file system data).
+    auto do_tlb_copy = [&](uint32_t paddr, uint8_t* dst, uint32_t size) {
+        if (paddr == 0xFFFFFFFF) return;
+        // Check bounds: must be within the usable RDRAM+ROM region
+        if (paddr + size <= 0x20000000) { // 512MB max
+            memcpy(dst, rdram + paddr, size);
+        }
+    };
+    do_tlb_copy(even_paddr, target, page_size);
+    do_tlb_copy(odd_paddr, target + page_size, page_size);
 
     // Save the mapping for debugging
     tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };

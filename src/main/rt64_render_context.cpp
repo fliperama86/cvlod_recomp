@@ -249,6 +249,26 @@ lod::renderer::RT64Context::~RT64Context() = default;
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
+    // PATCH: Replace segment 6 G_DL branches with G_NOOP to prevent RT64 hang.
+    // Segment 6 base = 0 (NI file system doesn't set it correctly yet), so
+    // sub-DL addresses like 0x060084B0 resolve to physical 0x84B0 which is
+    // MIPS code, not GBI data. RT64 hangs trying to interpret it.
+    // NOP them out so the rest of the DL (viewport, matrix, fill) renders.
+    {
+        uint8_t* rdram = app->core.RDRAM;
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            // G_DL (0xDE) with segment 6 address (0x06XXXXXX)
+            if (((w0 >> 24) & 0xFF) == 0xDE && (w1 & 0xFF000000) == 0x06000000) {
+                // Replace with G_NOOP
+                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+            }
+            if (((w0 >> 24) & 0xFF) == 0xDF) break; // G_ENDDL
+        }
+    }
+
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
