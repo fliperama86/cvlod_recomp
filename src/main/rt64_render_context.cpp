@@ -251,8 +251,9 @@ static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb addr
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
-    // Sync KSEG0 RDRAM mirror before RT64 processes the DL.
-    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
+    // Sync KSEG0 RDRAM mirror. RT64 accesses RDRAM with raw KSEG0 addresses
+    // from G_DL, G_MTX, G_MOVEMEM etc. (e.g., 0x800B0090 → rdram[0x800B0090]).
+    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000); // 8MB
 
     // Track the last SETCIMG address for VI_ORIGIN fixup.
     // The second SETCIMG is the displayed framebuffer (first is cfb[0] clear).
@@ -280,9 +281,6 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 
 void lod::renderer::RT64Context::update_screen() {
     static int us_n = 0; us_n++;
-
-    // Sync KSEG0 mirror for VI origin readback
-    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
 
     // Fix VI_ORIGIN to match the SETCIMG address from the last DL.
     // The game's VI setup produces a mismatched origin (0x700280 vs 0x1DA800).

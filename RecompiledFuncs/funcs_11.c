@@ -3474,27 +3474,10 @@ L_80017CB8:
                             ctx->r4 = ni_obj;
                             overlay_system_func_801CB5CC(rdram, ctx);
                             ctx->r4 = saved_r4;
-                            // Copy file[97] data from ROM-mapped region to low RDRAM.
-                            // RT64 applies a DMA mask (0x00FFFFF8) that limits physical
-                            // addresses to 8MB. The ROM is at 0x10000000+, which gets
-                            // masked to wrong addresses. Copy the file data to an unused
-                            // area below 8MB so RT64 can access it.
-                            {
-                                uint32_t tbl_rdram = 0x100B1B98;
-                                uint32_t fpa_rdram = 0x1C8830;
-                                uint32_t entry = *(uint32_t*)(rdram + tbl_rdram + 97 * 4);
-                                uint32_t rom_offset = entry & 0x00FFFFFF;
-                                uint32_t rom_phys = 0x10000000 + rom_offset;
-                                // Copy to expansion pak region (0x400000 = 4MB, well above game data)
-                                uint32_t local_phys = 0x00400000;
-                                // Copy 256KB of file data (enough for scene GBI data)
-                                uint32_t copy_size = 0x40000; // 256KB
-                                memcpy(rdram + local_phys, rdram + rom_phys, copy_size);
-                                // Set file pointer to the LOCAL address
-                                *(uint32_t*)(rdram + fpa_rdram + 97 * 4) = local_phys;
-                                fprintf(stderr, "[NI_INIT] Copied file[97] data: ROM 0x%08X → local 0x%06X (%uKB)\n",
-                                        rom_phys, local_phys, copy_size/1024);
-                            }
+                            // NOTE: File[97] (segment 6 scene data) NOT copied to low RDRAM.
+                            // Raw copying breaks internal pointers in the file data.
+                            // The NI system needs to properly load+relocate the data.
+                            // Without this, segment 6 sub-DLs remain invalid (0 base).
                             uint32_t result = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
                             fprintf(stderr, "[NI_INIT] done, sys+0x295C=0x%08X, file[97]=0x%08X\n",
                                     result, (uint32_t)MEM_W(S32(0x801C89B4), 0));
