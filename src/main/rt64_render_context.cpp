@@ -246,13 +246,32 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
 
 lod::renderer::RT64Context::~RT64Context() = default;
 
+static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb address
+
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
     // Sync KSEG0 RDRAM mirror before RT64 processes the DL.
-    // RT64 follows G_DL branches using raw KSEG0 addresses (0x800XXXXX)
-    // and accesses rdram[0x800XXXXX] directly without masking to physical.
     memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
+
+    // Track the last SETCIMG address for VI_ORIGIN fixup.
+    // The second SETCIMG is the displayed framebuffer (first is cfb[0] clear).
+    {
+        uint8_t* rdram = app->core.RDRAM;
+        int cimg_count = 0;
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            if (((w0 >> 24) & 0xFF) == 0xFF) { // G_SETCIMG
+                cimg_count++;
+                if (cimg_count == 2) {
+                    last_displayed_cfb = w1; // physical address of displayed cfb
+                    break;
+                }
+            }
+            if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+    }
 
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
@@ -260,8 +279,22 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 }
 
 void lod::renderer::RT64Context::update_screen() {
+    static int us_n = 0; us_n++;
+
     // Sync KSEG0 mirror for VI origin readback
     memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
+
+    // Fix VI_ORIGIN to match the SETCIMG address from the last DL.
+    // The game's VI setup produces a mismatched origin (0x700280 vs 0x1DA800).
+    // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
+    // one of those addresses for RT64 to find and display the rendered frame.
+    ultramodern::renderer::ViRegs* vi = ultramodern::renderer::get_vi_regs();
+    vi->VI_ORIGIN_REG = last_displayed_cfb;
+
+    if (us_n <= 5 || (us_n % 200 == 0)) {
+        fprintf(stderr, "[VI_FIX] update_screen #%d VI_ORIGIN forced to 0x%06X\n",
+                us_n, last_displayed_cfb);
+    }
 
     app->updateScreen();
 }
