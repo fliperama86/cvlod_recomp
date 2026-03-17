@@ -262,12 +262,17 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            // NOP segment 6 G_DL branches (segment base = 0, data is MIPS code).
-            // KSEG0 branches (0x800XXXXX) are handled natively by RT64's
-            // fromSegmented: segment[0x8>>4&0xF=0] + offset → physical address.
-            if (((w0 >> 24) & 0xFF) == 0xDE && (w1 & 0xFF000000) == 0x06000000) {
-                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+            // Fix G_DL branches:
+            // - KSEG0 (0x80XXXXXX): keep — RT64 handles via segment[0]
+            // - Segment 6 (0x06XXXXXX): NOP — base=0, points to code
+            // - Direct physical (0x000XXXXX): NOP — data may be zeroed by
+            //   game's frame allocator reset, causing RT64 to loop on NOOPs
+            if (((w0 >> 24) & 0xFF) == 0xDE) {
+                bool is_kseg0 = (w1 >= 0x80000000 && w1 < 0xA0000000);
+                if (!is_kseg0) {
+                    *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+                }
             }
             if (((w0 >> 24) & 0xFF) == 0xDF) break;
         }
