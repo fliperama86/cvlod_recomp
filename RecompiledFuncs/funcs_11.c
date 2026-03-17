@@ -1,5 +1,7 @@
 #include "recomp.h"
 #include "funcs.h"
+#include <stdio.h>
+#include <string.h>
 RECOMP_FUNC void func_80016B48(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -3448,14 +3450,34 @@ L_80017CB8:
                     // bit 29 (0x20000000): NI init complete
                     flags |= 0x380080C8;
                     MEM_W(sys_flags_addr, 0) = (int32_t)flags;
-                    // NOTE: sys+0x295C (NI system object ptr) stays NULL.
-                    // A dummy value (0x80310000) enables the rendering path BUT
-                    // crashes in func_80182058 because rendering code dereferences
-                    // NI object fields expecting real data. Needs proper NI init.
-                    //
-                    // Game state cmd_list (game_state_obj+0x34) also stays NULL.
-                    // The cmd_list drives all scene content creation.
-                    // Blocked by NI system init (chicken-and-egg).
+                    // PATCH: Call NI system init (overlay_system_func_801CB5CC)
+                    // to properly initialize sys+0x295C. This function creates
+                    // the NI file management system that all rendering depends on.
+                    // We create a minimal object and call it directly.
+                    {
+                        static int ni_sys_done = 0;
+                        if (!ni_sys_done && (uint32_t)MEM_W(S32(0x801CAC1C), 0) == 0) {
+                            ni_sys_done = 1;
+                            // Use an unused RDRAM region for the NI system object.
+                            // The object needs: +0x10 (dispatch func), +0x20 (flags),
+                            // +0x34 (buffer, set by func_80002808), +0x02 (flags2).
+                            gpr ni_obj = S32(0x80310000);
+                            uint32_t ni_off = 0x310000;
+                            // Zero 1KB for the object
+                            memset(rdram + ni_off, 0, 1024);
+                            // Set obj+0x10 = default dispatch (fallback if alloc fails)
+                            MEM_W(ni_obj, 0x10) = (int32_t)0x80002CE0;
+                            // Set obj+0x00 = flags (needs valid object ID)
+                            MEM_H(ni_obj, 0x00) = 0;
+                            // Call NI init
+                            gpr saved_r4 = ctx->r4;
+                            ctx->r4 = ni_obj;
+                            overlay_system_func_801CB5CC(rdram, ctx);
+                            ctx->r4 = saved_r4;
+                            uint32_t result = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
+                            fprintf(stderr, "[NI_INIT] overlay_system_func_801CB5CC done, sys+0x295C=0x%08X\n", result);
+                        }
+                    }
                     // NOTE: 0x800C671C is event_struct+0x89C = frame completion counter.
                     // Previously forced to 2, which made completions >= buffer_count (2),
                     // permanently stalling DL submission. Must stay 0 so the double-buffer
