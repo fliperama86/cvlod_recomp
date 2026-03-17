@@ -249,32 +249,9 @@ lod::renderer::RT64Context::~RT64Context() = default;
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
 
-    // PATCH: Fix DL addresses for RT64 compatibility.
-    // 1. Replace segment 6 G_DL branches (0x06XXXXXX) with NOOPs (segment 6 = 0).
-    // 2. Convert direct physical G_DL addresses to KSEG0 format (add 0x80000000).
-    //    RT64 may apply KSEG0 masking internally, so raw physical addresses like
-    //    0x000B2F80 need the 0x80000000 prefix to avoid double-masking issues.
-    // Segment 6 base = 0 (NI file system doesn't set it correctly yet), so
-    // sub-DL addresses like 0x060084B0 resolve to physical 0x84B0 which is
-    // MIPS code, not GBI data. RT64 hangs trying to interpret it.
-    // NOP them out so the rest of the DL (viewport, matrix, fill) renders.
-    {
-        uint8_t* rdram = app->core.RDRAM;
-        for (int i = 0; i < 200; i++) {
-            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
-            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            if (((w0 >> 24) & 0xFF) == 0xDE) {
-                // NOP ALL sub-DL branches to isolate crash source
-                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
-            }
-            if (((w0 >> 24) & 0xFF) == 0xDF) break; // G_ENDDL
-        }
-    }
-
     // Sync KSEG0 RDRAM mirror before RT64 processes the DL.
-    // RT64 accesses rdram[0x80XXXXXX] for KSEG0 addresses without masking.
-    // Keep the mirror in sync with the actual RDRAM data.
+    // RT64 follows G_DL branches using raw KSEG0 addresses (0x800XXXXX)
+    // and accesses rdram[0x800XXXXX] directly without masking to physical.
     memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
 
     app->state->rsp->reset();
@@ -283,11 +260,9 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 }
 
 void lod::renderer::RT64Context::update_screen() {
-    static int screen_count = 0;
-    screen_count++;
-    if (screen_count <= 20 || (screen_count % 200 == 0)) {
-        fprintf(stderr, "[RT64] update_screen #%d\n", screen_count);
-    }
+    // Sync KSEG0 mirror for VI origin readback
+    memcpy(app->core.RDRAM + 0x80000000, app->core.RDRAM, 0x00800000);
+
     app->updateScreen();
 }
 
