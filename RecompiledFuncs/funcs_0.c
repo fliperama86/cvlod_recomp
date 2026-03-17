@@ -762,10 +762,10 @@ RECOMP_FUNC void func_800007B0(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(0X27A0, ctx->r1) = 0;
     // 0x80000844: jal         0x80014C7C
     // 0x80000848: sw          $zero, 0x295C($v0)
-    // PATCH: Don't zero sys+0x295C — set to dummy NI system object instead.
-    // On real N64, NI init (overlay_system_func_801CB5CC) sets this, but in the
-    // recomp it never runs. Use a dummy object so rendering null-checks pass.
-    MEM_W(0X295C, ctx->r2) = (int32_t)0x80310000;
+    // Original code zeros sys+0x295C (NI system ptr) during scene reset.
+    // NI init (overlay_system_func_801CB5CC) never runs, so it stays NULL.
+    // This blocks the rendering path (func_8017A600 early-exits).
+    MEM_W(0X295C, ctx->r2) = 0;
     func_80014C7C(rdram, ctx);
         goto after_0;
     // 0x80000848: sw          $zero, 0x295C($v0)

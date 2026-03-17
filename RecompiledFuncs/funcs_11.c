@@ -3448,19 +3448,14 @@ L_80017CB8:
                     // bit 29 (0x20000000): NI init complete
                     flags |= 0x380080C8;
                     MEM_W(sys_flags_addr, 0) = (int32_t)flags;
-                    // Force sys+0x295C (NI system object ptr) to dummy value.
-                    // Scene reset (func_800007B0) zeroes this, blocking all rendering.
-                    // Set it every retrace to ensure rendering functions don't early-exit.
-                    {
-                        gpr sys_ni = S32(0x801CAC1C);
-                        if ((uint32_t)MEM_W(sys_ni, 0) == 0) {
-                            MEM_W(sys_ni, 0) = (int32_t)0x80310000;
-                        }
-                    }
-                    // NOTE: Game state cmd_list (game_state_obj+0x34) remains NULL.
-                    // 0x8000C87C from the root template is NOT a valid cmd_list
-                    // (setting it causes an infinite loop). The cmd_list needs to be
-                    // populated by the NI system init which never runs.
+                    // NOTE: sys+0x295C (NI system object ptr) stays NULL.
+                    // A dummy value (0x80310000) enables the rendering path BUT
+                    // crashes in func_80182058 because rendering code dereferences
+                    // NI object fields expecting real data. Needs proper NI init.
+                    //
+                    // Game state cmd_list (game_state_obj+0x34) also stays NULL.
+                    // The cmd_list drives all scene content creation.
+                    // Blocked by NI system init (chicken-and-egg).
                     // NOTE: 0x800C671C is event_struct+0x89C = frame completion counter.
                     // Previously forced to 2, which made completions >= buffer_count (2),
                     // permanently stalling DL submission. Must stay 0 so the double-buffer

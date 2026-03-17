@@ -1446,10 +1446,9 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = ADD32(ctx->r2, -0X7D40);
     // 0x8017A608: lw          $t6, 0x295C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X295C);
-    // PATCH: Skip sys+0x295C null check. NI files are pre-loaded in the recomp.
-    // The NI system object (overlay_system_func_801CB5CC) never initializes because
-    // of the chicken-and-egg problem. Force non-zero to allow rendering to proceed.
-    if (ctx->r14 == 0) ctx->r14 = 1;
+    // NOTE: sys+0x295C is NULL (NI system never inits). Rendering early-exits here.
+    // Bypassing this causes a crash in func_80182058 (bad NI object dereference).
+    // Proper NI init is needed to populate this with a real object.
     // 0x8017A60C: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x8017A610: sw          $ra, 0x14($sp)

@@ -4448,8 +4448,7 @@ RECOMP_FUNC void func_80177948(uint8_t* rdram, recomp_context* ctx) {
     ctx->r29 = ADD32(ctx->r29, -0X40);
     // 0x80177954: lw          $t6, 0x295C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X295C);
-    // PATCH: Bypass sys+0x295C null check — NI files are pre-loaded
-    if (ctx->r14 == 0) ctx->r14 = 1;
+    // NOTE: sys+0x295C is NULL — NI system never inits. func_80177948 early-exits.
     // 0x80177958: sw          $ra, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r31;
     // 0x8017795C: sw          $s1, 0x18($sp)

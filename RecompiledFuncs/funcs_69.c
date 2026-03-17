@@ -2540,11 +2540,14 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
         static int render_obj_created = 0;
         if (!render_obj_created) {
             render_obj_created = 1;
-            // Create the rendering object as a child of the current overlay object
+            // PATCH: Create rendering object as proper child via func_80002410.
+            // On real N64, DMAMgr completion callback creates this. In recomp,
+            // the callback never fires. func_80002410 properly initializes:
+            // obj+0x10 (dispatch), obj+0x14 (parent link), child list linking.
             gpr saved_r4 = ctx->r4;
-            ctx->r4 = ctx->r4; // parent = overlay obj
-            ctx->r5 = ADD32(0, 0x380); // spec = 896 (rendering object ID from emulator)
-            func_8000233C(rdram, ctx);
+            // a0 = parent (overlay obj), a1 = spec
+            ctx->r5 = ADD32(0, 0x380); // spec = 896 (Konami logo renderer)
+            func_80002410(rdram, ctx);
             ctx->r4 = saved_r4;
         }
     }
