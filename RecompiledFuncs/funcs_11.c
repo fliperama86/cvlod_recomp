@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void func_80016B48(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -3228,7 +3226,6 @@ L_80017BB4:
     // 0x80017BC4: addiu       $a1, $sp, 0x40
     ctx->r5 = ADD32(ctx->r29, 0X40);
     after_10:
-    fprintf(stderr, "[BOOT] 10: func_80018890 done\n");
     // 0x80017BC8: jal         0x80018764
     // 0x80017BCC: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
@@ -3237,7 +3234,6 @@ L_80017BB4:
     // 0x80017BCC: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
     after_11:
-    fprintf(stderr, "[BOOT] 11: func_80018764 done\n");
     // 0x80017BD0: lui         $at, 0x800C
     ctx->r1 = S32(0X800C << 16);
     // 0x80017BD4: sw          $v0, 0x6748($at)
@@ -3250,7 +3246,6 @@ L_80017BB4:
     // 0x80017BDC: addiu       $a0, $zero, 0x4A
     ctx->r4 = ADD32(0, 0X4A);
     after_12:
-    fprintf(stderr, "[BOOT] 12: osViSetSpecialFeatures done\n");
     // 0x80017BE0: jal         0x800195E0
     // 0x80017BE4: nop
 
@@ -3259,7 +3254,6 @@ L_80017BB4:
     // 0x80017BE4: nop
 
     after_13:
-    fprintf(stderr, "[BOOT] 13: func_800195E0 done\n");
     // 0x80017BE8: lui         $a0, 0x801A
     ctx->r4 = S32(0X801A << 16);
     // 0x80017BEC: lui         $t0, 0x801A
@@ -3276,7 +3270,6 @@ L_80017BB4:
     // 0x80017BFC: subu        $a1, $t0, $a0
     ctx->r5 = SUB32(ctx->r8, ctx->r4);
     after_14:
-    fprintf(stderr, "[BOOT] 14: bzero done\n");
     // 0x80017C00: lui         $a0, 0xC
     ctx->r4 = S32(0XC << 16);
     // 0x80017C04: lui         $t1, 0x12
@@ -3297,7 +3290,6 @@ L_80017BB4:
     // 0x80017C1C: subu        $a2, $t1, $a0
     ctx->r6 = SUB32(ctx->r9, ctx->r4);
     after_15:
-    fprintf(stderr, "[BOOT] 15: DMA#1 done\n");
     // 0x80017C20: lui         $a0, 0x800B
     ctx->r4 = S32(0X800B << 16);
     // 0x80017C24: jal         0x8001A230
@@ -3338,8 +3330,6 @@ L_80017BB4:
     // 0x80017C54: subu        $a2, $t2, $a0
     ctx->r6 = SUB32(ctx->r10, ctx->r4);
     after_18:
-    fprintf(stderr, "[BOOT] 18: DMA#2 done\n");
-    fprintf(stderr, "[BOOT] 19: calling func_80090C00...\n"); fflush(stderr);
     // 0x80017C58: jal         0x80090C00
     // 0x80017C5C: nop
 
@@ -3348,33 +3338,14 @@ L_80017BB4:
     // 0x80017C5C: nop
 
     after_19:
-    fprintf(stderr, "[BOOT] 19: func_80090C00 returned\n"); fflush(stderr);
     // 0x80017C60: jal         0x80000460
     // 0x80017C64: addiu       $a0, $zero, 0x4
     ctx->r4 = ADD32(0, 0X4);
     func_80000460(rdram, ctx);
-    {
-        // Read obj ptr using register-style access (sign-extended)
-        gpr base = S32(0x800C << 16); // 0xFFFFFFFF800C0000
-        int32_t obj_ptr = MEM_W(base, 0x1520);
-        fprintf(stderr, "[INIT_CHECK] obj_ptr=0x%X\n", (uint32_t)obj_ptr);
-        if (obj_ptr != 0) {
-            gpr obase = S32(obj_ptr);
-            int32_t cmd = MEM_W(obase, 0x34);
-            int16_t flags = MEM_H(obase, 0x0);
-            fprintf(stderr, "[INIT_CHECK]   flags=0x%04X cmd_list(+0x34)=0x%X\n",
-                    (uint16_t)flags, (uint32_t)cmd);
-            // Check child object (gamestate mgr, offset varies)
-            int32_t child = MEM_W(obase, 0x58); // typical child ptr offset
-            fprintf(stderr, "[INIT_CHECK]   child(+0x58)=0x%X\n", (uint32_t)child);
-        }
-        fflush(stderr);
-    }
         goto after_20;
     // 0x80017C64: addiu       $a0, $zero, 0x4
     ctx->r4 = ADD32(0, 0X4);
     after_20:
-    fprintf(stderr, "[BOOT] 20: entering main loop (pri=10, original)\n");
     // 0x80017C68: lui         $at, 0x3F80
     ctx->r1 = S32(0X3F80 << 16);
     // 0x80017C6C: lui         $s1, 0x800B
@@ -3448,9 +3419,7 @@ L_80017CB8:
         if (ctx->r12 == 0) {
             init_retrace_count++;
             if (init_retrace_count >= 4) {
-                fprintf(stderr, "[RETRACE] Forcing guard transition after %d init retraces\n",
-                        init_retrace_count); fflush(stderr);
-                // Replicate the msg_type=3 handler:
+                // PATCH: Replicate the msg_type=3 handler:
                 // 1. func_80091108(10) — scheduler finalization
                 ctx->r4 = ADD32(0, 0XA);
                 func_80091108(rdram, ctx);
@@ -3512,23 +3481,16 @@ L_80017CB8:
                         if (!ni_init_done) {
                             func_8001A8C4(rdram, ctx);
                             ni_init_done = 1;
-                            fprintf(stderr, "[RETRACE] func_8001A8C4 NI init done\n");
                         }
                     }
-                    static int fl = 0; fl++;
-                    if (fl <= 3) fprintf(stderr, "[RETRACE] sys+0x2908 forced to 0x%08X\n", flags);
                 }
-                fprintf(stderr, "[RETRACE] Guard set to 1, transitioning to frame mode!\n"); fflush(stderr);
             }
         }
     }
-    // Reduced logging — only first few and periodic
+    // PATCH: Set overlay selector at retrace 1, before overlay object creation at retrace 2
     {
-        static int retrace_log = 0; retrace_log++;
-        if (retrace_log <= 5 || (retrace_log % 1000 == 0))
-            fprintf(stderr, "[RETRACE] #%d guard=0x%X\n", retrace_log, (uint32_t)ctx->r12);
-        // Set overlay selector at retrace 1, before overlay object creation at retrace 2
-        if (retrace_log == 1) {
+        static int retrace_count = 0; retrace_count++;
+        if (retrace_count == 1) {
             gpr ovl_sel = S32(0x800F3F54);
             MEM_H(ovl_sel, 0) = (int16_t)1;  // Konami logo
         }
@@ -3779,14 +3741,6 @@ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017DD8: sw          $t7, 0x0($s0)
     MEM_W(0X0, ctx->r16) = ctx->r15;
     after_0:
-    {
-        int16_t ctr88 = (int16_t)MEM_H(ctx->r16, 0X88);
-        int16_t ctr86 = (int16_t)MEM_H(ctx->r16, 0X86);
-        static int db8_cnt = 0; db8_cnt++;
-        if (db8_cnt <= 20 || (db8_cnt % 200 == 0))
-            fprintf(stderr, "[DB8] #%d counter=+0x88=%d target=+0x86=%d\n", db8_cnt, ctr88, ctr86);
-        fflush(stderr);
-    }
     // 0x80017DDC: lh          $t8, 0x88($s0)
     ctx->r24 = MEM_H(ctx->r16, 0X88);
     // 0x80017DE0: lui         $a0, 0x800C
@@ -3809,7 +3763,6 @@ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017DF8: sw          $t7, 0x10($s0)
     MEM_W(0X10, ctx->r16) = ctx->r15;
     skip_0:
-    fprintf(stderr, "[DB8] counter went negative, calling func_80018E28\n"); fflush(stderr);
     // 0x80017DFC: jal         0x80018E28
     // 0x80017E00: addiu       $a0, $a0, 0x5E80
     ctx->r4 = ADD32(ctx->r4, 0X5E80);
@@ -3818,8 +3771,6 @@ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017E00: addiu       $a0, $a0, 0x5E80
     ctx->r4 = ADD32(ctx->r4, 0X5E80);
     after_1:
-    fprintf(stderr, "[DB8] func_80018E28 returned v0=%d, checking vs s0+0x24=%d\n",
-            (int)(int32_t)ctx->r2, (int)(int16_t)MEM_H(ctx->r16, 0X24)); fflush(stderr);
     // 0x80017E04: lh          $t1, 0x24($s0)
     ctx->r9 = MEM_H(ctx->r16, 0X24);
     // 0x80017E08: lui         $t3, 0x7FC0
@@ -3897,14 +3848,6 @@ L_80017E44:
     // 0x80017E74: lh          $t1, 0x86($s0)
     ctx->r9 = MEM_H(ctx->r16, 0X86);
     // 0x80017E78: bnel        $t1, $t2, L_80017E8C
-    {
-        static int tc = 0; tc++;
-        if (tc <= 20 || (tc % 200 == 0))
-            fprintf(stderr, "[DB8] #%d transition check: +0x86=%d +0x88=%d → %s\n",
-                    tc, (int)(int16_t)ctx->r9, (int)(int16_t)ctx->r10,
-                    ctx->r9 == ctx->r10 ? "TRANSITION!" : "no transition");
-        fflush(stderr);
-    }
     if (ctx->r9 != ctx->r10) {
         // 0x80017E7C: lw          $ra, 0x1C($sp)
         ctx->r31 = MEM_W(ctx->r29, 0X1C);
@@ -3914,7 +3857,6 @@ L_80017E44:
     // 0x80017E7C: lw          $ra, 0x1C($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X1C);
     skip_1:
-    fprintf(stderr, "[DB8] *** TRANSITION TRIGGERED! Calling func_800197F8 ***\n"); fflush(stderr);
     // 0x80017E80: jal         0x800197F8
     // 0x80017E84: nop
 
@@ -3962,11 +3904,6 @@ RECOMP_FUNC void func_80017E9C(uint8_t* rdram, recomp_context* ctx) {
     MEM_W(-0X18A0, ctx->r1) = ctx->r25;
 ;}
 RECOMP_FUNC void func_80017EC0(uint8_t* rdram, recomp_context* ctx) {
-    {
-        static int ec0_cnt = 0; ec0_cnt++;
-        if (ec0_cnt <= 10 || (ec0_cnt % 500 == 0))
-            fprintf(stderr, "[EC0] #%d entered\n", ec0_cnt);
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80017EC0: addiu       $sp, $sp, -0x38
@@ -3989,14 +3926,6 @@ RECOMP_FUNC void func_80017EC0(uint8_t* rdram, recomp_context* ctx) {
     ctx->r3 = S32(ctx->r2 << 16);
     // 0x80017EDC: sra         $v1, $v1, 16
     ctx->r3 = S32(SIGNED(ctx->r3) >> 16);
-    {
-        static int ec0_diag = 0; ec0_diag++;
-        if (ec0_diag <= 10 || (ec0_diag % 500 == 0)) {
-            uint16_t st = (uint16_t)MEM_HU(S32(0x800B008C), 0X0);
-            fprintf(stderr, "[EC0] #%d func_80018E28 ret=%d, 0x800B008C=%u\n",
-                    ec0_diag, (int)(int16_t)ctx->r3, st);
-        }
-    }
     // 0x80017EE0: bne         $v1, $zero, L_80017EF8
     if (ctx->r3 != 0) {
         // 0x80017EE4: lui         $t1, 0x800B
@@ -4042,12 +3971,6 @@ L_80017EF8:
     ctx->r1 = SIGNED(ctx->r2) < 0X11 ? 1 : 0;
     // 0x80017F14: beql        $at, $zero, L_80018364
     if (ctx->r1 == 0) {
-        {
-            static int exit_count = 0; exit_count++;
-            if (exit_count <= 5 || (exit_count % 500 == 0))
-                fprintf(stderr, "[func_80017EC0] state=0x%X >= 0x11, returning (exit #%d)\n",
-                        (uint32_t)ctx->r2, exit_count);
-        }
         // 0x80017F18: lw          $ra, 0x1C($sp)
         ctx->r31 = MEM_W(ctx->r29, 0X1C);
             goto L_80018364;

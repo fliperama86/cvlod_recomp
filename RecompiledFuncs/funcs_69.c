@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void overlay_system_func_801D0CE8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1956,24 +1954,12 @@ L_801D186C:
     ctx->r29 = ADD32(ctx->r29, 0X80);
 ;}
 RECOMP_FUNC void map_ovl_00_func_802E3B70(uint8_t* rdram, recomp_context* ctx) {
+    // PATCH: Guard obj+0x10: if corrupted, restore to default dispatch (0x80002CE0)
     {
-        static int ovl0_log = 0; ovl0_log++;
-        uint32_t obj = (uint32_t)ctx->r4;
-        int16_t field_e = (int16_t)MEM_H(ctx->r4, 0xE);
-        // Fix: the actual code uses (field_e+1)*2 as offset
-        int16_t adj_e = field_e + 1;
-        gpr base = ADD32(ctx->r4, adj_e * 2);
-        uint8_t state = MEM_BU(base, 0x9);
-        uint32_t func_ptr = (uint32_t)MEM_W(S32(0x802F0000 - 0x46A8 + state * 4), 0);
-        // Guard obj+0x10: if corrupted, restore to default dispatch (0x80002CE0)
         uint32_t obj_10 = (uint32_t)MEM_W(ctx->r4, 0x10);
         if (obj_10 != 0x80002CE0 && (obj_10 < 0x80000000 || obj_10 > 0x803FFFFF)) {
-            fprintf(stderr, "[ovl0_entry] #%d FIXING obj+0x10: 0x%08X → 0x80002CE0\n", ovl0_log, obj_10);
             MEM_W(0x10, ctx->r4) = (int32_t)0x80002CE0;
         }
-        if (ovl0_log <= 20 || (ovl0_log % 500 == 0))
-            fprintf(stderr, "[ovl0_entry] #%d obj=0x%08X field_e=%d state=%d func=0x%08X obj+0x10=0x%08X\n",
-                    ovl0_log, obj, field_e, state, func_ptr, (uint32_t)MEM_W(ctx->r4, 0x10));
     }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -2041,15 +2027,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3B70(uint8_t* rdram, recomp_context* ctx) {
 
 ;}
 RECOMP_FUNC void map_ovl_00_func_802E3BE0(uint8_t* rdram, recomp_context* ctx) {
-    // DEBUG: Track obj+0x10 corruption
-    {
-        static int dbg = 0; dbg++;
-        uint32_t obj_10 = (uint32_t)MEM_W(ctx->r4, 0x10);
-        if (dbg <= 20 || obj_10 != 0x80002CE0) {
-            fprintf(stderr, "[802E3BE0] #%d obj=0x%08X obj+0x10=0x%08X obj+0x34=0x%08X\n",
-                    dbg, (uint32_t)ctx->r4, obj_10, (uint32_t)MEM_W(ctx->r4, 0x34));
-        }
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x802E3BE0: addiu       $sp, $sp, -0x20
@@ -2567,9 +2544,7 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
             gpr saved_r4 = ctx->r4;
             ctx->r4 = ctx->r4; // parent = overlay obj
             ctx->r5 = ADD32(0, 0x380); // spec = 896 (rendering object ID from emulator)
-            fprintf(stderr, "[state2] Creating rendering object (spec=0x380)...\n");
             func_8000233C(rdram, ctx);
-            fprintf(stderr, "[state2] func_8000233C returned 0x%08X\n", (uint32_t)ctx->r2);
             ctx->r4 = saved_r4;
         }
     }
@@ -2598,19 +2573,11 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
     // 0x802E3F30: jalr        $t9
     // 0x802E3F34: sw          $t6, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->r14;
-    {
-        static int ni_chk = 0; ni_chk++;
-        if (ni_chk <= 5) fprintf(stderr, "[802E3F08] NI check (0x8014314C) call #%d\n", ni_chk);
-    }
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
         goto after_0;
     // 0x802E3F34: sw          $t6, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->r14;
     after_0:
-    {
-        static int ni_ret = 0; ni_ret++;
-        if (ni_ret <= 5) fprintf(stderr, "[802E3F08] NI check returned v0=%d\n", (int)(int32_t)ctx->r2);
-    }
     // 0x802E3F38: beq         $v0, $zero, L_802E3F58
     if (ctx->r2 == 0) {
         // 0x802E3F3C: lw          $v1, 0x34($sp)
@@ -2621,7 +2588,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
     ctx->r3 = MEM_W(ctx->r29, 0X34);
     // 0x802E3F40: lw          $t9, 0x10($s0)
     ctx->r25 = MEM_W(ctx->r16, 0X10);
-    fprintf(stderr, "[802E3F08] calling obj+0x10=0x%08X (dispatch)\n", (uint32_t)ctx->r25);
     // 0x802E3F44: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
     // 0x802E3F48: jalr        $t9
@@ -2785,13 +2751,6 @@ L_802E4008:
     ctx->r25 = ADD32(ctx->r25, ctx->r13);
     // 0x802E4040: lw          $t9, -0x467C($t9)
     ctx->r25 = MEM_W(ctx->r25, -0X467C);
-    {
-        static int tbl2 = 0; tbl2++;
-        if (tbl2 <= 10 || (tbl2 % 500 == 0))
-            fprintf(stderr, "[802E3F08_tbl2] #%d nested_state=%d func=0x%08X field_e=%d\n",
-                    tbl2, (int)(uint8_t)ctx->r12, (uint32_t)ctx->r25,
-                    (int16_t)MEM_H(ctx->r16, 0xE));
-    }
     // 0x802E4044: jalr        $t9
     // 0x802E4048: nop
 
@@ -3936,17 +3895,6 @@ RECOMP_FUNC void map_ovl_00_func_802E45D4(uint8_t* rdram, recomp_context* ctx) {
 
 ;}
 RECOMP_FUNC void map_ovl_00_func_802E4610(uint8_t* rdram, recomp_context* ctx) {
-    // DEBUG: dump buffer contents
-    {
-        static int d610 = 0; d610++;
-        gpr buf = MEM_W(ctx->r4, 0x34);
-        if (d610 <= 5 && buf != 0) {
-            fprintf(stderr, "[802E4610] #%d obj=0x%08X buf=0x%08X contents:", d610, (uint32_t)ctx->r4, (uint32_t)buf);
-            for (int i = 0; i < 7; i++) // 7 words = 0x1C bytes
-                fprintf(stderr, " [+%02X]=0x%08X", i*4, (uint32_t)MEM_W(buf, i*4));
-            fprintf(stderr, "\n");
-        }
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x802E4610: addiu       $sp, $sp, -0x20

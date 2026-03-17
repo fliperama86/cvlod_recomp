@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void func_80176020(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -3683,10 +3681,7 @@ RECOMP_FUNC void func_8017747C(uint8_t* rdram, recomp_context* ctx) {
     // 0x801774C4: jalr        $t9
     // 0x801774C8: nop
 
-    fprintf(stderr, "[func_8017747C] dispatching to 0x%X (state_byte=0x%X)\n",
-            (uint32_t)ctx->r25, (uint32_t)ctx->r25 ? (uint32_t)MEM_BU(ctx->r2, 0X9) : 0);
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
-    fprintf(stderr, "[func_8017747C] dispatch returned\n");
         goto after_0;
     // 0x801774C8: nop
 
@@ -3713,21 +3708,6 @@ RECOMP_FUNC void func_8017747C(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void func_801774EC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    {
-        static int sc = 0; sc++;
-        if (sc <= 1) {
-            // Dump root object parent to see its full structure
-            uint32_t obj = (uint32_t)ctx->r4;
-            uint32_t root = MEM_W(S32(0X800C << 16), 0X1520);
-            fprintf(stderr, "[func_801774EC] state0 #%d obj=0x%08X root=0x%08X\n", sc, obj, root);
-            // Dump root object structure
-            for (int i = 0; i < 0x80; i += 4) {
-                uint32_t val = MEM_W(S32(root), i);
-                if (val != 0)
-                    fprintf(stderr, "  root+0x%02X = 0x%08X\n", i, val);
-            }
-        }
-    }
     // 0x801774EC: lui         $v0, 0x801D
     ctx->r2 = S32(0X801D << 16);
     // 0x801774F0: addiu       $v0, $v0, -0x7D40
@@ -3743,7 +3723,6 @@ RECOMP_FUNC void func_801774EC(uint8_t* rdram, recomp_context* ctx) {
             first_774ec = 1;
             MEM_W(ctx->r2, 0X2B6C) = 0;
             ctx->r14 = 0;
-            fprintf(stderr, "[func_801774EC] Cleared sys+0x2B6C for camera init\n");
         }
     }
     // 0x801774F8: addiu       $sp, $sp, -0x28
@@ -3797,7 +3776,6 @@ L_80177520:
     // 0x8017753C: or          $a3, $zero, $zero
     ctx->r7 = 0 | 0;
     after_1:
-    fprintf(stderr, "[774EC] func_80002808 alloc returned 0x%08X\n", (uint32_t)ctx->r2);
     // 0x80177540: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
     // 0x80177544: jal         0x80177614
@@ -4295,14 +4273,6 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void func_80177860(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    {
-        static int dc = 0; dc++;
-        if (dc <= 5 || (dc % 500) == 0) {
-            uint32_t val = MEM_W(S32(0X801D << 16), -0X5438);
-            fprintf(stderr, "[func_80177860] #%d val@0x801CABC8=0x%08X early_exit=%d\n",
-                    dc, val, (int32_t)(val << 3) >= 0 ? 1 : 0);
-        }
-    }
     // 0x80177860: lui         $t6, 0x801D
     ctx->r14 = S32(0X801D << 16);
     // 0x80177864: lw          $t6, -0x5438($t6)

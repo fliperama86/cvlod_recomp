@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1950,16 +1948,6 @@ RECOMP_FUNC void func_80010B84(uint8_t* rdram, recomp_context* ctx) {
 L_80010BDC:
     // 0x80010BDC: lw          $s0, 0x0($s1)
     ctx->r16 = MEM_W(ctx->r17, 0X0);
-    // DEBUG: Log child spec processing
-    {
-        static int log_count = 0;
-        if (log_count < 50) {
-            uint32_t slot = (uint32_t)((ctx->r17 - (ctx->r19 + 0x34)) / 4);
-            fprintf(stderr, "[func_80010B84] #%d slot=%u raw=0x%08X\n",
-                    log_count, slot, (uint32_t)ctx->r16);
-            log_count++;
-        }
-    }
     // 0x80010BE0: beq         $s0, $zero, L_80010C50
     if (ctx->r16 == 0) {
         // 0x80010BE4: and         $s2, $s0, $s5
@@ -1992,18 +1980,6 @@ L_80010BDC:
     ctx->r24 = ADD32(ctx->r23, ctx->r15);
     // 0x80010C0C: lw          $t9, -0x4($t8)
     ctx->r25 = MEM_W(ctx->r24, -0X4);
-    // DEBUG: Log descriptor lookup result
-    {
-        static int desc_log = 0;
-        if (desc_log < 30) {
-            int16_t idx = (int16_t)(ctx->r2 & 0xFFFF); // sign-extended index
-            uint32_t desc_addr = (uint32_t)(ctx->r24 - 4); // 0x800AEA8C + idx*4
-            fprintf(stderr, "  -> index=%d desc_addr=0x%08X desc_value=0x%08X %s\n",
-                    idx, desc_addr, (uint32_t)ctx->r25,
-                    ctx->r25 == 0 ? "(will create obj)" : "(overlay exists, skip)");
-            desc_log++;
-        }
-    }
     // 0x80010C10: or          $a0, $s3, $zero
     ctx->r4 = ctx->r19 | 0;
     // 0x80010C14: beq         $t9, $zero, L_80010C24
@@ -2424,11 +2400,6 @@ L_80010E54:
     // 0x80010E58: jal         0x800029EC
     // 0x80010E5C: or          $a0, $t0, $s3
     ctx->r4 = ctx->r8 | ctx->r19;
-    {
-        static int dd4_dispatch = 0; dd4_dispatch++;
-        if (dd4_dispatch <= 20 || (dd4_dispatch % 1000 == 0))
-            fprintf(stderr, "[DD4-dispatch] #%d obj=0x%08X\n", dd4_dispatch, (uint32_t)ctx->r4);
-    }
     func_800029EC(rdram, ctx);
         goto after_1;
     // 0x80010E5C: or          $a0, $t0, $s3
@@ -2532,20 +2503,11 @@ RECOMP_FUNC void func_80010EFC(uint8_t* rdram, recomp_context* ctx) {
     // Let native overlay loading run. With the decompressed ROM, DMA reads
     // get pre-decompressed data. The LZKN64 decompressor sees flag=0x00 and
     // does a plain copy. Bit 0x2000 should be cleared by the completion path.
+    // PATCH: Ensure overlay selector is set
     {
-        static int efc_log = 0; efc_log++;
-        // Ensure overlay selector is set
-        {
-            gpr ovl_sel = S32(0x800F3F54);
-            if ((int16_t)MEM_H(ovl_sel, 0) == 0)
-                MEM_H(ovl_sel, 0) = (int16_t)1;
-        }
-        if (efc_log <= 10 || (efc_log % 200 == 0))
-            fprintf(stderr, "[func_80010EFC] #%d NATIVE obj=0x%08X id=%u sel=%d load_mgr=0x%08X\n",
-                    efc_log, (uint32_t)ctx->r5,
-                    (uint16_t)MEM_HU(ctx->r5, 0x0) & 0x7FF,
-                    (int16_t)MEM_H(S32(0x800F3F54), 0),
-                    (uint32_t)MEM_W(S32(0x800C1600), 0));
+        gpr ovl_sel = S32(0x800F3F54);
+        if ((int16_t)MEM_H(ovl_sel, 0) == 0)
+            MEM_H(ovl_sel, 0) = (int16_t)1;
     }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -2802,11 +2764,6 @@ L_80011024:
     // 0x8001104C: or          $v0, $zero, $zero
     ctx->r2 = 0 | 0;
 L_80011050:
-    {
-        static int efc_ret = 0; efc_ret++;
-        if (efc_ret <= 5)
-            fprintf(stderr, "[func_80010EFC] returning v0=0x%08X (0=ok, -1=fail)\n", (uint32_t)ctx->r2);
-    }
     // 0x80011050: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
     // 0x80011054: addiu       $sp, $sp, 0x30
@@ -2821,24 +2778,6 @@ L_80011050:
 RECOMP_FUNC void func_80011060(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    {
-        static int mc = 0; mc++;
-        if (mc <= 3) {
-            uint32_t o = (uint32_t)ctx->r4 & 0x3FFFFFFF;
-            int16_t id = (int16_t)((rdram[o] << 8) | rdram[o+1]);
-            uint16_t idx = id & 0x7FF;
-            uint32_t t = 0xAEA8C + idx * 4;
-            uint32_t dp = (rdram[t]<<24)|(rdram[t+1]<<16)|(rdram[t+2]<<8)|rdram[t+3];
-            uint32_t d = dp & 0x3FFFFFFF;
-            uint32_t w0 = (rdram[d]<<24)|(rdram[d+1]<<16)|(rdram[d+2]<<8)|rdram[d+3];
-            uint32_t w1 = (rdram[d+4]<<24)|(rdram[d+5]<<16)|(rdram[d+6]<<8)|rdram[d+7];
-            uint32_t so = 0xF3F54;
-            int16_t ovl_sel = (int16_t)((rdram[so] << 8) | rdram[so+1]);
-            fprintf(stderr, "[mapOverlay] #%d obj=0x%X id=0x%04X idx=%d sel=0x%04X desc=0x%08X\n",
-                    mc, (uint32_t)ctx->r4, (uint16_t)id, idx, (uint16_t)ovl_sel, dp);
-            fflush(stderr);
-        }
-    }
     // 0x80011060: addiu       $sp, $sp, -0x50
     ctx->r29 = ADD32(ctx->r29, -0X50);
     // 0x80011064: sw          $ra, 0x34($sp)
@@ -2873,13 +2812,6 @@ RECOMP_FUNC void func_80011060(uint8_t* rdram, recomp_context* ctx) {
     ctx->r18 = S32(0X801D << 16);
     // 0x800110A0: lw          $v0, 0x0($t9)
     ctx->r2 = MEM_W(ctx->r25, 0X0);
-    {
-        static int mo_trace = 0; mo_trace++;
-        if (mo_trace <= 5)
-            fprintf(stderr, "[mapOverlay TRACE] id=%d desc_ptr=0x%08X desc_val=0x%08X slot_idx=%d\n",
-                    (int)(ctx->r14 & 0x7FF), (uint32_t)ctx->r25, (uint32_t)ctx->r2,
-                    (int)(ctx->r7));
-    }
     // 0x800110A4: lui         $a3, 0x800C
     ctx->r7 = S32(0X800C << 16);
     // 0x800110A8: lw          $a3, 0x15E4($a3)
@@ -5094,15 +5026,6 @@ L_80011D00:
 
 ;}
 RECOMP_FUNC void func_80011D10(uint8_t* rdram, recomp_context* ctx) {
-    {
-        static int dm_log = 0; dm_log++;
-        if (dm_log <= 10 || (dm_log % 500 == 0)) {
-            int16_t fe = (int16_t)MEM_H(ctx->r4, 0xE);
-            uint8_t st = MEM_BU(ctx->r4, 0x9);
-            fprintf(stderr, "[DMAMgr] #%d field_e=%d state=%d 0x800C1604=0x%08X\n",
-                    dm_log, fe, st, (uint32_t)MEM_W(S32(0x800C1604), 0));
-        }
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011D10: addiu       $sp, $sp, -0x18
@@ -5299,15 +5222,6 @@ L_80011E38:
 
 ;}
 RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
-    {
-        static int e48_log = 0; e48_log++;
-        if (e48_log <= 5 || (e48_log % 500 == 0)) {
-            uint32_t ctx_ptr = (uint32_t)MEM_W(ctx->r4, 0x34);
-            uint16_t pending = (ctx_ptr != 0) ? (uint16_t)MEM_HU(S32(ctx_ptr), 0x846) : 0;
-            fprintf(stderr, "[DMAMgr_state1] #%d ctx=0x%08X pending=%d\n",
-                    e48_log, ctx_ptr, pending);
-        }
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011E48: addiu       $sp, $sp, -0x40

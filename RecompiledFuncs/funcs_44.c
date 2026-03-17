@@ -1,4 +1,3 @@
-#include <stdio.h>
 #include "recomp.h"
 #include "funcs.h"
 
@@ -4261,11 +4260,6 @@ L_80143180:
     // 0x80143198: or          $v0, $zero, $zero
     ctx->r2 = 0 | 0;
 L_8014319C:
-    {
-        static int ret_log = 0; ret_log++;
-        if (ret_log <= 5 || (ret_log % 500 == 0))
-            fprintf(stderr, "[func_8014314C] returning %d\n", (int)(int32_t)ctx->r2);
-    }
     // 0x8014319C: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
     // 0x801431A0: addiu       $sp, $sp, 0x18

@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -43,12 +41,6 @@ L_80000410:
     ctx->r29 = ADD32(ctx->r29, 0X3680);
 ;}
 RECOMP_FUNC void func_80000460(uint8_t* rdram, recomp_context* ctx) {
-    // Reduced logging
-    {
-        static int f460_log = 0; f460_log++;
-        if (f460_log <= 3)
-            fprintf(stderr, "[func_80000460] scene_arg=%d\n", (int)(int32_t)ctx->r4);
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80000460: sll         $t6, $a0, 2
@@ -76,8 +68,6 @@ RECOMP_FUNC void func_80000460(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000048C: sw          $s0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r16;
     // 0x80000490: jalr        $t9
-    fprintf(stderr, "[func_80000460] calling init func at 0x%08X (s2=0x%08X)\n",
-            (uint32_t)ctx->r25, (uint32_t)ctx->r18); fflush(stderr);
     // 0x80000494: sw          $a0, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r4;
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
@@ -85,7 +75,6 @@ RECOMP_FUNC void func_80000460(uint8_t* rdram, recomp_context* ctx) {
     // 0x80000494: sw          $a0, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r4;
     after_0:
-    fprintf(stderr, "[func_80000460] init func returned\n"); fflush(stderr);
     // 0x80000498: lui         $v1, 0x801D
     ctx->r3 = S32(0X801D << 16);
     // 0x8000049C: addiu       $v1, $v1, -0x7D40
@@ -150,8 +139,6 @@ L_800004CC:
     }
     // 0x800004E4: sw          $v0, 0x0($s0)
     MEM_W(0X0, ctx->r16) = ctx->r2;
-    fprintf(stderr, "[func_80000460] alloc succeeded, obj=0x%08X, setting up fields...\n",
-            (uint32_t)ctx->r2); fflush(stderr);
     // 0x800004E8: lhu         $t2, 0x2($v0)
     ctx->r10 = MEM_HU(ctx->r2, 0X2);
     // 0x800004EC: lui         $t4, 0x8000
@@ -178,15 +165,6 @@ L_800004CC:
     MEM_W(0X24, ctx->r15) = ctx->r14;
     // 0x80000518: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    {
-        uint32_t src_addr = (uint32_t)ctx->r4;
-        fprintf(stderr, "[func_80000460] template src=0x%08X, first 16 words:\n", src_addr);
-        gpr sbase = S32(src_addr);
-        for (int i = 0; i < 16; i++) {
-            fprintf(stderr, "  [%02d] 0x%08X\n", i, (uint32_t)MEM_W(sbase, i * 4));
-        }
-        fflush(stderr);
-    }
     // 0x8000051C: jal         0x80001090
     // 0x80000520: addiu       $a1, $a1, 0x34
     ctx->r5 = ADD32(ctx->r5, 0X34);
@@ -195,30 +173,6 @@ L_800004CC:
     // 0x80000520: addiu       $a1, $a1, 0x34
     ctx->r5 = ADD32(ctx->r5, 0X34);
     after_3:
-    // DEBUG: Dump child specs after template copy (obj+0x34..0x73)
-    // Use hardcoded address for obj ptr: 0x800C1520
-    {
-        static int dump_count = 0;
-        if (dump_count < 5) {
-            gpr obj_storage = S32(0x800C1520);
-            uint32_t obj = (uint32_t)MEM_W(obj_storage, 0x0);
-            fprintf(stderr, "[func_80000460] #%d obj=0x%08X", dump_count, obj);
-            if (obj != 0) {
-                gpr obase = S32(obj);
-                fprintf(stderr, " scene_arg=0x%08X child_specs:\n", (uint32_t)MEM_W(obase, 0x24));
-                for (int i = 0; i < 16; i++) {
-                    uint32_t spec = (uint32_t)MEM_W(obase, 0x34 + i * 4);
-                    if (spec != 0) {
-                        fprintf(stderr, "  [%d] 0x%08X (index=%d)\n", i, spec, spec & 0x7FF);
-                    }
-                }
-            } else {
-                fprintf(stderr, " (NULL obj)\n");
-            }
-            fflush(stderr);
-            dump_count++;
-        }
-    }
     // 0x80000524: lw          $ra, 0x24($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X24);
     // 0x80000528: lw          $s0, 0x18($sp)
@@ -358,12 +312,6 @@ L_800005D4:
 L_800005DC:
     // 0x800005DC: lbu         $v1, 0x9($s0)
     ctx->r3 = MEM_BU(ctx->r16, 0X9);
-    {
-        static int st_log = 0; st_log++;
-        if (st_log <= 10 || (st_log % 500 == 0))
-            fprintf(stderr, "[func_80000578] #%d state_byte=%d scene_arg=%d\n",
-                    st_log, (int)ctx->r3, (int)(int32_t)ctx->r2);
-    }
     // 0x800005E0: sll         $t8, $v0, 2
     ctx->r24 = S32(ctx->r2 << 2);
     // 0x800005E4: addu        $t8, $t8, $v0
@@ -453,17 +401,6 @@ L_80000604:
     // 0x80000640: lw          $ra, 0x1C($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X1C);
 L_80000644:
-    {
-        static int c80_log = 0; c80_log++;
-        if (c80_log <= 3) {
-            gpr obase = S32(0x8031AC78);
-            fprintf(stderr, "[state1] child specs: ");
-            for (int i = 0; i < 12; i++) {
-                fprintf(stderr, "%08X ", (uint32_t)MEM_W(obase, 0x34 + i*4));
-            }
-            fprintf(stderr, "\n"); fflush(stderr);
-        }
-    }
     // 0x80000644: jal         0x80010C80
     // 0x80000648: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
@@ -484,15 +421,7 @@ L_80000658:
     // 0x8000065C: lw          $a1, -0x7D30($a1)
     ctx->r5 = MEM_W(ctx->r5, -0X7D30);
     {
-        static int mask_log = 0; mask_log++;
-        if (mask_log <= 5 || (mask_log % 500 == 0)) {
-            fprintf(stderr, "[DD4] #%d mask=0x%08X slots:", mask_log, (uint32_t)ctx->r5);
-            gpr obase = S32(0x8031AC78);
-            for (int i = 0; i < 12; i++)
-                fprintf(stderr, " %08X", (uint32_t)MEM_W(obase, 0x34 + i*4));
-            fprintf(stderr, "\n"); fflush(stderr);
-        }
-        // Force mask to dispatch all children unconditionally.
+        // PATCH: Force mask to dispatch all children unconditionally.
         ctx->r5 = (gpr)(int32_t)0xFFFFFFFF;
         // Clear bit 30 from overlay object entries so DD4 dispatches them.
         // Bit 30 is set by func_80010B84 for deferred overlay creation.

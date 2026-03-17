@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void func_80001FFC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -778,17 +776,6 @@ L_80002400:
 RECOMP_FUNC void func_80002410(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    // DEBUG: Log object creation calls
-    {
-        static int create_log = 0;
-        if (create_log < 20) {
-            uint32_t parent = (uint32_t)ctx->r4;
-            uint32_t child_spec = (uint32_t)ctx->r5;
-            fprintf(stderr, "[func_80002410] #%d create_obj parent=0x%08X spec=0x%08X (index=%d)\n",
-                    create_log, parent, child_spec, child_spec & 0x7FF);
-            create_log++;
-        }
-    }
     // 0x80002410: addiu       $sp, $sp, -0x20
     ctx->r29 = ADD32(ctx->r29, -0X20);
     // 0x80002414: sw          $ra, 0x14($sp)
@@ -815,13 +802,6 @@ RECOMP_FUNC void func_80002410(uint8_t* rdram, recomp_context* ctx) {
     if (ctx->r2 == 0) {
         // 0x80002438: or          $a1, $v0, $zero
         ctx->r5 = ctx->r2 | 0;
-        {
-            static int alloc_fail = 0;
-            if (alloc_fail < 5) {
-                fprintf(stderr, "  [func_80002410] alloc FAILED (v0=0), cannot create object\n");
-                alloc_fail++;
-            }
-        }
             goto L_800024FC;
     }
     // 0x80002438: or          $a1, $v0, $zero
@@ -836,18 +816,6 @@ RECOMP_FUNC void func_80002410(uint8_t* rdram, recomp_context* ctx) {
     ctx->r15 = ADD32(ctx->r15, ctx->r14);
     // 0x8000244C: lw          $t7, -0x1574($t7)
     ctx->r15 = MEM_W(ctx->r15, -0X1574);
-    // DEBUG: Log overlay descriptor lookup in object creation
-    {
-        static int ovl_log = 0;
-        if (ovl_log < 20) {
-            uint32_t idx = (uint32_t)ctx->r7;
-            uint32_t desc = (uint32_t)ctx->r15;
-            fprintf(stderr, "  [func_80002410] obj=0x%08X ovl_idx=%u desc=0x%08X → %s\n",
-                    (uint32_t)ctx->r5, idx, desc,
-                    desc == 0 ? "no overlay" : "has overlay, loading...");
-            ovl_log++;
-        }
-    }
     // 0x80002450: lui         $a0, 0x800C
     ctx->r4 = S32(0X800C << 16);
     // 0x80002454: beql        $t7, $zero, L_80002490
@@ -1806,15 +1774,6 @@ L_80002944:
 RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    {
-        static int exec_count = 0; exec_count++;
-        uint32_t obj_ptr = (uint32_t)ctx->r4;
-        // Always log object 12 (0x8031AF30) and periodic others
-        if (obj_ptr == 0x8031AF30 || exec_count <= 20 || (exec_count % 2000 == 0))
-            fprintf(stderr, "[OBJ_EXEC] #%d obj=0x%X flags=0x%04X flags2=0x%04X\n",
-                    exec_count, obj_ptr,
-                    (uint16_t)MEM_HU(ctx->r4, 0x0), (uint16_t)MEM_HU(ctx->r4, 0x2));
-    }
     // 0x80002950: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x80002954: sw          $ra, 0x14($sp)
@@ -1851,24 +1810,6 @@ RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000297C: sw          $a0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r4;
     func_80011060(rdram, ctx);
-    {
-        static int mo = 0; mo++;
-        if (mo <= 10) {
-            uint32_t sa = 0x0C15E4; // 0x800C15E4 & 0x3FFFFFFF
-            int32_t slot = (int32_t)((rdram[sa]<<24)|(rdram[sa+1]<<16)|(rdram[sa+2]<<8)|rdram[sa+3]);
-            fprintf(stderr, "[mapOverlay] #%d returned, slot=%d\n", mo, slot);
-            if (slot >= 0 && slot < 4) {
-                uint32_t a1 = 0x0C15E8 + (uint32_t)slot * 4;
-                uint32_t a2 = 0x0C15F8 + (uint32_t)slot * 4;
-                uint32_t a3 = 0x0C15F0 + (uint32_t)slot * 4;
-                uint32_t vr = (rdram[a1]<<24)|(rdram[a1+1]<<16)|(rdram[a1+2]<<8)|rdram[a1+3];
-                uint32_t sz = (rdram[a2]<<24)|(rdram[a2+1]<<16)|(rdram[a2+2]<<8)|rdram[a2+3];
-                uint32_t rp = (rdram[a3]<<24)|(rdram[a3+1]<<16)|(rdram[a3+2]<<8)|rdram[a3+3];
-                fprintf(stderr, "[mapOverlay]   vram=0x%X size=0x%X rom_page=0x%X\n", vr, sz, rp);
-            }
-            fflush(stderr);
-        }
-    }
         goto after_0;
     // 0x8000297C: sw          $a0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r4;
@@ -1906,10 +1847,6 @@ RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
                 ovl_vram = 0x802E3B70;
             }
             ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
-            static int pa3 = 0; pa3++;
-            if (pa3 <= 30 || (pa3 % 500 == 0))
-                fprintf(stderr, "[OBJ_EXEC] path A: 0x%X → 0x%X (ovl_vram=0x%X)\n",
-                        orig, (uint32_t)ctx->r25, ovl_vram);
         }
     }
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
@@ -1961,12 +1898,6 @@ L_800029B8:
         uint32_t ovl_vram = (uint32_t)MEM_W(S32(0x800C15E8), 0);
         if (ovl_vram == 0 || ovl_vram < 0x80000000) ovl_vram = 0x802E3B70;
         ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
-    }
-    {
-        static int pb = 0; pb++;
-        if (pb <= 10 || (pb % 500 == 0))
-            fprintf(stderr, "[OBJ_EXEC] path B: obj_id=%d → func=0x%08X\n",
-                    (int)(ctx->r2 & 0x7FF), (uint32_t)ctx->r25);
     }
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
         goto after_3;
@@ -2910,12 +2841,6 @@ RECOMP_FUNC void func_80002E3C(uint8_t* rdram, recomp_context* ctx) {
     // 0x80002E70: sw          $s0, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r16;
     // 0x80002E74: bne         $t6, $zero, L_80002F2C
-    {
-        static int gsc = 0; gsc++;
-        if (gsc <= 5 || gsc == 50 || gsc == 200 || gsc == 1000 || (gsc % 5000 == 0))
-            fprintf(stderr, "[GAMESTATE] #%d state_field=0x%X cmd_list=0x%X\n",
-                    gsc, (int16_t)ctx->r14, (uint32_t)MEM_W(ctx->r4, 0x34));
-    }
     if (ctx->r14 != 0) {
         // 0x80002E78: sw          $a0, 0x1540($at)
         MEM_W(0X1540, ctx->r1) = ctx->r4;

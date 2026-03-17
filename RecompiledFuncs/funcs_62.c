@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-
 RECOMP_FUNC void func_80179FD0(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1442,17 +1440,6 @@ L_8017A5E8:
 RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    {
-        static int ac = 0; ac++;
-        if (ac <= 5 || (ac % 200 == 0)) {
-            uint32_t base = 0x801C82C0;
-            uint32_t v1 = MEM_W(S32(0X801C << 16), 0XAC1C); // base+0x295C
-            uint32_t v2 = MEM_W(S32(0X801C << 16), 0XAE2C); // base+0x2B6C
-            uint32_t v3 = MEM_W(S32(0X801C << 16), 0XAE30); // base+0x2B70
-            fprintf(stderr, "[func_8017A600] #%d checks: 0x801CAC1C=0x%08X 0x801CAE2C=0x%08X 0x801CAE30=0x%08X\n",
-                    ac, v1, v2, v3);
-        }
-    }
     // 0x8017A600: lui         $v0, 0x801D
     ctx->r2 = S32(0X801D << 16);
     // 0x8017A604: addiu       $v0, $v0, -0x7D40
@@ -1503,19 +1490,11 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     // 0x8017A634: jal         0x8017A790
     // 0x8017A638: nop
 
-    {
-        static int a6log = 0; a6log++;
-        if (a6log <= 5) fprintf(stderr, "[8017A600] calling func_8017A790 (passed all 3 checks!)\n");
-    }
     func_8017A790(rdram, ctx);
         goto after_0;
     // 0x8017A638: nop
 
     after_0:
-    {
-        static int a6r = 0; a6r++;
-        if (a6r <= 5) fprintf(stderr, "[8017A600] func_8017A790 returned v0=%d\n", (int)(int32_t)ctx->r2);
-    }
     // 0x8017A63C: bnel        $v0, $zero, L_8017A660
     if (ctx->r2 != 0) {
         // 0x8017A640: lw          $ra, 0x14($sp)
