@@ -249,11 +249,66 @@ lod::renderer::RT64Context::~RT64Context() = default;
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     static int dl_count = 0;
     dl_count++;
+    uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
     fprintf(stderr, "[RT64] send_dl #%d: ucode=0x%08X ucode_data=0x%08X data_ptr=0x%08X\n",
             dl_count, (uint32_t)task->t.ucode, (uint32_t)task->t.ucode_data, (uint32_t)task->t.data_ptr);
+    // Dump first N DL commands for debugging
+    if (dl_count <= 3 || dl_count == 10) {
+        uint8_t* rdram = app->core.RDRAM;
+        fprintf(stderr, "[DL_DUMP] DL #%d commands at rdram+0x%06X:\n", dl_count, data_addr);
+        for (int i = 0; i < 50; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            // Byte swap if needed (RDRAM is native endian after byte-swap copy)
+            uint8_t cmd = (w0 >> 24) & 0xFF;
+            fprintf(stderr, "  [%2d] %08X %08X  cmd=0x%02X", i, w0, w1, cmd);
+            switch (cmd) {
+                case 0xE7: fprintf(stderr, " G_RDPPIPESYNC"); break;
+                case 0xE8: fprintf(stderr, " G_RDPTILESYNC"); break;
+                case 0xE9: fprintf(stderr, " G_RDPLOADSYNC"); break;
+                case 0xED: fprintf(stderr, " G_SETSCISSOR"); break;
+                case 0xEF: fprintf(stderr, " G_SETOTHERMODE_H"); break;
+                case 0xE2: fprintf(stderr, " G_SETOTHERMODE_L"); break;
+                case 0xF7: fprintf(stderr, " G_SETFILLCOLOR"); break;
+                case 0xFF: fprintf(stderr, " G_SETCIMG"); break;
+                case 0xFE: fprintf(stderr, " G_SETZIMG"); break;
+                case 0xF6: fprintf(stderr, " G_FILLRECT"); break;
+                case 0xF5: fprintf(stderr, " G_SETTILE"); break;
+                case 0xF4: fprintf(stderr, " G_LOADTILE"); break;
+                case 0xF3: fprintf(stderr, " G_LOADBLOCK"); break;
+                case 0xF2: fprintf(stderr, " G_SETTILESIZE"); break;
+                case 0xFD: fprintf(stderr, " G_SETTIMG"); break;
+                case 0xFC: fprintf(stderr, " G_SETCOMBINE"); break;
+                case 0xFB: fprintf(stderr, " G_SETENVCOLOR"); break;
+                case 0xFA: fprintf(stderr, " G_SETPRIMCOLOR"); break;
+                case 0xF9: fprintf(stderr, " G_SETBLENDCOLOR"); break;
+                case 0xF8: fprintf(stderr, " G_SETFOGCOLOR"); break;
+                case 0xE6: fprintf(stderr, " G_RDPFULLSYNC"); break;
+                case 0xDB: fprintf(stderr, " G_MOVEWORD"); break;
+                case 0xDC: fprintf(stderr, " G_MOVEMEM"); break;
+                case 0xDE: fprintf(stderr, " G_DL (branch)"); break;
+                case 0xDF: fprintf(stderr, " G_ENDDL"); break;
+                case 0x01: fprintf(stderr, " G_VTX"); break;
+                case 0x06: fprintf(stderr, " G_TRI2"); break;
+                case 0x05: fprintf(stderr, " G_TRI1"); break;
+                case 0xE4: fprintf(stderr, " G_TEXRECT"); break;
+                case 0xE5: fprintf(stderr, " G_TEXRECTFLIP"); break;
+                case 0xB6: fprintf(stderr, " G_CLEARGEOMETRYMODE"); break;
+                case 0xB7: fprintf(stderr, " G_SETGEOMETRYMODE"); break;
+                case 0xBB: fprintf(stderr, " G_TEXTURE"); break;
+                case 0xBA: fprintf(stderr, " G_SETPRIMDEPTH"); break;
+                case 0xD8: fprintf(stderr, " G_POPMTX"); break;
+                case 0xDA: fprintf(stderr, " G_MTX"); break;
+                default: break;
+            }
+            fprintf(stderr, "\n");
+            if (cmd == 0xDF) break; // Stop at G_ENDDL
+        }
+    }
+
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
-    app->processDisplayLists(app->core.RDRAM, task->t.data_ptr & 0x3FFFFFF, 0, true);
+    app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
     fprintf(stderr, "[RT64] send_dl #%d completed\n", dl_count);
 }
 
