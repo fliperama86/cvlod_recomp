@@ -75,6 +75,7 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/rt64_render_context.cpp
     ${CMAKE_SOURCE_DIR}/src/main/ignored_func_stubs.cpp
     ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/lod_init.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
@@ -185,6 +186,7 @@ if (WIN32)
 endif()
 
 # ── Link everything ─────────────────────────────────────────────────
+find_package(ZLIB REQUIRED)
 target_link_libraries(LodRecomp PRIVATE
     RecompiledFuncs
     librecomp
@@ -194,11 +196,16 @@ target_link_libraries(LodRecomp PRIVATE
     RmlUi::Debugger
     nfd
     lunasvg
+    ZLIB::ZLIB
 )
 
 target_sources(LodRecomp PRIVATE ${SOURCES})
 
 set_property(TARGET LodRecomp PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# ── Tests ────────────────────────────────────────────────────────────
+add_subdirectory(${CMAKE_SOURCE_DIR}/tests/sanity ${CMAKE_BINARY_DIR}/tests/sanity)
+add_subdirectory(${CMAKE_SOURCE_DIR}/tests/dl_harness ${CMAKE_BINARY_DIR}/tests/dl_harness)
 
 # ── DXC shader compilation (required by rt64) ───────────────────────
 set(DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")

@@ -249,22 +249,14 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_A]) *x -= 1.0f;
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
-    // DEBUG: Auto-press START/A to advance past title/splash screens
-    // Timing adjusted: game needs ~3s to boot (0.5s auto-start + 2s VI delay + init)
+    // DEBUG: Auto-press A to advance past save screen.
+    // Input polling stops after ~3 calls during boot. Must inject immediately.
+    // Alternate: press A, release, press A, release (for transition detection).
     {
-        static auto first = std::chrono::steady_clock::now();
-        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - first).count();
-        if (ms > 5000  && ms < 5500)  *buttons |= 0x1000; // START
-        if (ms > 7000  && ms < 7500)  *buttons |= 0x8000; // A
-        if (ms > 9000  && ms < 9500)  *buttons |= 0x1000; // START
-        if (ms > 11000 && ms < 11500) *buttons |= 0x8000; // A
-        if (ms > 13000 && ms < 13500) *buttons |= 0x1000; // START
-        if (ms > 15000 && ms < 15500) *buttons |= 0x8000; // A
-        if (*buttons != 0) {
-            static int input_log_count = 0;
-            if (input_log_count++ < 10)
-                fprintf(stderr, "[INPUT] auto-press buttons=0x%04X at t=%lldms\n", *buttons, ms);
+        static int press_n = 0; press_n++;
+        if (press_n % 2 == 0) *buttons |= 0x9000; // A + START on even calls
+        if (press_n <= 10) {
+            fprintf(stderr, "[INPUT] call #%d buttons=0x%04X\n", press_n, *buttons);
         }
     }
 
@@ -275,7 +267,7 @@ void set_rumble(int, bool) {}
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
     if (controller_num == 0) {
-        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::None };
+        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::ControllerPak };
     }
     return { ultramodern::input::Device::None, ultramodern::input::Pak::None };
 }
@@ -285,17 +277,19 @@ ultramodern::input::connected_device_info_t get_connected_device_info(int contro
 extern "C" void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx);
 gpr get_entrypoint_address();
 extern void lod_register_overlays();
+extern void lod_on_init(uint8_t* rdram, recomp_context* ctx);
 
 std::vector<recomp::GameEntry> supported_games = {
     {
         .rom_hash = lod::target_rom::kXxh3_64,
         .internal_name = std::string(lod::target_rom::kInternalName),
         .game_id = u8"castlevania2.n64.us",
-        .mod_game_id = "castlevania2",
+        .mod_game_id = "",  // Disabled — mod system not yet set up for LoD
         .save_type = recomp::SaveType::Eep16k,
         .is_enabled = false,
         .entrypoint_address = get_entrypoint_address(),
         .entrypoint = recomp_entrypoint,
+        .on_init_callback = lod_on_init,
     },
 };
 
@@ -315,11 +309,8 @@ std::string get_game_thread_name(const OSThread* t) {
 
 void message_box_stub(const char* msg) {
     fprintf(stderr, "[ERROR] %s\n", msg);
-#ifdef __APPLE__
-    lod::show_error_message_box("Error", msg);
-#else
-    SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error", msg, nullptr);
-#endif
+    // Don't show modal dialog — it blocks startup and the game window
+    // may not be visible yet. Just log to stderr.
 }
 
 // ── ROM loading ─────────────────────────────────────────────────────
@@ -431,6 +422,12 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
 
 // ── Signal handling ─────────────────────────────────────────────────
 
+static void crash_handler(int sig, siginfo_t* info, void* ctx) {
+    fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
+            sig, info->si_addr, info->si_code);
+    _exit(128 + sig);
+}
+
 static void signal_handler(int sig) {
     fprintf(stderr, "\n[LodRecomp] Caught signal %d, shutting down...\n", sig);
     ultramodern::quit();
@@ -444,6 +441,12 @@ static void signal_handler(int sig) {
 int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
+    // Catch SIGSEGV/SIGBUS to get fault address
+    struct sigaction sa = {};
+    sa.sa_sigaction = crash_handler;
+    sa.sa_flags = SA_SIGINFO;
+    sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGBUS, &sa, nullptr);
     recomp::Version project_version{};
     recomp::Version::from_string("0.1.0", project_version);
 
@@ -534,7 +537,7 @@ int main(int argc, char** argv) {
         .events_callbacks = events_callbacks,
         .error_handling_callbacks = error_handling_callbacks,
         .threads_callbacks = threads_callbacks,
-        .message_queue_control = { .requeue_timer = false, .requeue_sp = true, .requeue_dp = true },
+        .message_queue_control = { .requeue_timer = false, .requeue_sp = true, .requeue_si = true, .requeue_dp = true },
     };
 
     fprintf(stderr, "[LodRecomp] Calling recomp::start()...\n");

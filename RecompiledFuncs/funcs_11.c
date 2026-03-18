@@ -3211,9 +3211,9 @@ L_80017BAC:
     // 0x80017BB0: nop
 
 L_80017BB4:
-    // Boost boot thread priority during init to prevent starvation
-    ctx->r4 = 0; ctx->r5 = 200;
-    osSetThreadPri_recomp(rdram, ctx);
+    // REMOVED: Priority boost to 200 was causing SCHED to starve GRAPH (pri=100).
+    // The original game has SCHED at pri=10, which is BELOW GRAPH (pri=100).
+    // With the boost, check_running_queue never preempts SCHED → deadlock.
     // 0x80017BB4: lui         $a2, 0x800C
     ctx->r6 = S32(0X800C << 16);
     // 0x80017BB8: addiu       $a2, $a2, 0x5D38

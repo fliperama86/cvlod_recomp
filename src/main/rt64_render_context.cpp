@@ -1,5 +1,7 @@
 #include <memory>
 #include <cstring>
+#include <cstdio>
+#include <fstream>
 
 #ifndef HLSL_CPU
 #define HLSL_CPU
@@ -248,7 +250,7 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
 
 lod::renderer::RT64Context::~RT64Context() = default;
 
-static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb address
+static uint32_t last_displayed_cfb = 0x00200000; // track the displayed cfb address (default: FB0)
 static uint32_t cached_seg6_addr = 0;             // segment 6 base for NI file data
 
 // Decompressed NI file table (defined in recomp.cpp)
@@ -267,6 +269,39 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     bool do_log = (dl_n <= 5 || (dl_n % 200 == 0));
 
     // ni_decompressed_addrs/count declared at file scope above
+
+    // No DL overrides — game commands pass through unmodified.
+
+    // === Game state diagnostic ===
+    if (dl_n <= 5 || dl_n % 100 == 0) {
+        uint32_t root_obj = 0x0031AC78; // 0x8031AC78 & 0x7FFFFF
+        uint32_t scene_arg = *(uint32_t*)(rdram + root_obj + 0x24);
+        uint32_t exec_flags = *(uint32_t*)(rdram + 0x001CABC8);
+        uint32_t ni_sys_ptr = *(uint32_t*)(rdram + 0x001CAC1C);
+        uint32_t guard_val = *(uint32_t*)(rdram + 0x000C671C); // event_struct+0x89C
+        fprintf(stderr, "[STATE] DL#%d scene_arg=0x%08X exec_flags=0x%08X ni_sys=0x%08X guard=0x%08X\n",
+                dl_n, scene_arg, exec_flags, ni_sys_ptr, guard_val);
+    }
+
+    // === Read game input state (diagnostic only, no injection) ===
+    // The game reads input from 3 locations:
+    //   1. PIF buffer at 0x8013ED70 (raw SI DMA data)
+    //   2. Parsed pad data at 0x800EFBA0 (extracted by func_80098BD4)
+    //   3. Game input state at 0x801C87F4 (+2=prev_buttons, +4=new_buttons, +6=stick)
+    // We inject at all 3 levels + handle button transition detection.
+    {
+        // Read game input state (diagnostic only — no write)
+        uint32_t pad_parsed = 0x000EFBA0; // parsed pad data
+        uint32_t input_state = 0x001C87F4; // game input state
+        uint16_t parsed_buttons = *(uint16_t*)(rdram + pad_parsed);
+        uint16_t game_current = *(uint16_t*)(rdram + input_state + 2);
+        uint16_t game_new = *(uint16_t*)(rdram + input_state + 4);
+
+        if (dl_n <= 10 || dl_n == 20 || dl_n == 50 || dl_n == 100) {
+            fprintf(stderr, "[PAD] DL#%d parsed=0x%04X game_cur=0x%04X game_new=0x%04X\n",
+                    dl_n, parsed_buttons, game_current, game_new);
+        }
+    }
 
     // === Fix segment 6 values in the DL ===
     // The game sets segment[6] = file_ptr_array[file_id], but file_ptrs are 0
@@ -303,6 +338,10 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         // If segment 6 is 0 and there are G_DL branches to it, find the file
         // (cached_seg6_addr is at file scope for use in injected sub-DL)
 
+        if (dl_n <= 5) {
+            fprintf(stderr, "[SEG6] DL#%d has_seg6_zero=%d seg6_count=%d cached=0x%08X\n",
+                    dl_n, has_seg6_zero, seg6_count, cached_seg6_addr);
+        }
         if (has_seg6_zero && seg6_count > 0) {
             if (cached_seg6_addr == 0) {
                 // Cross-validate: find the file where ALL offsets have valid data.
@@ -335,6 +374,15 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                             }
                         }
                         match = (gbi_cmds >= 3); // at least 3 of 4 are state setup
+                        if (f == 97) {
+                            fprintf(stderr, "[SEG6] file[97] phys=0x%08X addr2=0x%08X gbi_cmds=%d ops:",
+                                    phys, addr2, gbi_cmds);
+                            for (int k = 0; k < 4; k++) {
+                                uint32_t w = *(uint32_t*)(rdram + addr2 + k * 8);
+                                fprintf(stderr, " 0x%02X", (w >> 24) & 0xFF);
+                            }
+                            fprintf(stderr, "\n");
+                        }
                     }
                     if (match) {
                         cached_seg6_addr = ext;
@@ -364,90 +412,72 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
-    // NOP all G_DL branches except the two known-safe KSEG0 targets that
-    // appear in every DL (0x800B0090 and 0x800AE958). Everything else
-    // (segment 6 sub-DLs, segment 0 sub-DL at 0x000B2F80) can hang.
+    // Validate G_DL branches: allow any target that points to valid GBI data.
+    // Previous approach (whitelist 2 KSEG0 addresses) was too restrictive and
+    // caused all geometry to collapse to screen center (missing matrix sub-DLs).
     for (int i = 0; i < 200; i++) {
         uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
         uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
         uint8_t opcode = (w0 >> 24) & 0xFF;
         if (opcode == 0xDE) {
-            // Allow known-safe sub-DLs. With extendRDRAM forced, segment 6 DLs
-            // starting with valid GBI opcodes should work now.
-            bool safe = (w1 == 0x800B0090 || w1 == 0x800AE958);
-            // Allow segment 6 sub-DLs that start with valid state-setup opcodes
+            bool safe = false;
+            uint8_t first_op = 0;
+
+            // KSEG0 addresses (0x80XXXXXX) → strip prefix, check valid RDRAM range
+            if (!safe && (w1 & 0xFF000000) == 0x80000000) {
+                uint32_t phys = w1 & 0x00FFFFFF;
+                if (phys < 0x00800000) {
+                    first_op = (*(uint32_t*)(rdram + phys) >> 24) & 0xFF;
+                    safe = is_valid_gbi_opcode(first_op);
+                }
+            }
+            // Physical RDRAM addresses (< 8MB)
+            if (!safe && w1 > 0 && w1 < 0x00800000) {
+                first_op = (*(uint32_t*)(rdram + w1) >> 24) & 0xFF;
+                safe = is_valid_gbi_opcode(first_op);
+            }
+            // Segment 6 sub-DLs (0x06XXXXXX) — resolve via cached segment base
             if (!safe && ((w1 >> 24) & 0x0F) == 0x06 && cached_seg6_addr != 0) {
                 uint32_t phys = (cached_seg6_addr & 0x7FFFFFFF) + (w1 & 0x00FFFFFF);
-                uint8_t first_op = (*(uint32_t*)(rdram + phys) >> 24) & 0xFF;
-                safe = (first_op == 0xE2 || first_op == 0xE3 || first_op == 0xE7 || first_op == 0xD9);
+                first_op = (*(uint32_t*)(rdram + phys) >> 24) & 0xFF;
+                safe = is_valid_gbi_opcode(first_op);
             }
+
             if (!safe) {
-                if (dl_n <= 5) {
-                    fprintf(stderr, "[DL#%d cmd%d] NOP G_DL target=0x%08X\n", dl_n, i, w1);
+                if (dl_n <= 10) {
+                    fprintf(stderr, "[DL#%d cmd%d] NOP G_DL target=0x%08X (first_op=0x%02X)\n",
+                            dl_n, i, w1, first_op);
                 }
                 *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
                 *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+            } else if (dl_n <= 5) {
+                fprintf(stderr, "[DL#%d cmd%d] ALLOW G_DL target=0x%08X (first_op=0x%02X)\n",
+                        dl_n, i, w1, first_op);
             }
         }
         if (opcode == 0xDF) break;
     }
 
-    // Redirect 2nd SETCIMG to FB1 + override 2nd fill color to blue.
-    {
-        int cimg_count = 0, f7_count = 0;
+    // Log original SETCIMG addresses (before any patching).
+    if (dl_n <= 10) {
+        int cimg_count = 0;
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
             uint8_t op = (w0 >> 24) & 0xFF;
             if (op == 0xFF) {
                 cimg_count++;
-                if (cimg_count == 2) {
-                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x1DA800;
-                }
-            }
-            if (op == 0xF7) {
-                f7_count++;
-                if (f7_count == 2) {
-                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x001F001F; // blue
-                }
-            }
-            // Override SETPRIMCOLOR to red + SETCOMBINE to output PRIMITIVE
-            if (op == 0xFA) {
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0xFF0000FF;
-            }
-            if (op == 0xFC) {
-                *(uint32_t*)(rdram + data_addr + i * 8) = 0xFC000000;
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x000186C3;
+                fprintf(stderr, "[DL#%d] ORIGINAL SETCIMG #%d addr=0x%08X\n", dl_n, cimg_count, w1);
             }
             if (op == 0xDF) break;
         }
     }
 
-    // Patch SETCOMBINE inside segment 6 sub-DLs to output solid PRIMITIVE color.
-    // Only patch when seg6 is resolved (DL#4+).
-    if (cached_seg6_addr != 0) {
-        uint32_t seg6_phys = cached_seg6_addr & 0x7FFFFFFF;
-        // Patch all segment 6 G_DL targets that start with valid GBI opcodes
-        for (int i = 0; i < 200; i++) {
-            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
-            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            uint8_t op = (w0 >> 24) & 0xFF;
-            if (op == 0xDE && ((w1 >> 24) & 0x0F) == 0x06) {
-                uint32_t phys = seg6_phys + (w1 & 0x00FFFFFF);
-                // Scan up to 64 commands in this sub-DL
-                for (int j = 0; j < 64; j++) {
-                    uint32_t* cmd = reinterpret_cast<uint32_t*>(rdram + phys + j * 8);
-                    uint8_t sub_op = (cmd[0] >> 24) & 0xFF;
-                    if (sub_op == 0xFC) {
-                        cmd[0] = 0xFC000000;
-                        cmd[1] = 0x000186C3;  // PRIMITIVE
-                        if (dl_n <= 5) fprintf(stderr, "[PATCH] DL#%d patched SETCOMBINE at phys 0x%X+%d\n", dl_n, phys, j);
-                    }
-                    if (sub_op == 0xDF) break;
-                }
-            }
-            if (op == 0xDF) break;
-        }
-    }
+    // No DL overrides — game's original commands pass through unmodified.
+
+    // === DISABLED: SETCOMBINE patching in seg6 sub-DLs ===
+    // Was forcing PRIMITIVE color output, hiding all real textures.
+    // Let the game's original combiners through for real rendering.
 
     if (do_log) {
         for (int i = 0; i < 200; i++) {
@@ -475,7 +505,11 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     *(uint32_t*)(rdram + data_addr - 4) = 0x00000001;
     uint32_t extended_data_addr = data_addr - 8;
 
-    // Track the last SETCIMG address for VI_ORIGIN fixup.
+    // Track SETCIMG addresses for VI_ORIGIN fixup.
+    // In Castlevania LoD, the DL structure is:
+    //   1st SETCIMG = Z-buffer address (0x1DA800) — used for depth clear
+    //   2nd SETCIMG = color buffer address (0x200000) — actual scene render
+    // We want to display the color buffer (2nd SETCIMG).
     {
         int cimg_count = 0;
         for (int i = 0; i < 200; i++) {
@@ -492,44 +526,172 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
+    // ── Projection Matrix Dump (DL#4 only) ─────────────────────────
+    // The DL loads projection matrix via MTX command. Dump the matrix data
+    // to understand why vertices collapse to screen center.
+    if (dl_n == 4) {
+        // Scan DL for first MTX projection command: 0xDA38000[57] (bit2=projection)
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            uint8_t op = (w0 >> 24) & 0xFF;
+            if (op == 0xDA) {
+                uint8_t params = w0 & 0xFF;
+                bool is_proj = (params & 0x04) != 0;
+                uint32_t mtx_addr = w1 & 0x3FFFFF; // strip KSEK0
+                if (is_proj && mtx_addr < 0x00800000) {
+                    auto* mtx = reinterpret_cast<RT64::FixedMatrix*>(rdram + mtx_addr);
+                    auto m = mtx->toMatrix4x4();
+                    fprintf(stderr, "[MTX] DL#4 PROJECTION at rdram+0x%06X (raw addr 0x%08X):\n", mtx_addr, w1);
+                    for (int r = 0; r < 4; r++) {
+                        fprintf(stderr, "[MTX]   [%d] %12.6f %12.6f %12.6f %12.6f\n",
+                                r, (float)m[r][0], (float)m[r][1], (float)m[r][2], (float)m[r][3]);
+                    }
+                    // Also dump first modelview matrix (next MTX with bit2=0)
+                    break;
+                }
+            }
+            if (op == 0xDF) break;
+        }
+        // Dump first modelview matrix
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            uint8_t op = (w0 >> 24) & 0xFF;
+            if (op == 0xDA) {
+                uint8_t params = w0 & 0xFF;
+                bool is_proj = (params & 0x04) != 0;
+                uint32_t mtx_addr = w1 & 0x3FFFFF;
+                if (!is_proj && mtx_addr < 0x00800000) {
+                    auto* mtx = reinterpret_cast<RT64::FixedMatrix*>(rdram + mtx_addr);
+                    auto m = mtx->toMatrix4x4();
+                    fprintf(stderr, "[MTX] DL#4 MODELVIEW at rdram+0x%06X (raw addr 0x%08X):\n", mtx_addr, w1);
+                    for (int r = 0; r < 4; r++) {
+                        fprintf(stderr, "[MTX]   [%d] %12.6f %12.6f %12.6f %12.6f\n",
+                                r, (float)m[r][0], (float)m[r][1], (float)m[r][2], (float)m[r][3]);
+                    }
+                    break;
+                }
+            }
+            if (op == 0xDF) break;
+        }
+    }
+
+    // ── DL Binary Dump (first 20 frames) ─────────────────────────────
+    if (dl_n <= 20) {
+        // Count commands
+        int cmd_count = 0;
+        for (int c = 0; c < 200; c++) {
+            uint8_t op = (*(uint32_t*)(rdram + data_addr + c * 8) >> 24) & 0xFF;
+            cmd_count++;
+            if (op == 0xDF) break;
+        }
+        char path[256];
+        snprintf(path, sizeof(path), "/tmp/lod_dl_%03d.bin", dl_n);
+        FILE* f = fopen(path, "wb");
+        if (f) {
+            // Header: "LOD_DL\0\0" + dl_n + data_addr + cmd_count
+            const char magic[8] = {'L','O','D','_','D','L',0,0};
+            fwrite(magic, 1, 8, f);
+            uint32_t hdr[3] = { (uint32_t)dl_n, data_addr, (uint32_t)cmd_count };
+            fwrite(hdr, 4, 3, f);
+            // Raw command bytes
+            fwrite(rdram + data_addr, 8, cmd_count, f);
+            fclose(f);
+            if (dl_n <= 5) fprintf(stderr, "[DUMP] DL#%d → %s (%d cmds)\n", dl_n, path, cmd_count);
+        }
+    }
+
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->state->extended.extendRDRAM = true;  // Force extended RDRAM for NI file access
     app->processDisplayLists(app->core.RDRAM, extended_data_addr, 0, true);
 
+    // ── FB RDRAM Pixel Inspection ────────────────────────────────────
+    // Check if the FB region in RDRAM has any non-zero pixels.
+    // Note: RT64 renders to GPU, so RDRAM FB may not reflect GPU output.
+    // But the game may write to FB directly for 2D effects.
+    if (dl_n <= 20) {
+        uint32_t fb_addr = 0x1DA800; // FB1
+        int nonzero = 0;
+        uint16_t sample_colors[8] = {};
+        int sample_idx = 0;
+        for (int p = 0; p < 320 * 240; p++) {
+            uint16_t pixel = *(uint16_t*)(rdram + fb_addr + p * 2);
+            if (pixel != 0) {
+                nonzero++;
+                if (sample_idx < 8) sample_colors[sample_idx++] = pixel;
+            }
+        }
+        if (dl_n <= 10 || nonzero > 0) {
+            fprintf(stderr, "[FB#%d] RDRAM FB1 non-zero pixels: %d/%d",
+                    dl_n, nonzero, 320 * 240);
+            if (nonzero > 0) {
+                fprintf(stderr, "  samples:");
+                for (int s = 0; s < sample_idx && s < 4; s++)
+                    fprintf(stderr, " 0x%04X", sample_colors[s]);
+            }
+            fprintf(stderr, "\n");
+        }
+    }
+
     // Dump workload state + vertex screen positions after DL processing
-    if (dl_n <= 5) {
+    if (dl_n <= 20) {
         auto& wq = *app->workloadQueue;
         auto& workload = wq.workloads[wq.previousWriteCursor()];
         auto& dd = workload.drawData;
         fprintf(stderr, "[WL#%d] fbPairs=%d faceIdx=%zu posFloats=%zu viewXforms=%zu\n",
                 dl_n, workload.fbPairCount, dd.faceIndices.size(), dd.posFloats.size(), dd.viewTransforms.size());
-        for (int fp = 0; fp < workload.fbPairCount && fp < 4; fp++) {
+
+        // Also dump to file for offline analysis
+        char wl_path[256];
+        snprintf(wl_path, sizeof(wl_path), "/tmp/lod_workload_%03d.txt", dl_n);
+        FILE* wl_file = fopen(wl_path, "w");
+
+        for (int fp = 0; fp < workload.fbPairCount && fp < 8; fp++) {
             auto& fbp = workload.fbPairs[fp];
             fprintf(stderr, "[WL#%d]   fb[%d] colorAddr=0x%06X projCount=%d calls=%d fillOnly=%d\n",
                     dl_n, fp, fbp.colorImage.address, fbp.projectionCount, fbp.gameCallCount, (int)fbp.fillRectOnly);
             fprintf(stderr, "[WL#%d]   fb[%d] colorRect=(%d,%d,%d,%d) empty=%d\n",
                     dl_n, fp, fbp.drawColorRect.ulx, fbp.drawColorRect.uly,
                     fbp.drawColorRect.lrx, fbp.drawColorRect.lry, (int)fbp.drawColorRect.isEmpty());
+            if (wl_file) {
+                fprintf(wl_file, "fb[%d] colorAddr=0x%06X projCount=%d calls=%d fillOnly=%d\n",
+                        fp, fbp.colorImage.address, fbp.projectionCount, fbp.gameCallCount, (int)fbp.fillRectOnly);
+                fprintf(wl_file, "fb[%d] colorRect=(%d,%d,%d,%d) empty=%d\n",
+                        fp, fbp.drawColorRect.ulx, fbp.drawColorRect.uly,
+                        fbp.drawColorRect.lrx, fbp.drawColorRect.lry, (int)fbp.drawColorRect.isEmpty());
+            }
             for (int pj = 0; pj < fbp.projectionCount && pj < 6; pj++) {
                 auto& proj = fbp.projections[pj];
                 fprintf(stderr, "[WL#%d]     proj[%d] type=%d xformIdx=%d calls=%d\n",
                         dl_n, pj, (int)proj.type, proj.transformsIndex, proj.gameCallCount);
+                if (wl_file) {
+                    fprintf(wl_file, "  proj[%d] type=%d xformIdx=%d calls=%d\n",
+                            pj, (int)proj.type, proj.transformsIndex, proj.gameCallCount);
+                }
             }
         }
-        // Dump posFloats (raw vertex positions as sent to RT64) and posScreen
-        if (dl_n == 4) {
-            for (size_t vi = 0; vi < 3 && vi*3+2 < dd.posFloats.size(); vi++) {
+        // Dump vertex data for geometry DLs (DL#4+ have geometry from seg6)
+        if (dd.posFloats.size() > 0) {
+            size_t max_verts = std::min((size_t)10, dd.posFloats.size() / 3);
+            for (size_t vi = 0; vi < max_verts; vi++) {
                 fprintf(stderr, "[WL#%d] posFloats[%zu]=(%.1f, %.1f, %.1f)\n",
                         dl_n, vi, dd.posFloats[vi*3], dd.posFloats[vi*3+1], dd.posFloats[vi*3+2]);
             }
         }
-        if (dl_n == 4) {
-            for (size_t vi = 0; vi < dd.posScreen.size() && vi < 6; vi++) {
+        if (dd.posScreen.size() > 0) {
+            size_t max_screen = std::min((size_t)10, dd.posScreen.size());
+            for (size_t vi = 0; vi < max_screen; vi++) {
                 auto& ps = dd.posScreen[vi];
                 fprintf(stderr, "[WL#%d] posScreen[%zu]=(%.1f, %.1f, %.1f)\n",
                         dl_n, vi, (float)ps.x, (float)ps.y, (float)ps.z);
             }
+        }
+        if (wl_file) {
+            fprintf(wl_file, "drawData faceIndices=%zu posFloats=%zu posScreen=%zu viewXforms=%zu\n",
+                    dd.faceIndices.size(), dd.posFloats.size(), dd.posScreen.size(), dd.viewTransforms.size());
+            fclose(wl_file);
         }
     }
 }
@@ -542,10 +704,12 @@ void lod::renderer::RT64Context::update_screen() {
     // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
     // one of those addresses for RT64 to find and display the rendered frame.
     ultramodern::renderer::ViRegs* vi = ultramodern::renderer::get_vi_regs();
-    // Snapshot game's origin, then hardcode ALL registers and call
-    // app->updateScreen() (the approach that worked for FB1).
+    // Use game's VI_ORIGIN from osViSwapBuffer, but ensure NTSC registers are set.
+    // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
+    // one of those addresses + width*2 for RT64 to find the rendered frame.
     uint32_t game_origin = vi->VI_ORIGIN_REG & 0xFFFFFF;
 
+    // Hardcode NTSC timing registers (game may not set these correctly early on).
     vi->VI_STATUS_REG    = 0x0000030A;
     vi->VI_WIDTH_REG     = 320;
     vi->VI_INTR_REG      = 2;
@@ -558,8 +722,21 @@ void lod::renderer::RT64Context::update_screen() {
     vi->VI_V_BURST_REG   = 0x000E0204;
     vi->VI_X_SCALE_REG   = 0x00000200;
     vi->VI_Y_SCALE_REG   = 0x00000400;
-    // Always display FB1 — both fill-rects and game geometry render here now.
-    vi->VI_ORIGIN_REG    = 0x1DA800 + 640;
+
+    // Use the last SETCIMG from the DL as VI_ORIGIN (+ 1 row offset).
+    // This ensures RT64 finds the matching framebuffer pair.
+    // Fall back to game_origin if no SETCIMG was tracked.
+    if (last_displayed_cfb != 0) {
+        vi->VI_ORIGIN_REG = last_displayed_cfb + 640;
+    } else if (game_origin > 0) {
+        vi->VI_ORIGIN_REG = game_origin;
+    } else {
+        vi->VI_ORIGIN_REG = 0x1DA800 + 640;
+    }
+    if (us_n <= 5 || us_n % 200 == 0) {
+        fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X\n",
+                us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG);
+    }
 
     app->updateScreen();
 }
