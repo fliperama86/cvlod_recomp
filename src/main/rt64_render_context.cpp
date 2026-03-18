@@ -410,6 +410,41 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                     *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x001F001F; // blue
                 }
             }
+            // Override SETPRIMCOLOR to red + SETCOMBINE to output PRIMITIVE
+            if (op == 0xFA) {
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0xFF0000FF;
+            }
+            if (op == 0xFC) {
+                *(uint32_t*)(rdram + data_addr + i * 8) = 0xFC000000;
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x000186C3;
+            }
+            if (op == 0xDF) break;
+        }
+    }
+
+    // Patch SETCOMBINE inside segment 6 sub-DLs to output solid PRIMITIVE color.
+    // Only patch when seg6 is resolved (DL#4+).
+    if (cached_seg6_addr != 0) {
+        uint32_t seg6_phys = cached_seg6_addr & 0x7FFFFFFF;
+        // Patch all segment 6 G_DL targets that start with valid GBI opcodes
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            uint8_t op = (w0 >> 24) & 0xFF;
+            if (op == 0xDE && ((w1 >> 24) & 0x0F) == 0x06) {
+                uint32_t phys = seg6_phys + (w1 & 0x00FFFFFF);
+                // Scan up to 64 commands in this sub-DL
+                for (int j = 0; j < 64; j++) {
+                    uint32_t* cmd = reinterpret_cast<uint32_t*>(rdram + phys + j * 8);
+                    uint8_t sub_op = (cmd[0] >> 24) & 0xFF;
+                    if (sub_op == 0xFC) {
+                        cmd[0] = 0xFC000000;
+                        cmd[1] = 0x000186C3;  // PRIMITIVE
+                        if (dl_n <= 5) fprintf(stderr, "[PATCH] DL#%d patched SETCOMBINE at phys 0x%X+%d\n", dl_n, phys, j);
+                    }
+                    if (sub_op == 0xDF) break;
+                }
+            }
             if (op == 0xDF) break;
         }
     }
