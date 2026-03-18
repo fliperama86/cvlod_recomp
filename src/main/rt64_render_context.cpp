@@ -249,6 +249,7 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
 lod::renderer::RT64Context::~RT64Context() = default;
 
 static uint32_t last_displayed_cfb = 0x001DA800; // track the displayed cfb address
+static uint32_t cached_seg6_addr = 0;             // segment 6 base for NI file data
 
 // Decompressed NI file table (defined in recomp.cpp)
 extern uint32_t ni_decompressed_addrs[1024];
@@ -300,7 +301,7 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
 
         // If segment 6 is 0 and there are G_DL branches to it, find the file
-        static uint32_t cached_seg6_addr = 0;
+        // (cached_seg6_addr is at file scope for use in injected sub-DL)
 
         if (has_seg6_zero && seg6_count > 0) {
             if (cached_seg6_addr == 0) {
@@ -385,15 +386,127 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         if (opcode == 0xDF) break;
     }
 
-    // Override 1st SETFILLCOLOR to green on FB1 (the buffer we always display).
+    // Override 1st SETFILLCOLOR to dark blue on FB1 (the buffer we always display).
     {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             if (((w0 >> 24) & 0xFF) == 0xF7) {
-                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x07C107C1; // green
-                break; // only override the 1st SETFILLCOLOR
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x001F001F; // blue
+                break;
             }
             if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+    }
+
+    // === INJECT SANITY TEST TRIANGLE ===
+    // Write a mini display list + data into RDRAM at 0x180000, then patch
+    // the first NOPed G_DL in the top-level DL to call it.
+    // This tests whether the render thread can handle triangle geometry
+    // in the game's context (same FB pair, same workload pipeline).
+    {
+        const uint32_t INJ_BASE  = 0x180000;
+        const uint32_t INJ_VP    = INJ_BASE;          // 16 bytes
+        const uint32_t INJ_PROJ  = INJ_BASE + 0x100;  // 64 bytes
+        const uint32_t INJ_MODEL = INJ_BASE + 0x200;  // 64 bytes
+        const uint32_t INJ_VTX   = INJ_BASE + 0x300;  // 48 bytes (3 verts)
+        const uint32_t INJ_DL    = INJ_BASE + 0x400;  // display list commands
+
+        // Write viewport: scale=(4,3) to fit model coords (-17..+17) on screen
+        // screen_x = x*4+160 → range ~92..228, screen_y = -y*3+120 → range ~21..120
+        {
+            int16_t* vp = reinterpret_cast<int16_t*>(rdram + INJ_VP);
+            vp[0] = int16_t(3 * 4);    // y scale (small to fit model coords)
+            vp[1] = int16_t(4 * 4);    // x scale
+            vp[2] = 0;
+            vp[3] = int16_t(16);        // z scale (tiny — model z range is ±14)
+            vp[4] = int16_t(120 * 4);  // y translate
+            vp[5] = int16_t(160 * 4);  // x translate
+            vp[6] = 0;
+            vp[7] = int16_t(512);       // z translate
+        }
+
+        // Write identity matrices (FixedMatrix format with pair-swap)
+        auto write_identity = [&](uint32_t addr) {
+            memset(rdram + addr, 0, 64);
+            int16_t* mtx = reinterpret_cast<int16_t*>(rdram + addr);
+            mtx[0 * 4 + (0 ^ 1)] = 1;  // [0][1]
+            mtx[1 * 4 + (1 ^ 1)] = 1;  // [1][0]
+            mtx[2 * 4 + (2 ^ 1)] = 1;  // [2][3]
+            mtx[3 * 4 + (3 ^ 1)] = 1;  // [3][2]
+        };
+        write_identity(INJ_PROJ);
+        write_identity(INJ_MODEL);
+
+        // Write 3 red vertices: (0,-1,0), (-1,1,0), (1,1,0) with S/T=0
+        auto write_vtx = [&](uint32_t addr, int idx, int16_t x, int16_t y, int16_t z,
+                             uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+            uint8_t* v = rdram + addr + idx * 16;
+            int16_t* s16 = reinterpret_cast<int16_t*>(v);
+            s16[0] = y; s16[1] = x;
+            reinterpret_cast<uint16_t*>(v)[2] = 0; s16[3] = z;
+            s16[4] = 0; s16[5] = 0;
+            v[12] = a; v[13] = b; v[14] = g; v[15] = r;
+        };
+        write_vtx(INJ_VTX, 0,  0, -1, 0,  255, 0, 0, 255);
+        write_vtx(INJ_VTX, 1, -1,  1, 0,  255, 0, 0, 255);
+        write_vtx(INJ_VTX, 2,  1,  1, 0,  255, 0, 0, 255);
+
+        // Write display list commands
+        auto write_cmd = [&](uint32_t addr, int idx, uint32_t w0, uint32_t w1) {
+            uint32_t* dl = reinterpret_cast<uint32_t*>(rdram + addr + idx * 8);
+            dl[0] = w0; dl[1] = w1;
+        };
+        // Pure sanity-test state + game's vertices.
+        // No game state commands — isolate vertex/viewport issue.
+        int c = 0;
+        write_cmd(INJ_DL, c++, 0xE3000A01, 0);                          // 1-CYCLE
+        write_cmd(INJ_DL, c++, 0xE200001F, 0x0C084000);                  // Our opaque SETOTHERMODE_L
+        write_cmd(INJ_DL, c++, 0xFC000000, 0x00020904);                  // SHADE combiner
+        write_cmd(INJ_DL, c++, 0xD9000000, 0x00200004);                  // SHADE+SMOOTH
+        write_cmd(INJ_DL, c++, 0xDC080008, INJ_VP);                      // viewport
+        write_cmd(INJ_DL, c++, 0xDA380007, INJ_PROJ);                    // MTX: projection (identity)
+        write_cmd(INJ_DL, c++, 0xDA380003, INJ_MODEL);                   // MTX: modelview (identity)
+        // Enable extendRDRAM + set segment 6 before VTX
+        write_cmd(INJ_DL, c++, 0x6400002C, 0x00000001);                  // extendRDRAM = true
+        if (cached_seg6_addr != 0) {
+            write_cmd(INJ_DL, c++, 0xDB060018, cached_seg6_addr);        // MOVEWORD segment[6]
+            if (dl_n <= 5) {
+                uint32_t phys = (cached_seg6_addr & 0x7FFFFFFF) + 0x83C0;
+                uint32_t* data = reinterpret_cast<uint32_t*>(rdram + phys);
+                fprintf(stderr, "[INJ] seg6=0x%08X phys=0x%08X data: %08X %08X %08X %08X\n",
+                        cached_seg6_addr, phys, data[0], data[1], data[2], data[3]);
+            }
+        } else {
+            if (dl_n <= 5) fprintf(stderr, "[INJ] WARNING: cached_seg6_addr=0!\n");
+        }
+        // Game's 31 vertices — use direct extended RDRAM address (bypass seg6)
+        uint32_t vtx_phys = (cached_seg6_addr != 0)
+            ? (cached_seg6_addr + 0x83C0)  // 0x94AE8900 + 0x83C0 = 0x94AF0CC0
+            : 0x060083C0;                    // fallback to seg6
+        if (dl_n <= 5) fprintf(stderr, "[INJ] VTX addr=0x%08X\n", vtx_phys);
+        write_cmd(INJ_DL, c++, 0x0101F03E, vtx_phys);                    // VTX: 31 verts direct
+        write_cmd(INJ_DL, c++, 0x06040200, 0x000A0806);                  // TRI2 cmd23
+        write_cmd(INJ_DL, c++, 0x06100E0C, 0x0012100C);                  // TRI2 cmd24
+        write_cmd(INJ_DL, c++, 0x06021614, 0x001A1806);                  // TRI2 cmd25
+        write_cmd(INJ_DL, c++, 0x06181E1C, 0x00160220);                  // TRI2 cmd26
+        write_cmd(INJ_DL, c++, 0x06221620, 0x001A0824);                  // TRI2 cmd27
+        write_cmd(INJ_DL, c++, 0x06261A24, 0x00181A26);                  // TRI2 cmd28
+        write_cmd(INJ_DL, c++, 0x06281826, 0x001A0608);                  // TRI2 cmd29
+        write_cmd(INJ_DL, c++, 0x06140002, 0x001C0618);                  // TRI2 cmd30
+        write_cmd(INJ_DL, c++, 0x0604002A, 0x002C2A00);                  // TRI2 cmd31
+        write_cmd(INJ_DL, c++, 0x0632302E, 0x0034322E);                  // TRI2 cmd32
+        write_cmd(INJ_DL, c++, 0x063A3836, 0x003C3A36);                  // TRI2 cmd33
+        // 2nd VTX batch + TRI2
+        write_cmd(INJ_DL, c++, 0x01004008, 0x060085B0);                  // VTX: 8 verts from seg6
+        write_cmd(INJ_DL, c++, 0x06040200, 0x00060400);                  // TRI2 cmd35
+        write_cmd(INJ_DL, c++, 0xDF000000, 0x00000000);                  // ENDDL
+
+        // Inject at cmd10 (PIPESYNC before SETCIMG FB2) — FB1 is still active.
+        // Replace the PIPESYNC with a G_DL CALL to our triangle sub-DL.
+        *(uint32_t*)(rdram + data_addr + 10 * 8) = 0xDE000000;  // G_DL call
+        *(uint32_t*)(rdram + data_addr + 10 * 8 + 4) = INJ_DL;
+        if (dl_n <= 5) {
+            fprintf(stderr, "[DL#%d] Injected triangle at cmd10 → 0x%06X\n", dl_n, INJ_DL);
         }
     }
 
@@ -442,9 +555,10 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
+    app->state->extended.extendRDRAM = true;  // Force extended RDRAM for NI file access
     app->processDisplayLists(app->core.RDRAM, extended_data_addr, 0, true);
 
-    // Dump workload state after DL processing
+    // Dump workload state + vertex screen positions after DL processing
     if (dl_n <= 5) {
         auto& wq = *app->workloadQueue;
         auto& workload = wq.workloads[wq.previousWriteCursor()];
@@ -462,6 +576,20 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                 auto& proj = fbp.projections[pj];
                 fprintf(stderr, "[WL#%d]     proj[%d] type=%d xformIdx=%d calls=%d\n",
                         dl_n, pj, (int)proj.type, proj.transformsIndex, proj.gameCallCount);
+            }
+        }
+        // Dump posFloats (raw vertex positions as sent to RT64) and posScreen
+        if (dl_n == 4) {
+            for (size_t vi = 0; vi < 3 && vi*3+2 < dd.posFloats.size(); vi++) {
+                fprintf(stderr, "[WL#%d] posFloats[%zu]=(%.1f, %.1f, %.1f)\n",
+                        dl_n, vi, dd.posFloats[vi*3], dd.posFloats[vi*3+1], dd.posFloats[vi*3+2]);
+            }
+        }
+        if (dl_n == 4) {
+            for (size_t vi = 0; vi < dd.posScreen.size() && vi < 6; vi++) {
+                auto& ps = dd.posScreen[vi];
+                fprintf(stderr, "[WL#%d] posScreen[%zu]=(%.1f, %.1f, %.1f)\n",
+                        dl_n, vi, (float)ps.x, (float)ps.y, (float)ps.z);
             }
         }
     }
