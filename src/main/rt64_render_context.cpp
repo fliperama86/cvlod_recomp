@@ -361,6 +361,33 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
+    // NOP G_DL branches — segment 6 sub-DLs lack ENDDL terminators,
+    // causing the RT64 interpreter to hang on DL#4+.
+    // Override 2nd SETFILLCOLOR to red for visual confirmation.
+    for (int i = 0; i < 200; i++) {
+        uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+        uint8_t opcode = (w0 >> 24) & 0xFF;
+        if (opcode == 0xDE) {
+            *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+            *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+        }
+        if (opcode == 0xDF) break;
+    }
+    {
+        int f7_count = 0;
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            if (((w0 >> 24) & 0xFF) == 0xF7) {
+                f7_count++;
+                if (f7_count == 2) {
+                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0xF801F801;
+                    break;
+                }
+            }
+            if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+    }
+
     if (do_log) {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
@@ -417,11 +444,23 @@ void lod::renderer::RT64Context::update_screen() {
     // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
     // one of those addresses for RT64 to find and display the rendered frame.
     ultramodern::renderer::ViRegs* vi = ultramodern::renderer::get_vi_regs();
-    vi->VI_ORIGIN_REG = last_displayed_cfb;
+    vi->VI_ORIGIN_REG = last_displayed_cfb + 640; // +row_bytes so fbAddress()=cfb
 
-    if (us_n <= 5 || (us_n % 200 == 0)) {
-        fprintf(stderr, "[VI_FIX] update_screen #%d VI_ORIGIN forced to 0x%06X\n",
-                us_n, last_displayed_cfb);
+    // Force VI to 16-bit NTSC if the game hasn't initialized it yet.
+    // Without this, STATUS=0 (blank) → visible()=false → black screen.
+    if ((vi->VI_STATUS_REG & 0x3) == 0 || vi->VI_WIDTH_REG == 0) {
+        vi->VI_STATUS_REG  = 0x0000320E;  // 16-bit, AA+resamp
+        vi->VI_WIDTH_REG   = 320;
+        vi->VI_H_START_REG = 0x006C02EC;
+        vi->VI_V_START_REG = 0x00250239;
+        vi->VI_X_SCALE_REG = 0x00000200;
+        vi->VI_Y_SCALE_REG = 0x00000400;
+    }
+
+    if (us_n <= 3) {
+        fprintf(stderr, "[VI_FIX] #%d ORIGIN=0x%X STATUS=0x%X WIDTH=%u H_START=0x%X V_START=0x%X X_SCALE=0x%X Y_SCALE=0x%X\n",
+                us_n, vi->VI_ORIGIN_REG, vi->VI_STATUS_REG, vi->VI_WIDTH_REG,
+                vi->VI_H_START_REG, vi->VI_V_START_REG, vi->VI_X_SCALE_REG, vi->VI_Y_SCALE_REG);
     }
 
     app->updateScreen();
