@@ -363,49 +363,26 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
-    // Selectively NOP segment-6 G_DL branches that point to vertex data
-    // (not valid display lists). Check the first opcode at the resolved target:
-    // valid DLs start with GBI opcodes (0xE2, 0xE3, 0xD9, 0xFC, etc.),
-    // vertex data starts with coordinate bytes (0x00, 0xFF, small values).
-    {
-        // Get current segment 6 base (from the DL's MOVEWORD commands)
-        uint32_t seg6_base = 0;
-        for (int i = 0; i < 200; i++) {
-            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
-            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            // G_MOVEWORD segment[6]: opcode=0xDB, type=0x06, index=6*4=24=0x18
-            if (((w0 >> 24) & 0xFF) == 0xDB && ((w0 >> 16) & 0xFF) == 0x06) {
-                int seg_idx = (w0 & 0xFFFF) / 4;
-                if (seg_idx == 6) seg6_base = w1;
-            }
-            if (((w0 >> 24) & 0xFF) == 0xDF) break;
-        }
-
-        for (int i = 0; i < 200; i++) {
-            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
-            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
-            uint8_t opcode = (w0 >> 24) & 0xFF;
-            if (opcode == 0xDE && ((w1 >> 24) & 0x0F) == 0x06) {
-                // Resolve segment 6 address
-                uint32_t offset = w1 & 0x00FFFFFF;
-                uint32_t phys = (seg6_base & 0x7FFFFFFF) + offset; // strip extended bit
-                // Check first opcode at target (read 32-bit word, opcode is high byte)
-                uint32_t target_w0 = *(uint32_t*)(rdram + phys);
-                uint8_t target_opcode = (target_w0 >> 24) & 0xFF;
-                // NOP all segment 6 G_DLs for now — nested sub-DLs can also
-                // hang if they branch to data without ENDDL.
-                bool looks_like_dl = false; (void)target_opcode;
+    // NOP all G_DL branches except the two known-safe KSEG0 targets that
+    // appear in every DL (0x800B0090 and 0x800AE958). Everything else
+    // (segment 6 sub-DLs, segment 0 sub-DL at 0x000B2F80) can hang.
+    for (int i = 0; i < 200; i++) {
+        uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+        uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+        uint8_t opcode = (w0 >> 24) & 0xFF;
+        if (opcode == 0xDE) {
+            // Allow known-safe KSEG0 sub-DLs. All others (segment 6, segment 0)
+            // are NOPed — they either hang the interpreter or block the render thread.
+            bool safe = (w1 == 0x800B0090 || w1 == 0x800AE958);
+            if (!safe) {
                 if (dl_n <= 5) {
-                    fprintf(stderr, "[DL#%d cmd%d] seg6 G_DL 0x%08X → phys 0x%08X firstByte=0x%02X %s\n",
-                            dl_n, i, w1, phys, target_opcode, looks_like_dl ? "ALLOW" : "NOP");
+                    fprintf(stderr, "[DL#%d cmd%d] NOP G_DL target=0x%08X\n", dl_n, i, w1);
                 }
-                if (!looks_like_dl) {
-                    *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
-                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
-                }
+                *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
             }
-            if (opcode == 0xDF) break;
         }
+        if (opcode == 0xDF) break;
     }
 
     // Override 1st SETFILLCOLOR to green on FB1 (the buffer we always display).
