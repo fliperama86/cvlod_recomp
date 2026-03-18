@@ -5,6 +5,8 @@
 #define HLSL_CPU
 #endif
 #include "hle/rt64_application.h"
+#include "hle/rt64_workload.h"
+#include "hle/rt64_vi.h"
 
 #include "ultramodern/ultramodern.hpp"
 #include "ultramodern/config.hpp"
@@ -361,28 +363,58 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         }
     }
 
-    // NOP G_DL branches — segment 6 sub-DLs lack ENDDL terminators,
-    // causing the RT64 interpreter to hang on DL#4+.
-    // Override 2nd SETFILLCOLOR to red for visual confirmation.
-    for (int i = 0; i < 200; i++) {
-        uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
-        uint8_t opcode = (w0 >> 24) & 0xFF;
-        if (opcode == 0xDE) {
-            *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
-            *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
-        }
-        if (opcode == 0xDF) break;
-    }
+    // Selectively NOP segment-6 G_DL branches that point to vertex data
+    // (not valid display lists). Check the first opcode at the resolved target:
+    // valid DLs start with GBI opcodes (0xE2, 0xE3, 0xD9, 0xFC, etc.),
+    // vertex data starts with coordinate bytes (0x00, 0xFF, small values).
     {
-        int f7_count = 0;
+        // Get current segment 6 base (from the DL's MOVEWORD commands)
+        uint32_t seg6_base = 0;
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            // G_MOVEWORD segment[6]: opcode=0xDB, type=0x06, index=6*4=24=0x18
+            if (((w0 >> 24) & 0xFF) == 0xDB && ((w0 >> 16) & 0xFF) == 0x06) {
+                int seg_idx = (w0 & 0xFFFF) / 4;
+                if (seg_idx == 6) seg6_base = w1;
+            }
+            if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+
+        for (int i = 0; i < 200; i++) {
+            uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+            uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+            uint8_t opcode = (w0 >> 24) & 0xFF;
+            if (opcode == 0xDE && ((w1 >> 24) & 0x0F) == 0x06) {
+                // Resolve segment 6 address
+                uint32_t offset = w1 & 0x00FFFFFF;
+                uint32_t phys = (seg6_base & 0x7FFFFFFF) + offset; // strip extended bit
+                // Check first opcode at target (read 32-bit word, opcode is high byte)
+                uint32_t target_w0 = *(uint32_t*)(rdram + phys);
+                uint8_t target_opcode = (target_w0 >> 24) & 0xFF;
+                // NOP all segment 6 G_DLs for now — nested sub-DLs can also
+                // hang if they branch to data without ENDDL.
+                bool looks_like_dl = false; (void)target_opcode;
+                if (dl_n <= 5) {
+                    fprintf(stderr, "[DL#%d cmd%d] seg6 G_DL 0x%08X → phys 0x%08X firstByte=0x%02X %s\n",
+                            dl_n, i, w1, phys, target_opcode, looks_like_dl ? "ALLOW" : "NOP");
+                }
+                if (!looks_like_dl) {
+                    *(uint32_t*)(rdram + data_addr + i * 8) = 0x00000000;
+                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x00000000;
+                }
+            }
+            if (opcode == 0xDF) break;
+        }
+    }
+
+    // Override 1st SETFILLCOLOR to green on FB1 (the buffer we always display).
+    {
         for (int i = 0; i < 200; i++) {
             uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
             if (((w0 >> 24) & 0xFF) == 0xF7) {
-                f7_count++;
-                if (f7_count == 2) {
-                    *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0xF801F801;
-                    break;
-                }
+                *(uint32_t*)(rdram + data_addr + i * 8 + 4) = 0x07C107C1; // green
+                break; // only override the 1st SETFILLCOLOR
             }
             if (((w0 >> 24) & 0xFF) == 0xDF) break;
         }
@@ -434,6 +466,28 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
     app->processDisplayLists(app->core.RDRAM, extended_data_addr, 0, true);
+
+    // Dump workload state after DL processing
+    if (dl_n <= 5) {
+        auto& wq = *app->workloadQueue;
+        auto& workload = wq.workloads[wq.previousWriteCursor()];
+        auto& dd = workload.drawData;
+        fprintf(stderr, "[WL#%d] fbPairs=%d faceIdx=%zu posFloats=%zu viewXforms=%zu\n",
+                dl_n, workload.fbPairCount, dd.faceIndices.size(), dd.posFloats.size(), dd.viewTransforms.size());
+        for (int fp = 0; fp < workload.fbPairCount && fp < 4; fp++) {
+            auto& fbp = workload.fbPairs[fp];
+            fprintf(stderr, "[WL#%d]   fb[%d] colorAddr=0x%06X projCount=%d calls=%d fillOnly=%d\n",
+                    dl_n, fp, fbp.colorImage.address, fbp.projectionCount, fbp.gameCallCount, (int)fbp.fillRectOnly);
+            fprintf(stderr, "[WL#%d]   fb[%d] colorRect=(%d,%d,%d,%d) empty=%d\n",
+                    dl_n, fp, fbp.drawColorRect.ulx, fbp.drawColorRect.uly,
+                    fbp.drawColorRect.lrx, fbp.drawColorRect.lry, (int)fbp.drawColorRect.isEmpty());
+            for (int pj = 0; pj < fbp.projectionCount && pj < 6; pj++) {
+                auto& proj = fbp.projections[pj];
+                fprintf(stderr, "[WL#%d]     proj[%d] type=%d xformIdx=%d calls=%d\n",
+                        dl_n, pj, (int)proj.type, proj.transformsIndex, proj.gameCallCount);
+            }
+        }
+    }
 }
 
 void lod::renderer::RT64Context::update_screen() {
@@ -444,23 +498,30 @@ void lod::renderer::RT64Context::update_screen() {
     // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
     // one of those addresses for RT64 to find and display the rendered frame.
     ultramodern::renderer::ViRegs* vi = ultramodern::renderer::get_vi_regs();
-    vi->VI_ORIGIN_REG = last_displayed_cfb + 640; // +row_bytes so fbAddress()=cfb
+    // Snapshot game's VI_ORIGIN, then hardcode ALL VI registers and call
+    // app->updateScreen() — tiny race window between writes and decodeVI().
+    uint32_t game_origin = vi->VI_ORIGIN_REG & 0xFFFFFF;
 
-    // Force VI to 16-bit NTSC if the game hasn't initialized it yet.
-    // Without this, STATUS=0 (blank) → visible()=false → black screen.
-    if ((vi->VI_STATUS_REG & 0x3) == 0 || vi->VI_WIDTH_REG == 0) {
-        vi->VI_STATUS_REG  = 0x0000320E;  // 16-bit, AA+resamp
-        vi->VI_WIDTH_REG   = 320;
-        vi->VI_H_START_REG = 0x006C02EC;
-        vi->VI_V_START_REG = 0x00250239;
-        vi->VI_X_SCALE_REG = 0x00000200;
-        vi->VI_Y_SCALE_REG = 0x00000400;
-    }
+    vi->VI_STATUS_REG    = 0x0000030A;
+    vi->VI_WIDTH_REG     = 320;
+    vi->VI_INTR_REG      = 2;
+    vi->VI_TIMING_REG    = 0x03E52239;
+    vi->VI_V_SYNC_REG    = 0x020D;
+    vi->VI_H_SYNC_REG    = 0x00000C15;
+    vi->VI_LEAP_REG      = 0x0C150C15;
+    vi->VI_H_START_REG   = 0x006C02EC;
+    vi->VI_V_START_REG   = 0x00250239;
+    vi->VI_V_BURST_REG   = 0x000E0204;
+    vi->VI_X_SCALE_REG   = 0x00000200;
+    vi->VI_Y_SCALE_REG   = 0x00000400;
 
-    if (us_n <= 3) {
-        fprintf(stderr, "[VI_FIX] #%d ORIGIN=0x%X STATUS=0x%X WIDTH=%u H_START=0x%X V_START=0x%X X_SCALE=0x%X Y_SCALE=0x%X\n",
-                us_n, vi->VI_ORIGIN_REG, vi->VI_STATUS_REG, vi->VI_WIDTH_REG,
-                vi->VI_H_START_REG, vi->VI_V_START_REG, vi->VI_X_SCALE_REG, vi->VI_Y_SCALE_REG);
+    // Always show FB1 (0x1DA800) — it's rendered every frame and persists.
+    // FB2 rotates addresses and gets recycled → black.
+    vi->VI_ORIGIN_REG = 0x1DA800 + 640;
+
+    if (us_n <= 10 || (us_n % 100 == 0)) {
+        fprintf(stderr, "[VI_FIX] #%d game=0x%X final=0x%X\n",
+                us_n, game_origin, vi->VI_ORIGIN_REG);
     }
 
     app->updateScreen();
