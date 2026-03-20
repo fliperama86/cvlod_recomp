@@ -44,8 +44,27 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     uint32_t even_paddr = (uint32_t)ctx->r7;
     uint32_t odd_paddr  = MEM_W(0x10, ctx->r29);
 
-    // Hook: load NI overlay when mapping 0x0F000000
+
+    // Hook: load NI overlay when mapping 0x0F000000 or 0x0E000000.
+    // This copies full overlay data from extended ROM to the segment region.
+    // We must skip the normal TLB copy below to avoid overwriting with the
+    // small decompressed blob.
     ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
+    if (vaddr == 0x0F000000 || vaddr == 0x0E000000) {
+        // Save mapping info but skip data copy — overlay loader already populated
+        uint32_t mf = (page_mask >> 13) & 0xFFF;
+        uint32_t ps = (mf + 1) * 4096;
+        if (index >= 0 && index < 32) {
+            tlb_table[index] = { vaddr, even_paddr, odd_paddr, ps, true };
+        }
+        static int log_count_ni = 0;
+        log_count_ni++;
+        if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
+            fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X (NI skip copy)\n",
+                    log_count_ni, index, vaddr, even_paddr, odd_paddr, ps);
+        }
+        return;
+    }
 
     // Handle osUnmapTLB (index = -1 or vaddr = 0xFFFFFFFF)
     if (index < 0 || index >= 32) {

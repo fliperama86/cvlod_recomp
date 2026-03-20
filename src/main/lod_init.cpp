@@ -270,6 +270,7 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     }
 
     // === ROM byte-swap mapping ===
+    // Map the original 16MB ROM (byte-swapped) to rdram+0x10000000.
     {
         constexpr uint32_t rom_rdram_base = 0x10000000;
         size_t map_size = std::min(rom.size(), (size_t)(16 * 1024 * 1024));
@@ -281,5 +282,46 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         }
         fprintf(stderr, "[init] Mapped %zu bytes of ROM (byte-swapped) at rdram+0x%08X\n",
                 map_size, rom_rdram_base);
+    }
+
+    // === Extended ROM mapping (NI overlay data) ===
+    // The extended ROM contains NI overlay text+data at offsets 0x01000000+.
+    // Map this region (byte-swapped) so overlay code can read its .data section
+    // via MEM_W when the overlay loader copies it to the segment region.
+    {
+        // Load the extended ROM's NI overlay data (text+data at offsets 0x1000000+).
+        // This is separate from the runtime ROM (which may be the 52MB decompressed version).
+        constexpr uint32_t rom_rdram_base = 0x10000000;
+        std::filesystem::path ext_rom_path = "resources/castlevania2_ni_extended.z64";
+        if (std::filesystem::exists(ext_rom_path)) {
+            std::ifstream ef(ext_rom_path, std::ios::binary);
+            ef.seekg(0, std::ios::end);
+            size_t ext_rom_size = ef.tellg();
+            if (ext_rom_size > 0x01000000) {
+                size_t ext_start = 0x01000000;
+                size_t ext_size = ext_rom_size - ext_start;
+                ext_size &= ~3ULL;
+                std::vector<uint8_t> ext_data(ext_size);
+                ef.seekg(ext_start);
+                ef.read(reinterpret_cast<char*>(ext_data.data()), ext_size);
+
+                // mprotect the target region
+                uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+                uint8_t* ext_base = rdram + rom_rdram_base + ext_start;
+                uint8_t* aligned = (uint8_t*)((uintptr_t)ext_base & ~page_mask);
+                size_t aligned_size = ((ext_base + ext_size) - aligned + page_mask) & ~page_mask;
+                mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
+
+                // Byte-swap and copy
+                for (size_t i = 0; i < ext_size; i += 4) {
+                    rdram[rom_rdram_base + ext_start + i + 0] = ext_data[i + 3];
+                    rdram[rom_rdram_base + ext_start + i + 1] = ext_data[i + 2];
+                    rdram[rom_rdram_base + ext_start + i + 2] = ext_data[i + 1];
+                    rdram[rom_rdram_base + ext_start + i + 3] = ext_data[i + 0];
+                }
+                fprintf(stderr, "[init] Mapped extended ROM NI data: %zu bytes (byte-swapped) at rdram+0x%08X\n",
+                        ext_size, (uint32_t)(rom_rdram_base + ext_start));
+            }
+        }
     }
 }

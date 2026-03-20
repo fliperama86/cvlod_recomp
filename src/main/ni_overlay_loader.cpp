@@ -9,6 +9,9 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <unistd.h>
+#include <sys/mman.h>
 
 #include "recomp.h"
 #include "librecomp/overlays.hpp"
@@ -16,11 +19,14 @@
 extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
 extern "C" void unload_overlay_by_id(uint32_t id);
 
+// Full overlay data table (rom offsets + sizes in extended ROM)
+#include "ni_ovl_data.h"
+
 // NI pairs: text_ni_index 0x1C5 (453) → pair 0 → overlay index 48 (first NI in overlays.txt)
 // overlay_id = 48 + pair_index
 // pair_index = (ni_text_index - 0x1C5) / 2
 static constexpr int NI_TEXT_INDEX_START = 0x1C5;
-static constexpr int NI_OVERLAY_ID_START = 48;
+static constexpr int NI_OVERLAY_ID_START = 54;
 static constexpr int NI_PAIR_COUNT = 245;
 
 // Track separately for 0x0E and 0x0F (they're independent)
@@ -57,7 +63,31 @@ static int ni_index_to_pair(int ni_index) {
     return pair;
 }
 
-static void load_ni_overlay(int pair_index) {
+// Copy the full overlay data (text+data) from the extended ROM to the
+// segment region in RDRAM. The extended ROM is mapped at rdram+0x10000000
+// and contains each overlay's text+data at the original compiler layout.
+// The segment region (rdram+0x8F000000 for 0x0F, rdram+0x8E000000 for 0x0E)
+// is what MEM_W(0x0F00XXXX) resolves to in recompiled code.
+static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_t vram) {
+    if (pair_index < 0 || pair_index >= NI_OVL_COUNT) return;
+
+    const NiOvlData& data = ni_ovl_data[pair_index];
+    // Extended ROM is mapped at rdram + 0x10000000 + rom_offset
+    uint8_t* src = rdram + 0x10000000 + data.rom_offset;
+    // Segment region: MEM_W(vram) → rdram + vram + 0x80000000
+    uint8_t* dst = rdram + (uint64_t)vram + 0x80000000ULL;
+    uint32_t size = data.full_size;
+
+    // Ensure the segment region is writable (may extend beyond TLB-mapped pages)
+    uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+    uint8_t* aligned = (uint8_t*)((uintptr_t)dst & ~page_mask);
+    size_t aligned_size = ((dst + size) - aligned + page_mask) & ~page_mask;
+    mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
+
+    memcpy(dst, src, size);
+}
+
+static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     int overlay_id = NI_OVERLAY_ID_START + pair_index;
     bool is_0e = is_0e_pair(pair_index);
     uint32_t vram = is_0e ? 0x0E000000 : 0x0F000000;
@@ -70,13 +100,15 @@ static void load_ni_overlay(int pair_index) {
     }
 
     load_overlay_by_id(overlay_id, vram);
+    // Copy full overlay data (text+data) from extended ROM to segment region
+    copy_overlay_data_to_segment(rdram, pair_index, vram);
     loaded_pair = pair_index;
 
     static int load_count = 0;
     load_count++;
     if (load_count <= 30 || (load_count % 100) == 0) {
-        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (overlay_id=%d)\n",
-                load_count, pair_index, vram, overlay_id);
+        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (overlay_id=%d, data=0x%X bytes)\n",
+                load_count, pair_index, vram, overlay_id, ni_ovl_data[pair_index].full_size);
     }
 }
 
@@ -122,7 +154,7 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
 
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {
-        load_ni_overlay(pair);
+        load_ni_overlay(rdram, pair);
         return;
     }
 
