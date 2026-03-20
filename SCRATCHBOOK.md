@@ -1272,3 +1272,21 @@ jr    $25                  # jump to table entry
 **Result**: 1 NI stub remains (`ni_ovl_242_func_0F000358` — genuine cross-segment jump table in 0x0F code reading from 0x0E data). Down from 235.
 
 **Runtime loader** updated: tracks 0x0E and 0x0F independently, loads/unloads the correct section when osMapTLB maps either vaddr.
+
+### 2026-03-20 — Runtime test: NI overlay loading WORKS
+
+**First runtime test** — NI overlay successfully loads at 0x0F000000, passing the original crash.
+
+**Problem**: paddr matching failed. The game decompresses NI files to its own heap in low RDRAM (e.g., `paddr=0x00325000`), NOT our pre-decompressed region at `rdram+0x14000000`. The `ni_decompressed_addrs[]` table stores addresses like `0x94XXXXXX` — completely different.
+
+**Fix**: Content fingerprinting. Read first 128 bytes of decompressed data at `paddr` and match against a precomputed table (`ni_ovl_fingerprints.h`). 128 bytes gives 245/245 unique signatures. Also fixed byte order: RDRAM stores data in original BE format, no swap needed.
+
+**Result**: `[ni_ovl] #1 pair 105 → 0x0F000000 (overlay_id=153)` — overlay loaded, game proceeds past the `LOOKUP_FUNC(0x0F000000)` crash.
+
+**New crash**: `Failed to find function at 0x00000000` — null dispatch pointer, unrelated to NI overlays. Some object's function pointer is NULL. Next investigation target.
+
+### Current state (end of 2026-03-20)
+- 245 NI overlays: 166 at 0x0F (game objects), 79 at 0x0E (cutscenes)
+- 6,261 functions recompiled, 1 stub (cross-segment jump table)
+- Runtime: fingerprint-based overlay identification working
+- Blocker: null function pointer crash after first overlay loads
