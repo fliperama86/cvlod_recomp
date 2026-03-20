@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-#include "lod_symbols.h"
 
 RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -3632,7 +3630,7 @@ L_80011544:
     ctx->r23 = ADD32(ctx->r23, 0X1);
 L_80011548:
     // 0x80011548: slti        $at, $s7, 0x2B0
-    ctx->r1 = SIGNED(ctx->r23) < 0X2B0 /* NI_MAX_ENTRIES */ ? 1 : 0;
+    ctx->r1 = SIGNED(ctx->r23) < 0X2B0 ? 1 : 0;
     // 0x8001154C: bne         $at, $zero, L_800114EC
     if (ctx->r1 != 0) {
         // 0x80011550: addiu       $fp, $fp, 0x4
@@ -3641,21 +3639,6 @@ L_80011548:
     }
     // 0x80011550: addiu       $fp, $fp, 0x4
     ctx->r30 = ADD32(ctx->r30, 0X4);
-    // --- PATCH: Hook poolObject_tick (NI per-frame update) ---
-    {
-        static int ni_update_started = 0;
-        uint32_t ni_type = MEM_W(ctx->r4, 0X0);
-        if (!ni_update_started && ni_type != 0)
-            ni_update_started = 1;
-        if (ni_update_started) {
-            gpr saved_r4 = ctx->r4;
-            gpr saved_r31 = ctx->r31;
-            poolObject_tick(rdram, ctx);
-            ctx->r4 = saved_r4;
-            ctx->r31 = saved_r31;
-        }
-    }
-    // --- END PATCH ---
     // 0x80011554: lui         $s1, 0x801D
     ctx->r17 = S32(0X801D << 16);
     // 0x80011558: addiu       $s1, $s1, -0x7D40

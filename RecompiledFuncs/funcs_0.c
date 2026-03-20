@@ -1,7 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-#include "lod_symbols.h"
 
 RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -63,7 +61,7 @@ RECOMP_FUNC void gamestate_create(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000047C: addu        $s2, $t6, $t7
     ctx->r18 = ADD32(ctx->r14, ctx->r15);
     // 0x80000480: lw          $t9, -0x48($s2)
-    ctx->r25 = MEM_W(ctx->r18, GSS_CFG_INIT_FUNC);
+    ctx->r25 = MEM_W(ctx->r18, -0X48);
     // 0x80000484: sw          $ra, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r31;
     // 0x80000488: sw          $s1, 0x1C($sp)
@@ -152,17 +150,17 @@ L_800004CC:
     // 0x800004FC: lw          $t5, 0x0($s0)
     ctx->r13 = MEM_W(ctx->r16, 0X0);
     // 0x80000500: addiu       $a0, $s2, -0x40
-    ctx->r4 = ADD32(ctx->r18, GSS_CFG_SLOTS);
+    ctx->r4 = ADD32(ctx->r18, -0X40);
     // 0x80000504: addiu       $a2, $zero, 0x40
-    ctx->r6 = ADD32(0, 0X40); /* NUM_GSS_SLOTS * 4 */
+    ctx->r6 = ADD32(0, 0X40);
     // 0x80000508: sw          $t4, 0x10($t5)
-    MEM_W(OBJ_DESTROY, ctx->r13) = ctx->r12;
+    MEM_W(0X10, ctx->r13) = ctx->r12;
     // 0x8000050C: lw          $t7, 0x0($s0)
     ctx->r15 = MEM_W(ctx->r16, 0X0);
     // 0x80000510: lw          $t6, 0x28($sp)
     ctx->r14 = MEM_W(ctx->r29, 0X28);
     // 0x80000514: sw          $t6, 0x24($t7)
-    MEM_W(OBJ_FIGURES_0, ctx->r15) = ctx->r14 /* scene_arg */;
+    MEM_W(0X24, ctx->r15) = ctx->r14;
     // 0x80000518: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
     // 0x8000051C: jal         0x80001090
@@ -234,29 +232,6 @@ L_80000568:
 RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
-    // --- PATCH: Bootstrap overlay_system on first GSM dispatch ---
-    {
-        uint32_t obj_phys = (uint32_t)ctx->r4 - 0x80000000;
-        int32_t scene_arg = *(int32_t*)(rdram + obj_phys + 0x24);
-        uint8_t state = rdram[(obj_phys + 0x09) ^ 3];
-        fprintf(stderr, "[GSM] scene=%d state=%d\n", scene_arg, state);
-        static int bootstrap_done = 0;
-        if (!bootstrap_done && state == 0) {
-            bootstrap_done = 1;
-            uint32_t ni_sys = *(uint32_t*)(rdram + (0x801CAC1C - 0x80000000));
-            if (ni_sys == 0) {
-                *(uint32_t*)(rdram + (0x801CADE4 - 0x80000000)) = 1;
-                gpr saved_r4 = ctx->r4;
-                gpr saved_r5 = ctx->r5;
-                gpr saved_r31 = ctx->r31;
-                overlay_system_create(rdram, ctx);
-                ctx->r4 = saved_r4;
-                ctx->r5 = saved_r5;
-                ctx->r31 = saved_r31;
-            }
-        }
-    }
-    // --- END PATCH ---
     // 0x80000578: addiu       $sp, $sp, -0x28
     ctx->r29 = ADD32(ctx->r29, -0X28);
     // 0x8000057C: sw          $ra, 0x1C($sp)
@@ -264,7 +239,7 @@ RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
     // 0x80000580: sw          $s0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r16;
     // 0x80000584: lw          $v0, 0x24($a0)
-    ctx->r2 = MEM_W(ctx->r4, OBJ_FIGURES_0) /* scene_arg */;
+    ctx->r2 = MEM_W(ctx->r4, 0X24);
     // 0x80000588: or          $s0, $a0, $zero
     ctx->r16 = ctx->r4 | 0;
     // 0x8000058C: lui         $a0, 0x800C
@@ -334,7 +309,7 @@ L_800005D4:
     MEM_H(0X6, ctx->r16) = ctx->r15;
 L_800005DC:
     // 0x800005DC: lbu         $v1, 0x9($s0)
-    ctx->r3 = MEM_BU(ctx->r16, OBJ_STATE);
+    ctx->r3 = MEM_BU(ctx->r16, 0X9);
     // 0x800005E0: sll         $t8, $v0, 2
     ctx->r24 = S32(ctx->r2 << 2);
     // 0x800005E4: addu        $t8, $t8, $v0
@@ -556,7 +531,7 @@ L_800006B4:
     after_3:
     // 0x80000710: jal         0x80001F30
     // 0x80000714: addiu       $a0, $zero, 0x12C
-    ctx->r4 = ADD32(0, 0X12C) /* 300 objects */;
+    ctx->r4 = ADD32(0, 0X12C);
     func_80001F30(rdram, ctx);
         goto after_4;
     // 0x80000714: addiu       $a0, $zero, 0x12C

@@ -1,6 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include "lod_symbols.h"
 
 RECOMP_FUNC void overlay_system_func_801D0CE8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -2775,10 +2774,10 @@ RECOMP_FUNC void map_ovl_00_func_802E406C(uint8_t* rdram, recomp_context* ctx) {
     // 0x802E4080: lw          $t6, 0x4C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X4C);
     // 0x802E4084: beql        $t6, $zero, L_802E40CC
-    // PATCH: When +0x4C is 0, bypass early return and fall through to timer path.
     if (ctx->r14 == 0) {
-        ctx->r15 = MEM_H(ctx->r2, 0X8);
-        goto skip_0;
+        // 0x802E4088: lw          $ra, 0x14($sp)
+        ctx->r31 = MEM_W(ctx->r29, 0X14);
+            goto L_802E40CC;
     }
     goto skip_0;
     // 0x802E4088: lw          $ra, 0x14($sp)
