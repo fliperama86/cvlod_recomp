@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """
 Step 6: Build extended ROM.
-Appends decompressed .text sections to the ROM at offset 0x1000000 (16MB).
-N64Recomp reads raw bytes from rom_file_path at section.rom_addr + func.offset.
+Appends FULL decompressed overlays (.text + .data) to the ROM at offset 0x1000000.
+N64Recomp reads raw bytes from rom_file_path at section.rom_addr + offset.
+Including .data is critical: jump tables live in .data and N64Recomp must read
+them to determine switch/case dispatch sizes.
+
+The section `size` in syms.toml is still only .text — N64Recomp won't try to
+recompile .data as code, but it CAN read past .text for data references.
 
 Usage: python3 tools/ni_ovl/step6_extended_rom.py resources/castlevania_legacy_of_darkness.z64
 """
@@ -46,13 +51,9 @@ def main():
         with open(bin_path, 'rb') as f:
             data = f.read()
 
-        # Extract .text section only
-        text_data = data[:text_size]
-
+        # Append FULL blob (.text + .data) so N64Recomp can read jump tables
         rom_offset = cursor
-
-        # Append to ROM
-        rom.extend(text_data)
+        rom.extend(data)
 
         # Pad to 16-byte alignment
         pad = (16 - (len(rom) % 16)) % 16
@@ -63,6 +64,7 @@ def main():
             'text_ni_index': ovl['text_ni_index'],
             'rom_offset': rom_offset,
             'text_size': text_size,
+            'total_size': len(data),
         })
 
         cursor = len(rom)
