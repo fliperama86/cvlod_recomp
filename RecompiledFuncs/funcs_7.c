@@ -1,10 +1,7 @@
 #include "recomp.h"
 #include "funcs.h"
 #include <stdio.h>
-// File-scope counters (static locals break in RECOMP_FUNC due to extern inline weak)
-int dmamgr_dispatch_n = 0;
-int dmamgr_state0_n = 0;
-int dmamgr_state0_alloc_ok = 0;
+
 RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1899,7 +1896,7 @@ L_80010B74:
     // 0x80010B80: nop
 
 ;}
-RECOMP_FUNC void func_80010B84(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void object_executeChildObject(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80010B84: addiu       $sp, $sp, -0x40
@@ -2005,7 +2002,7 @@ L_80010C24:
     // 0x80010C24: jal         0x80002410
     // 0x80010C28: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
-    func_80002410(rdram, ctx);
+    object_createAndSetChild(rdram, ctx);
         goto after_0;
     // 0x80010C28: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
@@ -2061,7 +2058,7 @@ L_80010C50:
     // 0x80010C7C: addiu       $sp, $sp, 0x40
     ctx->r29 = ADD32(ctx->r29, 0X40);
 ;}
-RECOMP_FUNC void func_80010C80(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void object_activateChildren(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80010C80: addiu       $sp, $sp, -0x38
@@ -2138,7 +2135,7 @@ L_80010CD4:
     // 0x80010CF4: jal         0x80002410
     // 0x80010CF8: or          $a1, $t6, $zero
     ctx->r5 = ctx->r14 | 0;
-    func_80002410(rdram, ctx);
+    object_createAndSetChild(rdram, ctx);
         goto after_0;
     // 0x80010CF8: or          $a1, $t6, $zero
     ctx->r5 = ctx->r14 | 0;
@@ -2190,7 +2187,7 @@ L_80010D1C:
     // 0x80010D44: addiu       $sp, $sp, 0x38
     ctx->r29 = ADD32(ctx->r29, 0X38);
 ;}
-RECOMP_FUNC void func_80010D48(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void GameStateMgr_executeGameStateUncappedFramerate(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80010D48: addiu       $sp, $sp, -0x28
@@ -2260,7 +2257,7 @@ L_80010DA0:
     // 0x80010DA0: jal         0x800029EC
     // 0x80010DA4: or          $a0, $t6, $s3
     ctx->r4 = ctx->r14 | ctx->r19;
-    func_800029EC(rdram, ctx);
+    object_dispatch2(rdram, ctx);
         goto after_1;
     // 0x80010DA4: or          $a0, $t6, $s3
     ctx->r4 = ctx->r14 | ctx->r19;
@@ -2298,7 +2295,7 @@ L_80010DB8:
     // 0x80010DD0: addiu       $sp, $sp, 0x28
     ctx->r29 = ADD32(ctx->r29, 0X28);
 ;}
-RECOMP_FUNC void func_80010DD4(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void object_execute(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80010DD4: addiu       $sp, $sp, -0x30
@@ -2342,15 +2339,6 @@ RECOMP_FUNC void func_80010DD4(uint8_t* rdram, recomp_context* ctx) {
     // 0x80010E18: lw          $v0, 0x0($s0)
     ctx->r2 = MEM_W(ctx->r16, 0X0);
 L_80010E1C:
-    {
-        // Watch bit-2 at 0x801CAA60
-        static uint32_t bit2_prev = 0xDEAD;
-        uint32_t bit2_raw = *(uint32_t*)(rdram + 0x001CAA60);
-        if (bit2_raw != bit2_prev) {
-            fprintf(stderr, "[BIT2_WATCH] changed 0x%08X -> 0x%08X\n", bit2_prev, bit2_raw);
-            bit2_prev = bit2_raw;
-        }
-    }
     // 0x80010E1C: beq         $v0, $zero, L_80010E70
     if (ctx->r2 == 0) {
         // 0x80010E20: and         $t6, $v0, $s1
@@ -2414,7 +2402,7 @@ L_80010E54:
     // 0x80010E58: jal         0x800029EC
     // 0x80010E5C: or          $a0, $t0, $s3
     ctx->r4 = ctx->r8 | ctx->r19;
-    func_800029EC(rdram, ctx);
+    object_dispatch2(rdram, ctx);
         goto after_1;
     // 0x80010E5C: or          $a0, $t0, $s3
     ctx->r4 = ctx->r8 | ctx->r19;
@@ -2513,11 +2501,7 @@ RECOMP_FUNC void func_80010EA0(uint8_t* rdram, recomp_context* ctx) {
     // 0x80010EF8: addiu       $sp, $sp, 0x18
     ctx->r29 = ADD32(ctx->r29, 0X18);
 ;}
-int ovl_load_n = 0;
 RECOMP_FUNC void func_80010EFC(uint8_t* rdram, recomp_context* ctx) {
-    if (++ovl_load_n <= 10)
-        fprintf(stderr, "[OVL_LOAD#%d] obj=0x%08X tmpl_arg=0x%08X\n",
-                ovl_load_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5);
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80010EFC: addiu       $sp, $sp, -0x30
@@ -2631,7 +2615,7 @@ L_80010F8C:
     // 0x80010F8C: jal         0x80001968
     // 0x80010F90: sw          $a3, 0x2C($sp)
     MEM_W(0X2C, ctx->r29) = ctx->r7;
-    func_80001968(rdram, ctx);
+    cmdNodeTable_alloc(rdram, ctx);
         goto after_1;
     // 0x80010F90: sw          $a3, 0x2C($sp)
     MEM_W(0X2C, ctx->r29) = ctx->r7;
@@ -2668,8 +2652,6 @@ L_80010F8C:
     // 0x80010FC0: lw          $a1, 0x34($sp)
     ctx->r5 = MEM_W(ctx->r29, 0X34);
     after_3:
-    if (ovl_load_n <= 10)
-        fprintf(stderr, "[OVL_LOAD] func_80010EA0 returned v0=%d (0=ok, -1=err)\n", (int32_t)ctx->r2);
     // 0x80010FC4: addiu       $a0, $zero, -0x1
     ctx->r4 = ADD32(0, -0X1);
     // 0x80010FC8: lui         $a1, 0x800C
@@ -3390,22 +3372,7 @@ RECOMP_FUNC void func_800113A8(uint8_t* rdram, recomp_context* ctx) {
     // 0x800113E8: nop
 
 ;}
-int tmpl3_n = 0;
-// Write-watch: detect when +0x00 type field changes on the NI descriptor at 0x800F42E8
-static uint32_t ni_desc_type_prev = 0;
-RECOMP_FUNC void func_800113EC(uint8_t* rdram, recomp_context* ctx) {
-    {
-        uint32_t ni_type = *(uint32_t*)(rdram + 0x0F42E8);
-        uint32_t ni_4c = *(uint32_t*)(rdram + 0x0F4334);
-        if (ni_type != ni_desc_type_prev) {
-            fprintf(stderr, "[NI_TYPE_CHANGE] 0x%08X -> 0x%08X (4C=0x%08X)\n",
-                    ni_desc_type_prev, ni_type, ni_4c);
-            ni_desc_type_prev = ni_type;
-        }
-        if (++tmpl3_n <= 5)
-            fprintf(stderr, "[TMPL3#%d] ni_type=0x%08X ni_4C=0x%08X\n",
-                    tmpl3_n, ni_type, ni_4c);
-    }
+RECOMP_FUNC void ni_system_dispatcher(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x800113EC: addiu       $sp, $sp, -0x270
@@ -3567,7 +3534,7 @@ L_800114B8:
     // 0x800114C8: jal         0x80001090
     // 0x800114CC: addiu       $a2, $zero, 0x200
     ctx->r6 = ADD32(0, 0X200);
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_2;
     // 0x800114CC: addiu       $a2, $zero, 0x200
     ctx->r6 = ADD32(0, 0X200);
@@ -3673,6 +3640,21 @@ L_80011548:
     }
     // 0x80011550: addiu       $fp, $fp, 0x4
     ctx->r30 = ADD32(ctx->r30, 0X4);
+    // --- PATCH: Hook poolObject_tick (NI per-frame update) ---
+    {
+        static int ni_update_started = 0;
+        uint32_t ni_type = MEM_W(ctx->r4, 0X0);
+        if (!ni_update_started && ni_type != 0)
+            ni_update_started = 1;
+        if (ni_update_started) {
+            gpr saved_r4 = ctx->r4;
+            gpr saved_r31 = ctx->r31;
+            poolObject_tick(rdram, ctx);
+            ctx->r4 = saved_r4;
+            ctx->r31 = saved_r31;
+        }
+    }
+    // --- END PATCH ---
     // 0x80011554: lui         $s1, 0x801D
     ctx->r17 = S32(0X801D << 16);
     // 0x80011558: addiu       $s1, $s1, -0x7D40
@@ -4031,15 +4013,7 @@ L_8001174C:
     // 0x80011750: nop
 
 ;}
-int dma_enq_n = 0;
 RECOMP_FUNC void func_80011754(uint8_t* rdram, recomp_context* ctx) {
-    if (++dma_enq_n <= 5) {
-        fprintf(stderr, "[DMA_ENQ#%d] a0(dmamgr)=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X\n",
-                dma_enq_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6, (uint32_t)ctx->r7);
-        // Check file_ptr_array[0x14D] via direct rdram access
-        uint32_t fpa_val = *(uint32_t*)(rdram + 0x001C8D64);
-        fprintf(stderr, "[DMA_ENQ] file_ptr_array[0x14D]=0x%08X (at rdram+0x001C8D64)\n", fpa_val);
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011754: addiu       $sp, $sp, -0x50
@@ -4126,15 +4100,6 @@ L_800117BC:
     // 0x800117E0: sll         $t3, $t1, 2
     ctx->r11 = S32(ctx->r9 << 2);
     // 0x800117E4: bne         $v0, $zero, L_80011954
-    {
-        static int dma_gate_n = 0;
-        if (++dma_gate_n <= 20) {
-            fprintf(stderr, "[DMA_GATE#%d] file_id=%d fpa=0x%08X %s\n",
-                    dma_gate_n, (int)(uint32_t)ctx->r18,
-                    (uint32_t)ctx->r2,
-                    ctx->r2 != 0 ? "SKIP (already loaded)" : "PROCEED (will DMA)");
-        }
-    }
     if (ctx->r2 != 0) {
         // 0x800117E8: addiu       $t4, $t3, -0x8
         ctx->r12 = ADD32(ctx->r11, -0X8);
@@ -5069,10 +5034,6 @@ L_80011D00:
 
 ;}
 RECOMP_FUNC void func_80011D10(uint8_t* rdram, recomp_context* ctx) {
-    if (++dmamgr_dispatch_n <= 5)
-        fprintf(stderr, "[DMAMGR_DISPATCH#%d] obj=0x%08X state=%d\n",
-                dmamgr_dispatch_n, (uint32_t)ctx->r4,
-                (int)(int16_t)*(int16_t*)(rdram + (((uint32_t)ctx->r4 + 0xE) ^ 2) - 0x80000000));
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011D10: addiu       $sp, $sp, -0x18
@@ -5139,8 +5100,6 @@ RECOMP_FUNC void func_80011D10(uint8_t* rdram, recomp_context* ctx) {
 
 ;}
 RECOMP_FUNC void func_80011D80(uint8_t* rdram, recomp_context* ctx) {
-    if (++dmamgr_state0_n <= 3)
-        fprintf(stderr, "[DMAMGR_STATE0#%d] obj=0x%08X\n", dmamgr_state0_n, (uint32_t)ctx->r4);
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011D80: addiu       $sp, $sp, -0x20
@@ -5167,9 +5126,6 @@ RECOMP_FUNC void func_80011D80(uint8_t* rdram, recomp_context* ctx) {
     // 0x80011DA4: or          $a3, $zero, $zero
     ctx->r7 = 0 | 0;
     after_0:
-    if (dmamgr_state0_n <= 3)
-        fprintf(stderr, "[DMAMGR_STATE0] alloc result v0=0x%08X (%s)\n",
-                (uint32_t)ctx->r2, ctx->r2 != 0 ? "OK" : "FAILED");
     // 0x80011DA8: bne         $v0, $zero, L_80011DC8
     if (ctx->r2 != 0) {
         // 0x80011DAC: lui         $at, 0x800C
@@ -5273,13 +5229,7 @@ L_80011E38:
     // 0x80011E44: nop
 
 ;}
-int dma_proc_n = 0;
 RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
-    if (++dma_proc_n <= 5) {
-        uint32_t buf = (uint32_t)MEM_W(ctx->r4, 0x34);
-        uint16_t count = *(uint16_t*)(rdram + ((buf + 0x846) ^ 2) - 0x80000000);
-        fprintf(stderr, "[DMA_PROC#%d] obj=0x%08X req_count=%d\n", dma_proc_n, (uint32_t)ctx->r4, count);
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011E48: addiu       $sp, $sp, -0x40
@@ -5382,9 +5332,6 @@ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
     after_1:
     // 0x80011EF0: sll         $t9, $v1, 0
     ctx->r25 = S32(ctx->r3 << 0);
-    if (dma_proc_n <= 5)
-        fprintf(stderr, "[DMA_PROC] 64bit_result: v0=0x%08X v1=0x%08X (bgez %s)\n",
-                (uint32_t)ctx->r2, (uint32_t)ctx->r3, SIGNED(ctx->r25) >= 0 ? "TAKE(notdone)" : "SKIP(done)");
     // 0x80011EF4: bgez        $t9, L_80011F58
     if (SIGNED(ctx->r25) >= 0) {
         // 0x80011EF8: addiu       $a0, $s0, 0x8
@@ -5435,9 +5382,6 @@ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
     ctx->r25 = ADD32(ctx->r25, ctx->r13);
     // 0x80011F44: lw          $t9, -0xAA0($t9)
     ctx->r25 = MEM_W(ctx->r25, -0XAA0);
-    if (dma_proc_n <= 5)
-        fprintf(stderr, "[DMA_PROC] completion handler=0x%08X a0=0x%08X\n",
-                (uint32_t)ctx->r25, (uint32_t)ctx->r4);
     // 0x80011F48: jalr        $t9
     // 0x80011F4C: nop
 

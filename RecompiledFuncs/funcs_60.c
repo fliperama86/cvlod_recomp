@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+
 RECOMP_FUNC void func_80176020(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -4259,7 +4260,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x8017785C: nop
 
 ;}
-RECOMP_FUNC void func_80177860(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void bgHandler_dispatch(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80177860: lui         $t6, 0x801D
@@ -4309,7 +4310,7 @@ RECOMP_FUNC void func_80177860(uint8_t* rdram, recomp_context* ctx) {
     // 0x801778A0: jal         0x80177B4C
     // 0x801778A4: lw          $a0, 0x18($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X18);
-    func_80177B4C(rdram, ctx);
+    bgHandler_inactive(rdram, ctx);
         goto after_1;
     // 0x801778A4: lw          $a0, 0x18($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X18);
@@ -4324,7 +4325,7 @@ L_801778B0:
     // 0x801778B0: jal         0x80177948
     // 0x801778B4: lw          $a0, 0x18($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X18);
-    func_80177948(rdram, ctx);
+    bgHandler_active(rdram, ctx);
         goto after_2;
     // 0x801778B4: lw          $a0, 0x18($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X18);
@@ -4426,7 +4427,7 @@ L_80177938:
     // 0x80177944: nop
 
 ;}
-RECOMP_FUNC void func_80177948(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void bgHandler_active(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80177948: lui         $v0, 0x801D
@@ -4437,7 +4438,6 @@ RECOMP_FUNC void func_80177948(uint8_t* rdram, recomp_context* ctx) {
     ctx->r29 = ADD32(ctx->r29, -0X40);
     // 0x80177954: lw          $t6, 0x295C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X295C);
-    // NOTE: sys+0x295C is NULL — NI system never inits. func_80177948 early-exits.
     // 0x80177958: sw          $ra, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r31;
     // 0x8017795C: sw          $s1, 0x18($sp)
@@ -4806,7 +4806,7 @@ L_80177B38:
     // 0x80177B48: addiu       $sp, $sp, 0x40
     ctx->r29 = ADD32(ctx->r29, 0X40);
 ;}
-RECOMP_FUNC void func_80177B4C(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void bgHandler_inactive(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80177B4C: addiu       $sp, $sp, -0x20
@@ -5569,7 +5569,7 @@ L_80177EC0:
     // 0x80177EE0: jal         0x80013F50
     // 0x80177EE4: swc1        $f0, 0x34($sp)
     MEM_W(0X34, ctx->r29) = ctx->f0.u32l;
-    func_80013F50(rdram, ctx);
+    vec3f_multiplyByOne(rdram, ctx);
         goto after_3;
     // 0x80177EE4: swc1        $f0, 0x34($sp)
     MEM_W(0X34, ctx->r29) = ctx->f0.u32l;
@@ -6113,7 +6113,7 @@ RECOMP_FUNC void func_801780C4(uint8_t* rdram, recomp_context* ctx) {
     // 0x80178134: jal         0x80013E6C
     // 0x80178138: addiu       $a1, $sp, 0x4C
     ctx->r5 = ADD32(ctx->r29, 0X4C);
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_1;
     // 0x80178138: addiu       $a1, $sp, 0x4C
     ctx->r5 = ADD32(ctx->r29, 0X4C);
@@ -6125,7 +6125,7 @@ RECOMP_FUNC void func_801780C4(uint8_t* rdram, recomp_context* ctx) {
     // 0x80178144: jal         0x80013E6C
     // 0x80178148: addiu       $a2, $sp, 0x4C
     ctx->r6 = ADD32(ctx->r29, 0X4C);
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_2;
     // 0x80178148: addiu       $a2, $sp, 0x4C
     ctx->r6 = ADD32(ctx->r29, 0X4C);

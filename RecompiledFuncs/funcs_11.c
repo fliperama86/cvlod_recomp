@@ -1,7 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
-#include <string.h>
+
 RECOMP_FUNC void func_80016B48(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -2741,7 +2740,7 @@ L_800178AC:
     // 0x800178CC: nop
 
 ;}
-RECOMP_FUNC void func_800178D0(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void graphThread_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x800178D0: addiu       $sp, $sp, -0x48
@@ -3164,7 +3163,7 @@ L_80017B68:
     // 0x80017B78: jal         0x800184E0
     // 0x80017B7C: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
-    func_800184E0(rdram, ctx);
+    scheduler_create(rdram, ctx);
         goto after_7;
     // 0x80017B7C: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
@@ -3185,7 +3184,7 @@ L_80017B88:
     // 0x80017B94: jal         0x800184E0
     // 0x80017B98: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
-    func_800184E0(rdram, ctx);
+    scheduler_create(rdram, ctx);
         goto after_8;
     // 0x80017B98: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
@@ -3200,7 +3199,7 @@ L_80017BA4:
     // 0x80017BA4: jal         0x800184E0
     // 0x80017BA8: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
-    func_800184E0(rdram, ctx);
+    scheduler_create(rdram, ctx);
         goto after_9;
     // 0x80017BA8: addiu       $a2, $zero, 0x1
     ctx->r6 = ADD32(0, 0X1);
@@ -3211,9 +3210,6 @@ L_80017BAC:
     // 0x80017BB0: nop
 
 L_80017BB4:
-    // REMOVED: Priority boost to 200 was causing SCHED to starve GRAPH (pri=100).
-    // The original game has SCHED at pri=10, which is BELOW GRAPH (pri=100).
-    // With the boost, check_running_queue never preempts SCHED → deadlock.
     // 0x80017BB4: lui         $a2, 0x800C
     ctx->r6 = S32(0X800C << 16);
     // 0x80017BB8: addiu       $a2, $a2, 0x5D38
@@ -3251,7 +3247,7 @@ L_80017BB4:
     // 0x80017BE0: jal         0x800195E0
     // 0x80017BE4: nop
 
-    func_800195E0(rdram, ctx);
+    contpak_init(rdram, ctx);
         goto after_13;
     // 0x80017BE4: nop
 
@@ -3377,9 +3373,6 @@ L_80017C78:
     ctx->r1 = ADD32(0, 0X1);
     // 0x80017C94: lh          $v1, 0x0($t3)
     ctx->r3 = MEM_H(ctx->r11, 0X0);
-    { static int msg_count = 0; msg_count++;
-      if (msg_count <= 20) fprintf(stderr, "[GRAPH_MSG#%d] msg_type=%d\n", msg_count, (int32_t)ctx->r3);
-    }
     // 0x80017C98: beq         $v1, $at, L_80017CB8
     if (ctx->r3 == ctx->r1) {
         // 0x80017C9C: addiu       $at, $zero, 0x2
@@ -3415,21 +3408,10 @@ L_80017C78:
 L_80017CB8:
     // 0x80017CB8: lhu         $t4, 0x0($s1)
     ctx->r12 = MEM_HU(ctx->r17, 0X0);
-    // Diagnostic: log exec_flags and guard state each retrace
-    {
-        static int retrace_count = 0; retrace_count++;
-        if (retrace_count <= 20 || retrace_count % 100 == 0) {
-            uint32_t exec_flags = (uint32_t)MEM_W(S32(0x801CABC8), 0);
-            uint32_t ni_sys = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
-            uint32_t guard = ctx->r12;
-            fprintf(stderr, "[RETRACE#%d] guard=%d exec_flags=0x%08X ni_sys=0x%08X\n",
-                    retrace_count, (int)guard, exec_flags, ni_sys);
-        }
-    }
     // 0x80017CBC: bne         $t4, $zero, L_80017CD4
     if (ctx->r12 != 0) {
         // 0x80017CC0: nop
-
+    
             goto L_80017CD4;
     }
     // 0x80017CC0: nop
@@ -3484,7 +3466,7 @@ L_80017CD4:
     // 0x80017CEC: jal         0x80017EC0
     // 0x80017CF0: nop
 
-    func_80017EC0(rdram, ctx);
+    graphThread_submitGFX(rdram, ctx);
         goto after_26;
     // 0x80017CF0: nop
 
@@ -3572,7 +3554,7 @@ L_80017D50:
     // 0x80017D58: jal         0x80091108
     // 0x80017D5C: addiu       $a0, $zero, 0xA
     ctx->r4 = ADD32(0, 0XA);
-    func_80091108(rdram, ctx);
+    video_init(rdram, ctx);
         goto after_30;
     // 0x80017D5C: addiu       $a0, $zero, 0xA
     ctx->r4 = ADD32(0, 0XA);
@@ -3648,16 +3630,6 @@ L_80017D50:
     ctx->r29 = ADD32(ctx->r29, 0X48);
 ;}
 RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
-    { static int db8_n = 0; db8_n++;
-      if (db8_n <= 10 || db8_n % 50 == 0) {
-        uint32_t sys = 0x001C82C0;
-        uint32_t obj_ptr = *(uint32_t*)(rdram + 0x000C1520);
-        int16_t retrace_ctr = *(int16_t*)(rdram + sys + 0x88);
-        int16_t scene_arg = *(int16_t*)(rdram + sys + 0x24);
-        fprintf(stderr, "[INIT_FRAME#%d] retrace_ctr=%d scene_arg=%d obj_ptr=0x%08X\n",
-                db8_n, retrace_ctr, scene_arg, obj_ptr);
-      }
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80017DB8: addiu       $sp, $sp, -0x20
@@ -3677,7 +3649,7 @@ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017DD4: jal         0x800196DC
     // 0x80017DD8: sw          $t7, 0x0($s0)
     MEM_W(0X0, ctx->r16) = ctx->r15;
-    func_800196DC(rdram, ctx);
+    contpak_mainLoop(rdram, ctx);
         goto after_0;
     // 0x80017DD8: sw          $t7, 0x0($s0)
     MEM_W(0X0, ctx->r16) = ctx->r15;
@@ -3759,7 +3731,7 @@ L_80017E44:
     // 0x80017E48: jal         0x80002950
     // 0x80017E4C: lw          $a0, 0x1520($a0)
     ctx->r4 = MEM_W(ctx->r4, 0X1520);
-    func_80002950(rdram, ctx);
+    object_dispatch1(rdram, ctx);
         goto after_2;
     // 0x80017E4C: lw          $a0, 0x1520($a0)
     ctx->r4 = MEM_W(ctx->r4, 0X1520);
@@ -3844,7 +3816,7 @@ RECOMP_FUNC void func_80017E9C(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017EBC: sw          $t9, -0x18A0($at)
     MEM_W(-0X18A0, ctx->r1) = ctx->r25;
 ;}
-RECOMP_FUNC void func_80017EC0(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void graphThread_submitGFX(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80017EC0: addiu       $sp, $sp, -0x38
@@ -3932,7 +3904,7 @@ L_80017F1C:
     // 0x80017F24: jal         0x8001876C
     // 0x80017F28: addiu       $a0, $a0, 0x5E80
     ctx->r4 = ADD32(ctx->r4, 0X5E80);
-    func_8001876C(rdram, ctx);
+    scheduler_getAudioCmdQ(rdram, ctx);
         goto after_1;
     // 0x80017F28: addiu       $a0, $a0, 0x5E80
     ctx->r4 = ADD32(ctx->r4, 0X5E80);
@@ -3995,7 +3967,7 @@ L_80017F58:
     // 0x80017F7C: jal         0x80001090
     // 0x80017F80: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_2;
     // 0x80017F80: nop
 
@@ -4017,7 +3989,7 @@ L_80017F58:
     // 0x80017FA0: jal         0x80001090
     // 0x80017FA4: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_3;
     // 0x80017FA4: nop
 
@@ -4052,7 +4024,7 @@ L_80017FB8:
     // 0x80017FD8: jal         0x80001090
     // 0x80017FDC: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_4;
     // 0x80017FDC: nop
 
@@ -4074,7 +4046,7 @@ L_80017FB8:
     // 0x80017FFC: jal         0x80001090
     // 0x80018000: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_5;
     // 0x80018000: nop
 
@@ -4109,7 +4081,7 @@ L_80018014:
     // 0x80018034: jal         0x80001090
     // 0x80018038: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_6;
     // 0x80018038: nop
 
@@ -4131,7 +4103,7 @@ L_80018014:
     // 0x80018058: jal         0x80001090
     // 0x8001805C: nop
 
-    func_80001090(rdram, ctx);
+    memory_copy(rdram, ctx);
         goto after_7;
     // 0x8001805C: nop
 
@@ -4222,7 +4194,7 @@ L_8001806C:
     // 0x800180FC: jal         0x8001876C
     // 0x80018100: sw          $v1, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r3;
-    func_8001876C(rdram, ctx);
+    scheduler_getAudioCmdQ(rdram, ctx);
         goto after_9;
     // 0x80018100: sw          $v1, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r3;
@@ -4544,7 +4516,7 @@ L_800182AC:
     // 0x800182F4: jal         0x80019034
     // 0x800182F8: sw          $t6, 0x0($v1)
     MEM_W(0X0, ctx->r3) = ctx->r14;
-    func_80019034(rdram, ctx);
+    createGraphicTasks(rdram, ctx);
         goto after_10;
     // 0x800182F8: sw          $t6, 0x0($v1)
     MEM_W(0X0, ctx->r3) = ctx->r14;
@@ -4568,7 +4540,7 @@ L_800182AC:
     // 0x80018314: jal         0x80091108
     // 0x80018318: addiu       $a0, $zero, 0x1
     ctx->r4 = ADD32(0, 0X1);
-    func_80091108(rdram, ctx);
+    video_init(rdram, ctx);
         goto after_11;
     // 0x80018318: addiu       $a0, $zero, 0x1
     ctx->r4 = ADD32(0, 0X1);

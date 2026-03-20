@@ -1,6 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
+
 RECOMP_FUNC void overlay_system_func_801D0CE8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1993,7 +1993,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3B70(uint8_t* rdram, recomp_context* ctx) {
     ctx->r25 = ADD32(ctx->r25, ctx->r8);
     // 0x802E3BB4: lw          $t9, -0x46A8($t9)
     ctx->r25 = MEM_W(ctx->r25, -0X46A8);
-    fprintf(stderr, "[OVL00_DISPATCH] state=%d handler=0x%08X\n", (int32_t)ctx->r3, (uint32_t)ctx->r25);
     // 0x802E3BB8: jalr        $t9
     // 0x802E3BBC: nop
 
@@ -2174,7 +2173,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3C4C(uint8_t* rdram, recomp_context* ctx) {
     ctx->r25 = ADD32(ctx->r25, 0X48A0);
     // 0x802E3CCC: addiu       $a0, $a0, -0x55A0
     ctx->r4 = ADD32(ctx->r4, -0X55A0);
-    // No forced patches — let the game's own state machine handle bit-2
     // 0x802E3CD0: addiu       $a1, $zero, 0x2
     ctx->r5 = ADD32(0, 0X2);
     // 0x802E3CD4: jalr        $t9
@@ -2529,10 +2527,6 @@ L_802E3ECC:
     ctx->r29 = ADD32(ctx->r29, 0XA8);
 ;}
 RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
-    fprintf(stderr, "[OVL00_S0_2] obj=0x%08X slot0=0x%08X slot15=0x%08X\n",
-            (uint32_t)ctx->r4,
-            *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x34 - 0x80000000)),
-            *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x70 - 0x80000000)));
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x802E3F08: addiu       $sp, $sp, -0x38
@@ -2563,8 +2557,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
     // 0x802E3F34: sw          $t6, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->r14;
     after_0:
-    fprintf(stderr, "[OVL00_S0_2] func_8014314C returned v0=%d (%s)\n",
-            (int32_t)ctx->r2, ctx->r2 == 0 ? "continue" : "DESTROY");
     // 0x802E3F38: beq         $v0, $zero, L_802E3F58
     if (ctx->r2 == 0) {
         // 0x802E3F3C: lw          $v1, 0x34($sp)
@@ -2610,45 +2602,6 @@ L_802E3F58:
     ctx->r25 = ADD32(ctx->r25, 0X4780);
     // 0x802E3F78: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
-    // ni_desc+0x4C (sub-figure bitmask) now populated by DMA completion pipeline.
-    {
-        static int ni4c_n = 0;
-        if (++ni4c_n <= 10) {
-            uint32_t ni_desc_addr = (uint32_t)ctx->r4;
-            uint32_t bitmask = (uint32_t)ctx->r8;
-            uint32_t chain64 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_W(ctx->r4, 0X64) : 0;
-            uint32_t field34 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_W(ctx->r4, 0X34) : 0;
-            uint32_t field08 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_W(ctx->r4, 0X8) : 0;
-            uint32_t type00 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_HU(ctx->r4, 0X0) : 0;
-            uint32_t flags02 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_HU(ctx->r4, 0X2) : 0;
-            uint32_t field0A = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
-                ? (uint32_t)MEM_HU(ctx->r4, 0XA) : 0;
-            // Also dump the chain entry at +0x64
-            uint32_t chain_type = 0, chain_34 = 0, chain_4C = 0, chain_0C = 0;
-            if (chain64 >= 0x80000000 && chain64 < 0x80800000) {
-                chain_type = (uint32_t)MEM_HU((gpr)(int32_t)chain64, 0X0);
-                chain_34 = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X34);
-                chain_4C = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X4C);
-                chain_0C = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X0C);
-            }
-            // Full hex dump of first 0x70 bytes of NI descriptor
-            if (ni4c_n == 1 && ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000) {
-                uint32_t phys = ni_desc_addr - 0x80000000;
-                fprintf(stderr, "[NI_DESC_DUMP] addr=0x%08X (rdram+0x%06X)\n", ni_desc_addr, phys);
-                for (uint32_t off = 0; off < 0x9C; off += 4) {
-                    uint32_t val = *(uint32_t*)(rdram + phys + off);
-                    fprintf(stderr, "  +0x%02X: 0x%08X\n", off, val);
-                }
-            }
-            fprintf(stderr, "[NI_DESC#%d] +4C=0x%08X +64=0x%08X\n",
-                    ni4c_n, bitmask, chain64);
-        }
-    }
     // 0x802E3F7C: beql        $t0, $zero, L_802E4008
     if (ctx->r8 == 0) {
         // 0x802E3F80: lh          $v1, 0xE($s0)
@@ -2777,11 +2730,6 @@ L_802E4008:
     ctx->r25 = ADD32(ctx->r25, ctx->r13);
     // 0x802E4040: lw          $t9, -0x467C($t9)
     ctx->r25 = MEM_W(ctx->r25, -0X467C);
-    { uint32_t _a0 = *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x34 - 0x80000000));
-      int32_t _timer = *(int32_t*)(rdram + (_a0 + 0xC - 0x80000000));
-      fprintf(stderr, "[OVL00_NESTED] handler=0x%08X timer=%d\n",
-              (uint32_t)ctx->r25, _timer);
-    }
     // 0x802E4044: jalr        $t9
     // 0x802E4048: nop
 
@@ -2826,10 +2774,10 @@ RECOMP_FUNC void map_ovl_00_func_802E406C(uint8_t* rdram, recomp_context* ctx) {
     // 0x802E4080: lw          $t6, 0x4C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X4C);
     // 0x802E4084: beql        $t6, $zero, L_802E40CC
+    // PATCH: When +0x4C is 0, bypass early return and fall through to timer path.
     if (ctx->r14 == 0) {
-        // 0x802E4088: lw          $ra, 0x14($sp)
-        ctx->r31 = MEM_W(ctx->r29, 0X14);
-            goto L_802E40CC;
+        ctx->r15 = MEM_H(ctx->r2, 0X8);
+        goto skip_0;
     }
     goto skip_0;
     // 0x802E4088: lw          $ra, 0x14($sp)
@@ -10104,7 +10052,7 @@ L_802E676C:
     // 0x802E6774: jal         0x80002410
     // 0x802E6778: addiu       $a1, $zero, 0x20E4
     ctx->r5 = ADD32(0, 0X20E4);
-    func_80002410(rdram, ctx);
+    object_createAndSetChild(rdram, ctx);
         goto after_33;
     // 0x802E6778: addiu       $a1, $zero, 0x20E4
     ctx->r5 = ADD32(0, 0X20E4);
@@ -10708,7 +10656,7 @@ RECOMP_FUNC void map_ovl_00_func_802E69EC(uint8_t* rdram, recomp_context* ctx) {
     // 0x802E6A88: jal         0x80002410
     // 0x802E6A8C: sw          $a3, 0x20($sp)
     MEM_W(0X20, ctx->r29) = ctx->r7;
-    func_80002410(rdram, ctx);
+    object_createAndSetChild(rdram, ctx);
         goto after_1;
     // 0x802E6A8C: sw          $a3, 0x20($sp)
     MEM_W(0X20, ctx->r29) = ctx->r7;

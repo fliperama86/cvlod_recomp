@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+
 RECOMP_FUNC void func_80179FD0(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -68,7 +69,7 @@ RECOMP_FUNC void func_80179FD0(uint8_t* rdram, recomp_context* ctx) {
     // 0x8017A030: jal         0x80013E6C
     // 0x8017A034: addiu       $a2, $sp, 0xB4
     ctx->r6 = ADD32(ctx->r29, 0XB4);
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_3;
     // 0x8017A034: addiu       $a2, $sp, 0xB4
     ctx->r6 = ADD32(ctx->r29, 0XB4);
@@ -1446,9 +1447,6 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = ADD32(ctx->r2, -0X7D40);
     // 0x8017A608: lw          $t6, 0x295C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X295C);
-    // NOTE: sys+0x295C is NULL (NI system never inits). Rendering early-exits here.
-    // Bypassing this causes a crash in func_80182058 (bad NI object dereference).
-    // Proper NI init is needed to populate this with a real object.
     // 0x8017A60C: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x8017A610: sw          $ra, 0x14($sp)
@@ -1477,6 +1475,16 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     skip_1:
     // 0x8017A628: lw          $t8, 0x2B70($v0)
     ctx->r24 = MEM_W(ctx->r2, 0X2B70);
+    // 0x8017A62C: beql        $t8, $zero, L_8017A660
+    if (ctx->r24 == 0) {
+        // 0x8017A630: lw          $ra, 0x14($sp)
+        ctx->r31 = MEM_W(ctx->r29, 0X14);
+            goto L_8017A660;
+    }
+    goto skip_2;
+    // 0x8017A630: lw          $ra, 0x14($sp)
+    ctx->r31 = MEM_W(ctx->r29, 0X14);
+    skip_2:
     // 0x8017A634: jal         0x8017A790
     // 0x8017A638: nop
 
@@ -2517,7 +2525,7 @@ RECOMP_FUNC void func_8017AAE0(uint8_t* rdram, recomp_context* ctx) {
     // 0x8017AB5C: jal         0x8001439C
     // 0x8017AB60: sw          $v0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r2;
-    func_8001439C(rdram, ctx);
+    f32_normalize(rdram, ctx);
         goto after_0;
     // 0x8017AB60: sw          $v0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r2;
@@ -2571,7 +2579,7 @@ L_8017AB7C:
     // 0x8017ABA0: jal         0x8001439C
     // 0x8017ABA4: sw          $v0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r2;
-    func_8001439C(rdram, ctx);
+    f32_normalize(rdram, ctx);
         goto after_1;
     // 0x8017ABA4: sw          $v0, 0x1C($sp)
     MEM_W(0X1C, ctx->r29) = ctx->r2;
@@ -2630,7 +2638,7 @@ L_8017ABBC:
     CHECK_FR(ctx, 6);
     NAN_CHECK(ctx->f6.fl); 
     ctx->f12.fl = -ctx->f6.fl;
-    func_8001439C(rdram, ctx);
+    f32_normalize(rdram, ctx);
         goto after_2;
     // 0x8017ABF8: neg.s       $f12, $f6
     CHECK_FR(ctx, 12);
@@ -2679,7 +2687,7 @@ L_8017AC0C:
     CHECK_FR(ctx, 12);
     CHECK_FR(ctx, 10);
     ctx->f12.fl = ctx->f10.fl;
-    func_8001439C(rdram, ctx);
+    f32_normalize(rdram, ctx);
         goto after_3;
     // 0x8017AC30: mov.s       $f12, $f10
     CHECK_FR(ctx, 12);
@@ -2849,7 +2857,7 @@ L_8017ACE8:
     // 0x8017AD04: jal         0x80013E6C
     // 0x8017AD08: swc1        $f2, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->f2.u32l;
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_0;
     // 0x8017AD08: swc1        $f2, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->f2.u32l;
@@ -3210,7 +3218,7 @@ L_8017AEB0:
     // 0x8017AEE4: jal         0x80013E6C
     // 0x8017AEE8: or          $a1, $a0, $zero
     ctx->r5 = ctx->r4 | 0;
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_4;
     // 0x8017AEE8: or          $a1, $a0, $zero
     ctx->r5 = ctx->r4 | 0;
@@ -3418,7 +3426,7 @@ L_8017AFAC:
     // 0x8017AFDC: jal         0x80013E6C
     // 0x8017AFE0: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
-    func_80013E6C(rdram, ctx);
+    vec3f_crossProduct(rdram, ctx);
         goto after_1;
     // 0x8017AFE0: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
@@ -5447,7 +5455,7 @@ L_8017B970:
     // 0x8017B970: jal         0x80001FD0
     // 0x8017B974: or          $a0, $a1, $zero
     ctx->r4 = ctx->r5 | 0;
-    func_80001FD0(rdram, ctx);
+    cmdNodeTable_classify(rdram, ctx);
         goto after_0;
     // 0x8017B974: or          $a0, $a1, $zero
     ctx->r4 = ctx->r5 | 0;

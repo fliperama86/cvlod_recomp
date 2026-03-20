@@ -40,9 +40,11 @@ osViSetEvent               = 0x800A3A80; // type:func
 osViBlack                  = 0x80099B80; // type:func
 osViSetSpecialFeatures     = 0x800A38F0; // type:func
 osViGetCurrentFramebuffer  = 0x800A7320; // type:func
+osViGetNextFramebuffer     = 0x80099970; // type:func
 osCreateViManager          = 0x800A66C0; // type:func
 __osViInit                 = 0x800A3310; // type:func
 __osViSwapContext          = 0x800A3450; // type:func
+viMgrMain                  = 0x800A6440; // type:func
 
 // OS Peripheral Interface (PI)
 osCreatePiManager    = 0x8009B2F0; // type:func
@@ -101,42 +103,75 @@ guRotateRPY      = 0x800A6BCC; // type:func
 guLookAtReflectF = 0x800A1C80; // type:func
 guLookAtReflect  = 0x800A1F38; // type:func
 
-// Scheduler (names from CV64 decomp cross-reference, k64ret/cv64)
-scheduler_create           = 0x800184E0; // type:func  // CV64: scheduler_create (0x80015aa0)
-scheduler_getAudioCmdQ     = 0x8001876C; // type:func  // CV64: scheduler_getAudioRequestMQ (0x80015d2c)
-scheduler_eventHandler     = 0x80018774; // type:func  // CV64: scheduler_eventHandler (0x80015d44)
-scheduler_eventBroadcast   = 0x80018968; // type:func  // CV64: scheduler_eventBroadcast (0x80015ed8)
-scheduler_executeAudio     = 0x800189B8; // type:func  // CV64: scheduler_executeAudio (0x80015f28)
-scheduler_executeGraphics  = 0x80018B50; // type:func  // CV64: scheduler_executeGraphics (0x800160b0)
-scheduler_taskDispatch     = 0x80018E30; // type:func  // sends task to scheduler cmdQ via osJamMesg
-createGraphicTasks         = 0x80019034; // type:func  // CV64: createGraphicTasks (0x80016440)
+// C Library / Math
+sinf    = 0x80097170; // type:func
+__cosf  = 0x800A3780; // type:func
+sqrtf   = 0x800A01E0; // type:func
+bzero   = 0x80000F30; // type:func
+bcopy   = 0x800A2C20; // type:func
+memcpy  = 0x800A1340; // type:func
+strlen  = 0x800A136C; // type:func
 
-// Game threads (names from CV64 decomp cross-reference)
-game_main                  = 0x800177E0; // type:func  // already defined above
-graphThread_entrypoint     = 0x800178D0; // type:func  // thread 5 / render thread, receives VI/DP msgs
-mainThread_entrypoint      = 0x800905D8; // type:func  // main game loop thread
+// ============================================================================
+// Game-specific functions (from CV64 decomp cross-reference + debugging)
+// ============================================================================
 
-// Game rendering
-func_80017DB8              = 0x80017DB8; // type:func  // called when D_800B0088==0 (pre-init frame)
-func_80017EC0              = 0x80017EC0; // type:func  // main frame render function (builds display list)
-func_80018D28              = 0x80018D28; // type:func  // thread 16 entry
-func_80091108              = 0x80091108; // type:func  // video init (called on PRE-NMI signal)
-func_80090744              = 0x80090744; // type:func  // frame builder, calls display list builder
-func_8009CA90              = 0x8009CA90; // type:func  // display list builder (returns dl size)
-func_8001A350              = 0x8001A350; // type:func  // called during graphThread init
+// Game State Manager
+GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene
+GameStateMgr_enqueue       = 0x80002D5C; // type:func  // enqueues command node to manager queue
+GameStateMgr_dispatch      = 0x80002E3C; // type:func  // consumes manager queue, dispatches tasks
 
-// Object system (names from CV64 decomp cross-reference, k64ret/cv64)
-GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene via scene_arg
-scene_init                 = 0x800007B0; // type:func  // scene init, writes scene_arg=4, calls scene loader
+// Scene system
+scene_init                 = 0x800007B0; // type:func  // scene init, writes scene_arg, loads scene
+sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
+sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform
+sceneSelector_write        = 0x80149DE4; // type:func  // writes scene selector record to sys+0x7C
+sceneSelector_update1      = 0x80149BC4; // type:func  // updates scene selector globals
+sceneSelector_update2      = 0x80149D30; // type:func  // updates scene selector globals (variant)
+
+// Object system
 object_curLevel_goToNextFunc = 0x80001CE8; // type:func  // advances state schedule
+cmdNodeTable_clear         = 0x80001940; // type:func  // clears static command-node table
+cmdNodeTable_alloc         = 0x80001968; // type:func  // allocates entry from command-node table
+cmdNodeTable_classify      = 0x80001FD0; // type:func  // classifies entry in command-node pool
 object_allocate            = 0x8000224C; // type:func  // allocs object struct (bzero 0x74 bytes)
 object_create              = 0x80002410; // type:func  // creates object from template ID
 object_allocEntryInList    = 0x80002808; // type:func  // allocs data in object's alloc_data[] array
+object_dispatch1           = 0x80002950; // type:func  // object dispatch helper
+object_dispatch2           = 0x800029EC; // type:func  // object dispatch helper (variant)
+object_executeChildren     = 0x80002B10; // type:func  // walks slots[0..3], dispatches each child
 object_free                = 0x80002CE0; // type:func  // default destroy function
-sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
+object_dispatchChild       = 0x8000516C; // type:func  // dispatches single child object
 object_executeChildObject  = 0x80010B84; // type:func  // iterates parent slots, creates child objects
+object_activateChildren    = 0x80010C80; // type:func  // activates deferred children (bit 30 check)
 object_execute             = 0x80010DD4; // type:func  // dispatches object's state function
-sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform data
+
+// NI (Nisitenma-Ichigo) system
+ni_system_dispatcher       = 0x800113EC; // type:func  // template 3 / NI file system per-frame dispatcher
+ni_figure_process          = 0x800448FC; // type:func  // NI figure bitmask processing
+poolObject_create          = 0x80040524; // type:func  // creates pooled NI object
+poolObject_attachChild     = 0x80040628; // type:func  // attaches child to pool object
+poolObject_attachChild2    = 0x80040844; // type:func  // attaches child (variant)
+poolObject_tick            = 0x800409FC; // type:func  // NI per-frame update (clear/rebuild/pair-process)
+poolObject_complete        = 0x80041C54; // type:func  // pool object completion handler
+
+// Scheduler (CV64 decomp: k64ret/cv64 include/ultra64/PR/sched.h)
+scheduler_create           = 0x800184E0; // type:func  // init scheduler struct, create queues, register events
+scheduler_getAudioCmdQ     = 0x8001876C; // type:func  // returns audio request message queue
+scheduler_eventHandler     = 0x80018774; // type:func  // scheduler thread: receives VI/SP/DP events
+scheduler_eventBroadcast   = 0x80018968; // type:func  // iterates client list, sends msg to each
+scheduler_executeAudio     = 0x800189B8; // type:func  // audio thread: runs audio+GFX tasks on RSP
+scheduler_executeGraphics  = 0x80018B50; // type:func  // graphics thread (thread 17)
+scheduler_taskDispatch     = 0x80018E30; // type:func  // sends task to scheduler cmdQ via osJamMesg
+
+// Game threads and rendering
+graphThread_entrypoint     = 0x800178D0; // type:func  // thread 5 / render thread, receives VI/DP msgs
+graphThread_submitGFX      = 0x80017EC0; // type:func  // main frame render function (builds display list)
+createGraphicTasks         = 0x80019034; // type:func  // builds GFX task struct, submits to scheduler
+createGraphicTasks_overlay = 0x80000A30; // type:func  // GFX task from overlay/recomp entry
+video_init                 = 0x80091108; // type:func  // video init (called on PRE-NMI signal)
+audioTask_build            = 0x80090744; // type:func  // audio task builder, called from main thread
+mainThread_entrypoint      = 0x800905D8; // type:func  // main game logic thread
 
 // Controller Pak / Input
 contpak_init               = 0x800195E0; // type:func  // PADMGR init, calls osContStartReadData
@@ -146,22 +181,28 @@ contpak_readPIF            = 0x80098B50; // type:func  // low-level PIF SI DMA r
 contpak_formatPIF          = 0x80098C60; // type:func  // formats PIF command buffer for button read
 contpak_parsePIF           = 0x80098BD4; // type:func  // parses PIF response, extracts button data
 
-// NI (Nisitenma-Ichigo) system
+// Background state / overlay 47
+bgState_activate           = 0x80146240; // type:func  // activates background state (sys+0x2908, sys+0x2B10)
+bgHandler_dispatch         = 0x80177860; // type:func  // background handler dispatcher
+bgHandler_active           = 0x80177948; // type:func  // background handler active path
+bgHandler_inactive         = 0x80177B4C; // type:func  // background handler inactive path
+ovl47_localDispatch        = 0x8014B300; // type:func  // overlay 47 local state dispatcher
+ovl47_gateProducer         = 0x8014B370; // type:func  // overlay 47 gate producer (increments 0x8019D194)
+
+// Request bit system
+requestBit_set             = 0x801476FC; // type:func  // sets bit in request word at 0x8019D19C
+requestBit_test            = 0x80147718; // type:func  // tests bit in request word
+requestBit_clear           = 0x80147728; // type:func  // clears bit in request word
+
+// NI overlay system
 NI_systemInit              = 0x801CB5CC; // type:func  // overlay_system: creates NI file management object
 
+// ============================================================================
 // Key globals
-D_800B0088 = 0x800B0088; // type:data  // "video ready" flag, set to 1 by scheduler on PRE-NMI event
+// ============================================================================
+D_800B0088 = 0x800B0088; // type:data  // "video ready" flag, set by scheduler on PRE-NMI
 gDisplayListHead = 0x800CE760; // type:data  // current display list write pointer
 contpak_uninserted = 0x800F2260; // type:data  // byte[4]: per-controller "no pak" flag
 max_controllers = 0x8013EDB1; // type:data  // byte: number of detected controllers
 pif_buffer = 0x8013ED70; // type:data  // 64-byte PIF command/response buffer
 scene_table = 0x800ACFDC; // type:data  // scene descriptor table, 80 bytes per entry
-
-// C Library / Math
-sinf    = 0x80097170; // type:func
-__cosf  = 0x800A3780; // type:func
-sqrtf   = 0x800A01E0; // type:func
-bzero   = 0x80000F30; // type:func
-bcopy   = 0x800A2C20; // type:func
-memcpy  = 0x800A1340; // type:func
-strlen  = 0x800A136C; // type:func

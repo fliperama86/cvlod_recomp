@@ -1,6 +1,5 @@
 #include "recomp.h"
 #include "funcs.h"
-#include <stdio.h>
 
 RECOMP_FUNC void func_8003F22C(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -3507,7 +3506,7 @@ L_8004051C:
     // 0x80040520: nop
 
 ;}
-RECOMP_FUNC void func_80040524(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void poolObject_create(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80040524: lui         $v0, 0x800F
@@ -3668,14 +3667,7 @@ RECOMP_FUNC void func_80040580(uint8_t* rdram, recomp_context* ctx) {
     // 0x80040624: swc1        $f0, 0x38($a0)
     MEM_W(0X38, ctx->r4) = ctx->f0.u32l;
 ;}
-RECOMP_FUNC void func_80040628(uint8_t* rdram, recomp_context* ctx) {
-    {
-        static int alloc_child_n = 0;
-        if (++alloc_child_n <= 20) {
-            fprintf(stderr, "[ALLOC_CHILD#%d] file_id=0x%04X parent=0x%08X\n",
-                    alloc_child_n, (uint32_t)ctx->r5 & 0xFFFF, (uint32_t)ctx->r4);
-        }
-    }
+RECOMP_FUNC void poolObject_attachChild(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80040628: addiu       $sp, $sp, -0x20
@@ -4007,21 +3999,7 @@ RECOMP_FUNC void func_80040798(uint8_t* rdram, recomp_context* ctx) {
     // 0x80040840: swc1        $f0, 0x64($a0)
     MEM_W(0X64, ctx->r4) = ctx->f0.u32l;
 ;}
-RECOMP_FUNC void func_80040844(uint8_t* rdram, recomp_context* ctx) {
-    {
-        static int attach_n = 0;
-        if (++attach_n <= 20) {
-            uint32_t parent = (uint32_t)ctx->r4;
-            uint32_t child = (uint32_t)ctx->r5;
-            uint32_t bm = (uint32_t)ctx->r6 & 0xFFFF;
-            uint32_t pp = parent >= 0x80000000 && parent < 0x80800000 ? parent - 0x80000000 : 0;
-            uint32_t cnt0 = pp ? (uint32_t)*(rdram + ((pp + 0x80) ^ 3)) : 0;
-            uint32_t cnt1 = pp ? (uint32_t)*(rdram + ((pp + 0x81) ^ 3)) : 0;
-            fprintf(stderr, "[ATTACH#%d] parent=0x%08X child=0x%08X bm=0x%04X type=0x%04X cnt[0]=%d cnt[1]=%d\n",
-                    attach_n, parent, child, bm,
-                    (uint32_t)MEM_H(ctx->r4, 0X0) & 0xFFFF, cnt0, cnt1);
-        }
-    }
+RECOMP_FUNC void poolObject_attachChild2(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80040844: addiu       $sp, $sp, -0x8
@@ -4335,7 +4313,7 @@ L_800409E8:
     // 0x800409F8: nop
 
 ;}
-RECOMP_FUNC void func_800409FC(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void poolObject_tick(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x800409FC: addiu       $sp, $sp, -0x20
@@ -7536,7 +7514,7 @@ L_80041A04:
     // 0x80041A44: jal         0x80041C54
     // 0x80041A48: sw          $t0, 0x10($sp)
     MEM_W(0X10, ctx->r29) = ctx->r8;
-    func_80041C54(rdram, ctx);
+    poolObject_complete(rdram, ctx);
         goto after_0;
     // 0x80041A48: sw          $t0, 0x10($sp)
     MEM_W(0X10, ctx->r29) = ctx->r8;
@@ -7673,7 +7651,7 @@ L_80041AA8:
     // 0x80041AE8: jal         0x80041C54
     // 0x80041AEC: sw          $v1, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r3;
-    func_80041C54(rdram, ctx);
+    poolObject_complete(rdram, ctx);
         goto after_1;
     // 0x80041AEC: sw          $v1, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r3;
@@ -7786,7 +7764,7 @@ L_80041B20:
     // 0x80041B68: jal         0x80041C54
     // 0x80041B6C: sw          $t0, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r8;
-    func_80041C54(rdram, ctx);
+    poolObject_complete(rdram, ctx);
         goto after_2;
     // 0x80041B6C: sw          $t0, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r8;
@@ -7925,7 +7903,7 @@ L_80041BF4:
     // 0x80041C04: jal         0x80041C54
     // 0x80041C08: sw          $v1, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r3;
-    func_80041C54(rdram, ctx);
+    poolObject_complete(rdram, ctx);
         goto after_3;
     // 0x80041C08: sw          $v1, 0x14($sp)
     MEM_W(0X14, ctx->r29) = ctx->r3;
@@ -7985,7 +7963,7 @@ L_80041C1C:
     // 0x80041C50: addiu       $sp, $sp, 0x70
     ctx->r29 = ADD32(ctx->r29, 0X70);
 ;}
-RECOMP_FUNC void func_80041C54(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void poolObject_complete(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80041C54: addiu       $sp, $sp, -0x178

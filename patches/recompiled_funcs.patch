@@ -1,0 +1,1962 @@
+diff --git a/RecompiledFuncs/funcs_0.c b/RecompiledFuncs/funcs_0.c
+index 7f1b668..f0d186e 100644
+--- a/RecompiledFuncs/funcs_0.c
++++ b/RecompiledFuncs/funcs_0.c
+@@ -1,6 +1,7 @@
+ #include "recomp.h"
+ #include "funcs.h"
+ #include <stdio.h>
++
+ RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -111,7 +112,6 @@ L_800004C8:
+     // 0x800004C8: addiu       $s0, $s0, 0x1520
+     ctx->r16 = ADD32(ctx->r16, 0X1520);
+ L_800004CC:
+-    // (alloc loop logging removed)
+     // 0x800004CC: jal         0x80001F30
+     // 0x800004D0: lw          $a0, 0x0($s1)
+     ctx->r4 = MEM_W(ctx->r17, 0X0);
+@@ -120,7 +120,6 @@ L_800004CC:
+     // 0x800004D0: lw          $a0, 0x0($s1)
+     ctx->r4 = MEM_W(ctx->r17, 0X0);
+     after_1:
+-    // (post func_80001F30 logging removed)
+     // 0x800004D4: or          $a0, $zero, $zero
+     ctx->r4 = 0 | 0;
+     // 0x800004D8: jal         0x8000233C
+@@ -131,7 +130,6 @@ L_800004CC:
+     // 0x800004DC: addiu       $a1, $zero, 0x1
+     ctx->r5 = ADD32(0, 0X1);
+     after_2:
+-    // (post func_8000233C logging removed)
+     // 0x800004E0: beq         $v0, $zero, L_800004CC
+     if (ctx->r2 == 0) {
+         // 0x800004E4: sw          $v0, 0x0($s0)
+@@ -169,7 +167,7 @@ L_800004CC:
+     // 0x8000051C: jal         0x80001090
+     // 0x80000520: addiu       $a1, $a1, 0x34
+     ctx->r5 = ADD32(ctx->r5, 0X34);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_3;
+     // 0x80000520: addiu       $a1, $a1, 0x34
+     ctx->r5 = ADD32(ctx->r5, 0X34);
+@@ -232,17 +230,32 @@ L_80000568:
+     // 0x80000574: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80000578(uint8_t* rdram, recomp_context* ctx) {
+-    // Note: RECOMP_FUNC (extern inline weak) breaks static locals
++RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
++    uint64_t hi = 0, lo = 0, result = 0;
++    int c1cs = 0;
++    // --- PATCH: Bootstrap overlay_system on first GSM dispatch ---
+     {
+         uint32_t obj_phys = (uint32_t)ctx->r4 - 0x80000000;
+         int32_t scene_arg = *(int32_t*)(rdram + obj_phys + 0x24);
+-        // state byte at obj+0x09: MEM_BU reads at (addr+0x09)^3
+         uint8_t state = rdram[(obj_phys + 0x09) ^ 3];
+         fprintf(stderr, "[GSM] scene=%d state=%d\n", scene_arg, state);
++        static int bootstrap_done = 0;
++        if (!bootstrap_done && state == 0) {
++            bootstrap_done = 1;
++            uint32_t ni_sys = *(uint32_t*)(rdram + (0x801CAC1C - 0x80000000));
++            if (ni_sys == 0) {
++                *(uint32_t*)(rdram + (0x801CADE4 - 0x80000000)) = 1;
++                gpr saved_r4 = ctx->r4;
++                gpr saved_r5 = ctx->r5;
++                gpr saved_r31 = ctx->r31;
++                func_8001BA78(rdram, ctx);
++                ctx->r4 = saved_r4;
++                ctx->r5 = saved_r5;
++                ctx->r31 = saved_r31;
++            }
++        }
+     }
+-    uint64_t hi = 0, lo = 0, result = 0;
+-    int c1cs = 0;
++    // --- END PATCH ---
+     // 0x80000578: addiu       $sp, $sp, -0x28
+     ctx->r29 = ADD32(ctx->r29, -0X28);
+     // 0x8000057C: sw          $ra, 0x1C($sp)
+@@ -366,14 +379,10 @@ L_80000604:
+     // 0x80000618: nop
+ 
+     after_2:
+-    //
+-    // The DMAMgr (object 4) registers itself at 0x800C1600 during its
+-    // state 0 handler (func_80011D80). This must happen BEFORE the overlay
+-    // loading in state 1. We dispatch DMAMgr's state 0 manually here.
+     // 0x8000061C: jal         0x80010B84
+     // 0x80000620: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+-    func_80010B84(rdram, ctx);
++    object_executeChildObject(rdram, ctx);
+         goto after_3;
+     // 0x80000620: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+@@ -389,7 +398,7 @@ L_80000604:
+     // 0x80000634: jal         0x80010DD4
+     // 0x80000638: sb          $t1, 0x9($s0)
+     MEM_B(0X9, ctx->r16) = ctx->r9;
+-    func_80010DD4(rdram, ctx);
++    object_execute(rdram, ctx);
+         goto after_4;
+     // 0x80000638: sb          $t1, 0x9($s0)
+     MEM_B(0X9, ctx->r16) = ctx->r9;
+@@ -404,7 +413,7 @@ L_80000644:
+     // 0x80000644: jal         0x80010C80
+     // 0x80000648: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+-    func_80010C80(rdram, ctx);
++    object_activateChildren(rdram, ctx);
+         goto after_5;
+     // 0x80000648: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+@@ -420,11 +429,10 @@ L_80000658:
+     ctx->r5 = S32(0X801D << 16);
+     // 0x8000065C: lw          $a1, -0x7D30($a1)
+     ctx->r5 = MEM_W(ctx->r5, -0X7D30);
+-    // (no patches — let game use its natural dispatch mask)
+     // 0x80000660: jal         0x80010DD4
+     // 0x80000664: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+-    func_80010DD4(rdram, ctx);
++    object_execute(rdram, ctx);
+         goto after_6;
+     // 0x80000664: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+@@ -492,7 +500,7 @@ L_800006B4:
+     // 0x800006B8: jal         0x800013E8
+     // 0x800006BC: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+-    func_800013E8(rdram, ctx);
++    heap_init(rdram, ctx);
+         goto after_1;
+     // 0x800006BC: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+@@ -516,7 +524,7 @@ L_800006B4:
+     // 0x800006E0: jal         0x800013E8
+     // 0x800006E4: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+-    func_800013E8(rdram, ctx);
++    heap_init(rdram, ctx);
+         goto after_2;
+     // 0x800006E4: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+@@ -540,7 +548,7 @@ L_800006B4:
+     // 0x80000708: jal         0x800013E8
+     // 0x8000070C: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+-    func_800013E8(rdram, ctx);
++    heap_init(rdram, ctx);
+         goto after_3;
+     // 0x8000070C: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+@@ -644,7 +652,7 @@ L_80000754:
+     // 0x80000790: jal         0x80001940
+     // 0x80000794: nop
+ 
+-    func_80001940(rdram, ctx);
++    cmdNodeTable_clear(rdram, ctx);
+         goto after_7;
+     // 0x80000794: nop
+ 
+@@ -668,7 +676,7 @@ L_80000754:
+     // 0x800007AC: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800007B0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void scene_init(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800007B0: lui         $v0, 0x801D
+@@ -747,9 +755,6 @@ RECOMP_FUNC void func_800007B0(uint8_t* rdram, recomp_context* ctx) {
+     MEM_W(0X27A0, ctx->r1) = 0;
+     // 0x80000844: jal         0x80014C7C
+     // 0x80000848: sw          $zero, 0x295C($v0)
+-    // Original code zeros sys+0x295C (NI system ptr) during scene reset.
+-    // NI init (overlay_system_func_801CB5CC) never runs, so it stays NULL.
+-    // This blocks the rendering path (func_8017A600 early-exits).
+     MEM_W(0X295C, ctx->r2) = 0;
+     func_80014C7C(rdram, ctx);
+         goto after_0;
+@@ -1074,7 +1079,7 @@ L_80000A24:
+     // 0x80000A2C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80000A30(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void createGraphicTasks_overlay(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80000A30: addiu       $sp, $sp, -0x18
+@@ -1130,7 +1135,7 @@ RECOMP_FUNC void func_80000A30(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80000A70: jal         0x80019034
+     // 0x80000A74: sh          $zero, 0x28($v1)
+     MEM_H(0X28, ctx->r3) = 0;
+-    func_80019034(rdram, ctx);
++    createGraphicTasks(rdram, ctx);
+         goto after_2;
+     // 0x80000A74: sh          $zero, 0x28($v1)
+     MEM_H(0X28, ctx->r3) = 0;
+@@ -1232,7 +1237,7 @@ L_80000B00:
+     // 0x80000B08: jal         0x800013E8
+     // 0x80000B0C: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+-    func_800013E8(rdram, ctx);
++    heap_init(rdram, ctx);
+         goto after_1;
+     // 0x80000B0C: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+@@ -1256,7 +1261,7 @@ L_80000B00:
+     // 0x80000B30: jal         0x800013E8
+     // 0x80000B34: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+-    func_800013E8(rdram, ctx);
++    heap_init(rdram, ctx);
+         goto after_2;
+     // 0x80000B34: addiu       $a3, $zero, 0x4000
+     ctx->r7 = ADD32(0, 0X4000);
+@@ -1352,7 +1357,7 @@ L_80000B78:
+     // 0x80000BAC: jal         0x80001940
+     // 0x80000BB0: nop
+ 
+-    func_80001940(rdram, ctx);
++    cmdNodeTable_clear(rdram, ctx);
+         goto after_6;
+     // 0x80000BB0: nop
+ 
+@@ -2233,7 +2238,7 @@ L_80001088:
+     // 0x8000108C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001090(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void memory_copy(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001090: sltiu       $at, $a2, 0x4
+@@ -2842,7 +2847,7 @@ L_800013E0:
+     // 0x800013E4: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800013E8(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void heap_init(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800013E8: sll         $t6, $a0, 2
+@@ -2908,7 +2913,7 @@ RECOMP_FUNC void func_80001438(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80001450: sh          $zero, 0x1D00($at)
+     MEM_H(0X1D00, ctx->r1) = 0;
+ ;}
+-RECOMP_FUNC void func_80001454(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void heap_writebackDCache(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001454: addiu       $sp, $sp, -0x20
+@@ -3787,7 +3792,7 @@ RECOMP_FUNC void func_80001920(uint8_t* rdram, recomp_context* ctx) {
+     // 0x8000193C: sh          $zero, 0x0($v0)
+     MEM_H(0X0, ctx->r2) = 0;
+ ;}
+-RECOMP_FUNC void func_80001940(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void cmdNodeTable_clear(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001940: lui         $v0, 0x801B
+@@ -3818,7 +3823,7 @@ L_80001950:
+     // 0x80001964: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001968(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void cmdNodeTable_alloc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001968: lui         $v1, 0x801B
+@@ -3888,7 +3893,7 @@ RECOMP_FUNC void func_800019B0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800019BC: jal         0x80001968
+     // 0x800019C0: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+-    func_80001968(rdram, ctx);
++    cmdNodeTable_alloc(rdram, ctx);
+         goto after_0;
+     // 0x800019C0: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+@@ -3931,7 +3936,7 @@ RECOMP_FUNC void func_800019E8(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800019F4: jal         0x80001968
+     // 0x800019F8: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+-    func_80001968(rdram, ctx);
++    cmdNodeTable_alloc(rdram, ctx);
+         goto after_0;
+     // 0x800019F8: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+@@ -4416,7 +4421,7 @@ L_80001C18:
+     // 0x80001C1C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001C20(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_curLevel_goToNextFunc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001C20: lh          $t6, 0x0($a1)
+@@ -4514,7 +4519,7 @@ L_80001C94:
+     // 0x80001C98: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001C9C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_nextLevel_goToNextFunc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001C9C: lh          $t6, 0x0($a1)
+@@ -4572,7 +4577,7 @@ L_80001CE0:
+     // 0x80001CE4: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001CE8(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_curLevel_goToNextFuncAndClearTimer(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001CE8: lh          $t6, 0x0($a1)
+@@ -4620,7 +4625,7 @@ L_80001D20:
+     // 0x80001D24: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001D28(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_curLevel_goToPrevFunc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001D28: lh          $t6, 0x0($a1)
+@@ -4718,7 +4723,7 @@ L_80001D9C:
+     // 0x80001DA0: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001DA4(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_nextLevel_goToPrevFunc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001DA4: lh          $t6, 0x0($a1)
+@@ -4866,7 +4871,7 @@ L_80001E5C:
+     // 0x80001E60: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001E64(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_curLevel_goToFuncInLevel(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001E64: sw          $a2, 0x8($sp)
+@@ -4912,7 +4917,7 @@ L_80001E98:
+     // 0x80001E9C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001EA0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_prevLevel_goToFunc(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001EA0: lh          $v0, 0x0($a1)
+@@ -5114,7 +5119,7 @@ L_80001FC0:
+     // 0x80001FCC: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80001FD0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void cmdNodeTable_classify(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80001FD0: lui         $t6, 0x800C
+diff --git a/RecompiledFuncs/funcs_1.c b/RecompiledFuncs/funcs_1.c
+index 5a70885..81324b1 100644
+--- a/RecompiledFuncs/funcs_1.c
++++ b/RecompiledFuncs/funcs_1.c
+@@ -1,7 +1,6 @@
+ #include "recomp.h"
+ #include "funcs.h"
+-#include <stdio.h>
+-int pathA_log_n = 0;
++
+ RECOMP_FUNC void func_80001FFC(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -449,7 +448,7 @@ L_80002240:
+     // 0x80002248: sw          $v1, 0x153C($at)
+     MEM_W(0X153C, ctx->r1) = ctx->r3;
+ ;}
+-RECOMP_FUNC void func_8000224C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_allocate(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x8000224C: lui         $a2, 0x800C
+@@ -646,7 +645,7 @@ RECOMP_FUNC void func_8000233C(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002350: jal         0x8000224C
+     // 0x80002354: sw          $a1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r5;
+-    func_8000224C(rdram, ctx);
++    object_allocate(rdram, ctx);
+         goto after_0;
+     // 0x80002354: sw          $a1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r5;
+@@ -775,7 +774,7 @@ L_80002400:
+     // 0x8000240C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002410(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_createAndSetChild(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002410: addiu       $sp, $sp, -0x20
+@@ -791,7 +790,7 @@ RECOMP_FUNC void func_80002410(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002424: jal         0x8000224C
+     // 0x80002428: sw          $a1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r5;
+-    func_8000224C(rdram, ctx);
++    object_allocate(rdram, ctx);
+         goto after_0;
+     // 0x80002428: sw          $a1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r5;
+@@ -962,7 +961,7 @@ L_80002500:
+     // 0x8000250C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002510(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_findFirstObjectByID(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002510: lui         $v0, 0x800C
+@@ -1045,7 +1044,7 @@ RECOMP_FUNC void func_80002560(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002570: jal         0x80002510
+     // 0x80002574: addiu       $a1, $a1, -0x74
+     ctx->r5 = ADD32(ctx->r5, -0X74);
+-    func_80002510(rdram, ctx);
++    object_findFirstObjectByID(rdram, ctx);
+         goto after_0;
+     // 0x80002574: addiu       $a1, $a1, -0x74
+     ctx->r5 = ADD32(ctx->r5, -0X74);
+@@ -1457,7 +1456,7 @@ L_8000277C:
+     // 0x8000277C: jal         0x80002510
+     // 0x80002780: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    func_80002510(rdram, ctx);
++    object_findFirstObjectByID(rdram, ctx);
+         goto after_1;
+     // 0x80002780: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+@@ -1554,7 +1553,7 @@ RECOMP_FUNC void func_800027B0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002804: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002808(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_allocEntryInList(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002808: addiu       $sp, $sp, -0x20
+@@ -1687,7 +1686,7 @@ RECOMP_FUNC void func_80002880(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800028D4: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800028D8(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_freeData(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800028D8: addiu       $sp, $sp, -0x20
+@@ -1773,17 +1772,7 @@ L_80002944:
+     // 0x8000294C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
+-    { static int d50_n = 0; d50_n++;
+-      if (d50_n <= 10) {
+-        // MEM_H(obj, 0) reads from ((addr+0)^2) and MEM_HU(obj, 2) from ((addr+2)^2)
+-        uint32_t obj_phys = (uint32_t)ctx->r4 - 0x80000000;
+-        int16_t id = *(int16_t*)(rdram + (obj_phys ^ 2));       // MEM_H(obj, 0)
+-        uint16_t flags = *(uint16_t*)(rdram + ((obj_phys + 2) ^ 2)); // MEM_HU(obj, 2)
+-        fprintf(stderr, "[OBJ_PROC] #%d obj=0x%08X id=%d(0x%04X) flags=0x%04X tmpl=%d\n",
+-                d50_n, (uint32_t)ctx->r4, id, (uint16_t)id, flags, id & 0x7FF);
+-      }
+-    }
++RECOMP_FUNC void object_dispatch1(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002950: addiu       $sp, $sp, -0x18
+@@ -1843,24 +1832,6 @@ RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
+     // 0x8000299C: jalr        $t9
+     // 0x800029A0: nop
+ 
+-    // Translate N64 segment addresses to overlay vram.
+-    {
+-        uint32_t orig = (uint32_t)ctx->r25;
+-        // Log all path A dispatches (limited by pathA_log counter)
+-        if (pathA_log_n++ <= 20) {
+-            uint32_t obj_addr = (uint32_t)MEM_W(ctx->r29, 0x18);
+-            int16_t tmpl = (*(int16_t*)(rdram + ((obj_addr + 0) ^ 2) - 0x80000000)) & 0x7FF;
+-            fprintf(stderr, "[PATH_A#%d] tmpl=%d raw_func=0x%08X\n", pathA_log_n, tmpl, orig);
+-        }
+-        if ((orig >> 24) == 0x0F) {
+-            uint32_t offset = orig & 0x00FFFFFF;
+-            uint32_t ovl_vram = (uint32_t)MEM_W(S32(0x800C15E8), 0);
+-            if (ovl_vram == 0 || ovl_vram < 0x80000000) {
+-                ovl_vram = 0x802E3B70;
+-            }
+-            ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
+-        }
+-    }
+     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+         goto after_1;
+     // 0x800029A0: nop
+@@ -1901,30 +1872,10 @@ L_800029B8:
+     ctx->r25 = ADD32(ctx->r25, ctx->r13);
+     // 0x800029D0: lw          $t9, -0x29C0($t9)
+     ctx->r25 = MEM_W(ctx->r25, -0X29C0);
+-    { static int pathB_n = 0; pathB_n++;
+-      if (pathB_n <= 10) fprintf(stderr, "[DISPATCH_B] #%d tmpl=%d func=0x%08X\n",
+-                                  pathB_n, (int)(ctx->r12), (uint32_t)ctx->r25);
+-    }
+     // 0x800029D4: jalr        $t9
+     // 0x800029D8: nop
+ 
+-    // Translate segment addresses for path B too
+-    if (((uint32_t)ctx->r25 >> 24) == 0x0F) {
+-        uint32_t offset = (uint32_t)ctx->r25 & 0x00FFFFFF;
+-        uint32_t ovl_vram = (uint32_t)MEM_W(S32(0x800C15E8), 0);
+-        if (ovl_vram == 0 || ovl_vram < 0x80000000) ovl_vram = 0x802E3B70;
+-        ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
+-        { static int xlat_n = 0; xlat_n++;
+-          if (xlat_n <= 5) fprintf(stderr, "[DISPATCH_B] translated 0x0F... → 0x%08X\n", (uint32_t)ctx->r25);
+-        }
+-    }
+-    { static int lf_n = 0; lf_n++;
+-      if (lf_n <= 5) fprintf(stderr, "[LOOKUP_B] #%d calling LOOKUP_FUNC(0x%08X)\n", lf_n, (uint32_t)ctx->r25);
+-    }
+     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+-    { static int lf2_n = 0; lf2_n++;
+-      if (lf2_n <= 5) fprintf(stderr, "[LOOKUP_B] #%d returned\n", lf2_n);
+-    }
+         goto after_3;
+     // 0x800029D8: nop
+ 
+@@ -1942,7 +1893,7 @@ L_800029E0:
+     // 0x800029E8: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800029EC(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_dispatch2(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800029EC: addiu       $sp, $sp, -0x20
+@@ -1973,7 +1924,7 @@ L_80002A04:
+     // 0x80002A10: jal         0x80002950
+     // 0x80002A14: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+-    func_80002950(rdram, ctx);
++    object_dispatch1(rdram, ctx);
+         goto after_0;
+     // 0x80002A14: or          $a0, $s0, $zero
+     ctx->r4 = ctx->r16 | 0;
+@@ -2006,7 +1957,7 @@ L_80002A1C:
+     // 0x80002A34: jal         0x80002950
+     // 0x80002A38: or          $a0, $v0, $zero
+     ctx->r4 = ctx->r2 | 0;
+-    func_80002950(rdram, ctx);
++    object_dispatch1(rdram, ctx);
+         goto after_1;
+     // 0x80002A38: or          $a0, $v0, $zero
+     ctx->r4 = ctx->r2 | 0;
+@@ -2115,7 +2066,7 @@ RECOMP_FUNC void func_80002A94(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002AAC: jal         0x800029EC
+     // 0x80002AB0: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+-    func_800029EC(rdram, ctx);
++    object_dispatch2(rdram, ctx);
+         goto after_1;
+     // 0x80002AB0: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+@@ -2175,7 +2126,7 @@ RECOMP_FUNC void func_80002A94(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002B00: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002B10(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_executeChildren(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002B10: addiu       $sp, $sp, -0x28
+@@ -2417,7 +2368,7 @@ L_80002C04:
+     // 0x80002C2C: jal         0x8000516C
+     // 0x80002C30: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+-    func_8000516C(rdram, ctx);
++    object_dispatchChild(rdram, ctx);
+         goto after_1;
+     // 0x80002C30: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+@@ -2447,7 +2398,7 @@ L_80002C3C:
+     // 0x80002C54: jal         0x80002D5C
+     // 0x80002C58: or          $a1, $s3, $zero
+     ctx->r5 = ctx->r19 | 0;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_2;
+     // 0x80002C58: or          $a1, $s3, $zero
+     ctx->r5 = ctx->r19 | 0;
+@@ -2552,7 +2503,7 @@ L_80002CD0:
+     // 0x80002CDC: addiu       $sp, $sp, 0x20
+     ctx->r29 = ADD32(ctx->r29, 0X20);
+ ;}
+-RECOMP_FUNC void func_80002CE0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_destroyChildrenAndModelInfo(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002CE0: addiu       $sp, $sp, -0x20
+@@ -2624,7 +2575,7 @@ L_80002D38:
+     // 0x80002D38: jal         0x80002B10
+     // 0x80002D3C: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+-    func_80002B10(rdram, ctx);
++    object_executeChildren(rdram, ctx);
+         goto after_2;
+     // 0x80002D3C: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+@@ -2652,7 +2603,7 @@ RECOMP_FUNC void func_80002D54(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80002D58: sw          $a0, 0x0($sp)
+     MEM_W(0X0, ctx->r29) = ctx->r4;
+ ;}
+-RECOMP_FUNC void func_80002D5C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void GameStateMgr_enqueue(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002D5C: addiu       $sp, $sp, -0x20
+@@ -2709,7 +2660,7 @@ L_80002DA0:
+     // 0x80002DA0: jal         0x80001FD0
+     // 0x80002DA4: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+-    func_80001FD0(rdram, ctx);
++    cmdNodeTable_classify(rdram, ctx);
+         goto after_0;
+     // 0x80002DA4: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+@@ -2788,7 +2739,7 @@ L_80002E04:
+     // 0x80002E04: jal         0x80001968
+     // 0x80002E08: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+-    func_80001968(rdram, ctx);
++    cmdNodeTable_alloc(rdram, ctx);
+         goto after_3;
+     // 0x80002E08: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+@@ -2829,7 +2780,7 @@ L_80002E30:
+     // 0x80002E38: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80002E3C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void GameStateMgr_dispatch(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80002E3C: addiu       $sp, $sp, -0x38
+@@ -3382,7 +3333,7 @@ RECOMP_FUNC void func_800030A8(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800030D0: jal         0x80001090
+     // 0x800030D4: sw          $a3, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r7;
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_0;
+     // 0x800030D4: sw          $a3, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r7;
+@@ -5346,7 +5297,7 @@ RECOMP_FUNC void func_8000398C(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800039C0: jal         0x80001090
+     // 0x800039C4: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_0;
+     // 0x800039C4: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+@@ -5720,7 +5671,7 @@ RECOMP_FUNC void func_80003B44(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80003B5C: jal         0x80001090
+     // 0x80003B60: addiu       $a1, $sp, 0x40
+     ctx->r5 = ADD32(ctx->r29, 0X40);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_0;
+     // 0x80003B60: addiu       $a1, $sp, 0x40
+     ctx->r5 = ADD32(ctx->r29, 0X40);
+@@ -6057,7 +6008,7 @@ RECOMP_FUNC void func_80003CB0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80003CDC: jal         0x80001090
+     // 0x80003CE0: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_0;
+     // 0x80003CE0: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+@@ -6258,7 +6209,7 @@ RECOMP_FUNC void func_80003DB8(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80003DD4: jal         0x80001090
+     // 0x80003DD8: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_0;
+     // 0x80003DD8: addiu       $a2, $zero, 0x40
+     ctx->r6 = ADD32(0, 0X40);
+diff --git a/RecompiledFuncs/funcs_11.c b/RecompiledFuncs/funcs_11.c
+index fc24f19..c5ed958 100644
+--- a/RecompiledFuncs/funcs_11.c
++++ b/RecompiledFuncs/funcs_11.c
+@@ -1,7 +1,6 @@
+ #include "recomp.h"
+ #include "funcs.h"
+-#include <stdio.h>
+-#include <string.h>
++
+ RECOMP_FUNC void func_80016B48(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -2741,7 +2740,7 @@ L_800178AC:
+     // 0x800178CC: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800178D0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void graphThread_entrypoint(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800178D0: addiu       $sp, $sp, -0x48
+@@ -3164,7 +3163,7 @@ L_80017B68:
+     // 0x80017B78: jal         0x800184E0
+     // 0x80017B7C: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+-    func_800184E0(rdram, ctx);
++    scheduler_create(rdram, ctx);
+         goto after_7;
+     // 0x80017B7C: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+@@ -3185,7 +3184,7 @@ L_80017B88:
+     // 0x80017B94: jal         0x800184E0
+     // 0x80017B98: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+-    func_800184E0(rdram, ctx);
++    scheduler_create(rdram, ctx);
+         goto after_8;
+     // 0x80017B98: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+@@ -3200,7 +3199,7 @@ L_80017BA4:
+     // 0x80017BA4: jal         0x800184E0
+     // 0x80017BA8: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+-    func_800184E0(rdram, ctx);
++    scheduler_create(rdram, ctx);
+         goto after_9;
+     // 0x80017BA8: addiu       $a2, $zero, 0x1
+     ctx->r6 = ADD32(0, 0X1);
+@@ -3211,9 +3210,6 @@ L_80017BAC:
+     // 0x80017BB0: nop
+ 
+ L_80017BB4:
+-    // REMOVED: Priority boost to 200 was causing SCHED to starve GRAPH (pri=100).
+-    // The original game has SCHED at pri=10, which is BELOW GRAPH (pri=100).
+-    // With the boost, check_running_queue never preempts SCHED → deadlock.
+     // 0x80017BB4: lui         $a2, 0x800C
+     ctx->r6 = S32(0X800C << 16);
+     // 0x80017BB8: addiu       $a2, $a2, 0x5D38
+@@ -3251,7 +3247,7 @@ L_80017BB4:
+     // 0x80017BE0: jal         0x800195E0
+     // 0x80017BE4: nop
+ 
+-    func_800195E0(rdram, ctx);
++    contpak_init(rdram, ctx);
+         goto after_13;
+     // 0x80017BE4: nop
+ 
+@@ -3377,9 +3373,6 @@ L_80017C78:
+     ctx->r1 = ADD32(0, 0X1);
+     // 0x80017C94: lh          $v1, 0x0($t3)
+     ctx->r3 = MEM_H(ctx->r11, 0X0);
+-    { static int msg_count = 0; msg_count++;
+-      if (msg_count <= 20) fprintf(stderr, "[GRAPH_MSG#%d] msg_type=%d\n", msg_count, (int32_t)ctx->r3);
+-    }
+     // 0x80017C98: beq         $v1, $at, L_80017CB8
+     if (ctx->r3 == ctx->r1) {
+         // 0x80017C9C: addiu       $at, $zero, 0x2
+@@ -3415,21 +3408,10 @@ L_80017C78:
+ L_80017CB8:
+     // 0x80017CB8: lhu         $t4, 0x0($s1)
+     ctx->r12 = MEM_HU(ctx->r17, 0X0);
+-    // Diagnostic: log exec_flags and guard state each retrace
+-    {
+-        static int retrace_count = 0; retrace_count++;
+-        if (retrace_count <= 20 || retrace_count % 100 == 0) {
+-            uint32_t exec_flags = (uint32_t)MEM_W(S32(0x801CABC8), 0);
+-            uint32_t ni_sys = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
+-            uint32_t guard = ctx->r12;
+-            fprintf(stderr, "[RETRACE#%d] guard=%d exec_flags=0x%08X ni_sys=0x%08X\n",
+-                    retrace_count, (int)guard, exec_flags, ni_sys);
+-        }
+-    }
+     // 0x80017CBC: bne         $t4, $zero, L_80017CD4
+     if (ctx->r12 != 0) {
+         // 0x80017CC0: nop
+-
++    
+             goto L_80017CD4;
+     }
+     // 0x80017CC0: nop
+@@ -3484,7 +3466,7 @@ L_80017CD4:
+     // 0x80017CEC: jal         0x80017EC0
+     // 0x80017CF0: nop
+ 
+-    func_80017EC0(rdram, ctx);
++    graphThread_submitGFX(rdram, ctx);
+         goto after_26;
+     // 0x80017CF0: nop
+ 
+@@ -3572,7 +3554,7 @@ L_80017D50:
+     // 0x80017D58: jal         0x80091108
+     // 0x80017D5C: addiu       $a0, $zero, 0xA
+     ctx->r4 = ADD32(0, 0XA);
+-    func_80091108(rdram, ctx);
++    video_init(rdram, ctx);
+         goto after_30;
+     // 0x80017D5C: addiu       $a0, $zero, 0xA
+     ctx->r4 = ADD32(0, 0XA);
+@@ -3648,16 +3630,6 @@ L_80017D50:
+     ctx->r29 = ADD32(ctx->r29, 0X48);
+ ;}
+ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
+-    { static int db8_n = 0; db8_n++;
+-      if (db8_n <= 10 || db8_n % 50 == 0) {
+-        uint32_t sys = 0x001C82C0;
+-        uint32_t obj_ptr = *(uint32_t*)(rdram + 0x000C1520);
+-        int16_t retrace_ctr = *(int16_t*)(rdram + sys + 0x88);
+-        int16_t scene_arg = *(int16_t*)(rdram + sys + 0x24);
+-        fprintf(stderr, "[INIT_FRAME#%d] retrace_ctr=%d scene_arg=%d obj_ptr=0x%08X\n",
+-                db8_n, retrace_ctr, scene_arg, obj_ptr);
+-      }
+-    }
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80017DB8: addiu       $sp, $sp, -0x20
+@@ -3677,7 +3649,7 @@ RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80017DD4: jal         0x800196DC
+     // 0x80017DD8: sw          $t7, 0x0($s0)
+     MEM_W(0X0, ctx->r16) = ctx->r15;
+-    func_800196DC(rdram, ctx);
++    contpak_mainLoop(rdram, ctx);
+         goto after_0;
+     // 0x80017DD8: sw          $t7, 0x0($s0)
+     MEM_W(0X0, ctx->r16) = ctx->r15;
+@@ -3759,7 +3731,7 @@ L_80017E44:
+     // 0x80017E48: jal         0x80002950
+     // 0x80017E4C: lw          $a0, 0x1520($a0)
+     ctx->r4 = MEM_W(ctx->r4, 0X1520);
+-    func_80002950(rdram, ctx);
++    object_dispatch1(rdram, ctx);
+         goto after_2;
+     // 0x80017E4C: lw          $a0, 0x1520($a0)
+     ctx->r4 = MEM_W(ctx->r4, 0X1520);
+@@ -3844,7 +3816,7 @@ RECOMP_FUNC void func_80017E9C(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80017EBC: sw          $t9, -0x18A0($at)
+     MEM_W(-0X18A0, ctx->r1) = ctx->r25;
+ ;}
+-RECOMP_FUNC void func_80017EC0(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void graphThread_submitGFX(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80017EC0: addiu       $sp, $sp, -0x38
+@@ -3932,7 +3904,7 @@ L_80017F1C:
+     // 0x80017F24: jal         0x8001876C
+     // 0x80017F28: addiu       $a0, $a0, 0x5E80
+     ctx->r4 = ADD32(ctx->r4, 0X5E80);
+-    func_8001876C(rdram, ctx);
++    scheduler_getAudioCmdQ(rdram, ctx);
+         goto after_1;
+     // 0x80017F28: addiu       $a0, $a0, 0x5E80
+     ctx->r4 = ADD32(ctx->r4, 0X5E80);
+@@ -3995,7 +3967,7 @@ L_80017F58:
+     // 0x80017F7C: jal         0x80001090
+     // 0x80017F80: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_2;
+     // 0x80017F80: nop
+ 
+@@ -4017,7 +3989,7 @@ L_80017F58:
+     // 0x80017FA0: jal         0x80001090
+     // 0x80017FA4: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_3;
+     // 0x80017FA4: nop
+ 
+@@ -4052,7 +4024,7 @@ L_80017FB8:
+     // 0x80017FD8: jal         0x80001090
+     // 0x80017FDC: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_4;
+     // 0x80017FDC: nop
+ 
+@@ -4074,7 +4046,7 @@ L_80017FB8:
+     // 0x80017FFC: jal         0x80001090
+     // 0x80018000: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_5;
+     // 0x80018000: nop
+ 
+@@ -4109,7 +4081,7 @@ L_80018014:
+     // 0x80018034: jal         0x80001090
+     // 0x80018038: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_6;
+     // 0x80018038: nop
+ 
+@@ -4131,7 +4103,7 @@ L_80018014:
+     // 0x80018058: jal         0x80001090
+     // 0x8001805C: nop
+ 
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_7;
+     // 0x8001805C: nop
+ 
+@@ -4222,7 +4194,7 @@ L_8001806C:
+     // 0x800180FC: jal         0x8001876C
+     // 0x80018100: sw          $v1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r3;
+-    func_8001876C(rdram, ctx);
++    scheduler_getAudioCmdQ(rdram, ctx);
+         goto after_9;
+     // 0x80018100: sw          $v1, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r3;
+@@ -4544,7 +4516,7 @@ L_800182AC:
+     // 0x800182F4: jal         0x80019034
+     // 0x800182F8: sw          $t6, 0x0($v1)
+     MEM_W(0X0, ctx->r3) = ctx->r14;
+-    func_80019034(rdram, ctx);
++    createGraphicTasks(rdram, ctx);
+         goto after_10;
+     // 0x800182F8: sw          $t6, 0x0($v1)
+     MEM_W(0X0, ctx->r3) = ctx->r14;
+@@ -4568,7 +4540,7 @@ L_800182AC:
+     // 0x80018314: jal         0x80091108
+     // 0x80018318: addiu       $a0, $zero, 0x1
+     ctx->r4 = ADD32(0, 0X1);
+-    func_80091108(rdram, ctx);
++    video_init(rdram, ctx);
+         goto after_11;
+     // 0x80018318: addiu       $a0, $zero, 0x1
+     ctx->r4 = ADD32(0, 0X1);
+diff --git a/RecompiledFuncs/funcs_2.c b/RecompiledFuncs/funcs_2.c
+index dc7ec19..6cd8145 100644
+--- a/RecompiledFuncs/funcs_2.c
++++ b/RecompiledFuncs/funcs_2.c
+@@ -1,7 +1,5 @@
+ #include "recomp.h"
+ #include "funcs.h"
+-#include <stdio.h>
+-int dma_req_n = 0;
+ 
+ RECOMP_FUNC void func_80004698(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+@@ -457,8 +455,6 @@ RECOMP_FUNC void func_8000485C(uint8_t* rdram, recomp_context* ctx) {
+ 
+ ;}
+ RECOMP_FUNC void func_800048A0(uint8_t* rdram, recomp_context* ctx) {
+-    if (++dma_req_n <= 10)
+-        fprintf(stderr, "[DMA_REQ#%d] a0=0x%08X a1=0x%08X\n", dma_req_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5);
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800048A0: sra         $t6, $a1, 5
+@@ -509,7 +505,6 @@ RECOMP_FUNC void func_800048C4(uint8_t* rdram, recomp_context* ctx) {
+     MEM_W(0X0, ctx->r2) = ctx->r10;
+ ;}
+ RECOMP_FUNC void func_800048EC(uint8_t* rdram, recomp_context* ctx) {
+-    { static int ec_n = 0; if (++ec_n <= 5) fprintf(stderr, "[BIT_CLR#%d] base=0x%08X idx=0x%08X\n", ec_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5); }
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800048EC: sra         $t6, $a1, 5
+@@ -2010,7 +2005,7 @@ L_80005074:
+     // 0x80005094: jal         0x80002D5C
+     // 0x80005098: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_1;
+     // 0x80005098: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2035,7 +2030,7 @@ L_800050A0:
+     // 0x800050B0: jal         0x80002D5C
+     // 0x800050B4: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_2;
+     // 0x800050B4: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2060,7 +2055,7 @@ L_800050BC:
+     // 0x800050CC: jal         0x80002D5C
+     // 0x800050D0: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_3;
+     // 0x800050D0: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2081,7 +2076,7 @@ L_800050D8:
+     // 0x800050E4: jal         0x80002D5C
+     // 0x800050E8: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_4;
+     // 0x800050E8: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2105,7 +2100,7 @@ L_800050D8:
+     // 0x80005100: jal         0x80002D5C
+     // 0x80005104: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_5;
+     // 0x80005104: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2130,7 +2125,7 @@ L_80005110:
+     // 0x8000511C: jal         0x80002D5C
+     // 0x80005120: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_6;
+     // 0x80005120: lw          $a0, 0x0($s2)
+     ctx->r4 = MEM_W(ctx->r18, 0X0);
+@@ -2191,7 +2186,7 @@ L_8000514C:
+     // 0x80005168: addiu       $sp, $sp, 0x30
+     ctx->r29 = ADD32(ctx->r29, 0X30);
+ ;}
+-RECOMP_FUNC void func_8000516C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_dispatchChild(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x8000516C: lui         $v0, 0x801D
+@@ -2470,7 +2465,7 @@ L_80005290:
+     // 0x800052B8: jal         0x80002D5C
+     // 0x800052BC: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_1;
+     // 0x800052BC: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2501,7 +2496,7 @@ L_800052C8:
+     // 0x800052E0: jal         0x80002D5C
+     // 0x800052E4: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_2;
+     // 0x800052E4: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2532,7 +2527,7 @@ L_800052F0:
+     // 0x80005308: jal         0x80002D5C
+     // 0x8000530C: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_3;
+     // 0x8000530C: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2561,7 +2556,7 @@ L_80005318:
+     // 0x8000532C: jal         0x80002D5C
+     // 0x80005330: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_4;
+     // 0x80005330: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2591,7 +2586,7 @@ L_80005318:
+     // 0x80005358: jal         0x80002D5C
+     // 0x8000535C: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_5;
+     // 0x8000535C: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2622,7 +2617,7 @@ L_80005368:
+     // 0x80005384: jal         0x80002D5C
+     // 0x80005388: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+-    func_80002D5C(rdram, ctx);
++    GameStateMgr_enqueue(rdram, ctx);
+         goto after_6;
+     // 0x80005388: sw          $a3, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r7;
+@@ -2982,13 +2977,6 @@ L_80005564:
+ 
+ ;}
+ RECOMP_FUNC void func_80005574(uint8_t* rdram, recomp_context* ctx) {
+-    {
+-        static int fig_alloc_n = 0;
+-        if (++fig_alloc_n <= 20) {
+-            fprintf(stderr, "[FIG_ALLOC#%d] type=0x%04X caller_ra=0x%08X\n",
+-                    fig_alloc_n, (uint32_t)ctx->r4 & 0xFFFF, (uint32_t)ctx->r31);
+-        }
+-    }
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80005574: addiu       $sp, $sp, -0x30
+@@ -3932,7 +3920,7 @@ L_80005A1C:
+     // 0x80005A2C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80005A30(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void sceneLookup(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80005A30: addiu       $sp, $sp, -0x20
+@@ -4396,7 +4384,7 @@ RECOMP_FUNC void func_80005CA4(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80005CAC: jal         0x80005A30
+     // 0x80005CB0: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+-    func_80005A30(rdram, ctx);
++    sceneLookup(rdram, ctx);
+         goto after_0;
+     // 0x80005CB0: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+@@ -4540,7 +4528,7 @@ L_80005D6C:
+     // 0x80005D6C: jal         0x8000516C
+     // 0x80005D70: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+-    func_8000516C(rdram, ctx);
++    object_dispatchChild(rdram, ctx);
+         goto after_2;
+     // 0x80005D70: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+@@ -4580,7 +4568,7 @@ RECOMP_FUNC void func_80005D90(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80005DA0: jal         0x80005A30
+     // 0x80005DA4: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+-    func_80005A30(rdram, ctx);
++    sceneLookup(rdram, ctx);
+         goto after_0;
+     // 0x80005DA4: sw          $a2, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r6;
+@@ -4762,7 +4750,7 @@ L_80005E94:
+     // 0x80005E98: jal         0x8000516C
+     // 0x80005E9C: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+-    func_8000516C(rdram, ctx);
++    object_dispatchChild(rdram, ctx);
+         goto after_3;
+     // 0x80005E9C: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+@@ -4779,7 +4767,7 @@ L_80005EA8:
+     // 0x80005EAC: jal         0x8000516C
+     // 0x80005EB0: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+-    func_8000516C(rdram, ctx);
++    object_dispatchChild(rdram, ctx);
+         goto after_4;
+     // 0x80005EB0: or          $a1, $zero, $zero
+     ctx->r5 = 0 | 0;
+diff --git a/RecompiledFuncs/funcs_20.c b/RecompiledFuncs/funcs_20.c
+index c0b7599..22476f4 100644
+--- a/RecompiledFuncs/funcs_20.c
++++ b/RecompiledFuncs/funcs_20.c
+@@ -1,6 +1,5 @@
+ #include "recomp.h"
+ #include "funcs.h"
+-#include <stdio.h>
+ 
+ RECOMP_FUNC void func_8003F22C(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+@@ -3507,7 +3506,7 @@ L_8004051C:
+     // 0x80040520: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80040524(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void poolObject_create(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80040524: lui         $v0, 0x800F
+@@ -3668,14 +3667,7 @@ RECOMP_FUNC void func_80040580(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80040624: swc1        $f0, 0x38($a0)
+     MEM_W(0X38, ctx->r4) = ctx->f0.u32l;
+ ;}
+-RECOMP_FUNC void func_80040628(uint8_t* rdram, recomp_context* ctx) {
+-    {
+-        static int alloc_child_n = 0;
+-        if (++alloc_child_n <= 20) {
+-            fprintf(stderr, "[ALLOC_CHILD#%d] file_id=0x%04X parent=0x%08X\n",
+-                    alloc_child_n, (uint32_t)ctx->r5 & 0xFFFF, (uint32_t)ctx->r4);
+-        }
+-    }
++RECOMP_FUNC void poolObject_attachChild(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80040628: addiu       $sp, $sp, -0x20
+@@ -4007,21 +3999,7 @@ RECOMP_FUNC void func_80040798(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80040840: swc1        $f0, 0x64($a0)
+     MEM_W(0X64, ctx->r4) = ctx->f0.u32l;
+ ;}
+-RECOMP_FUNC void func_80040844(uint8_t* rdram, recomp_context* ctx) {
+-    {
+-        static int attach_n = 0;
+-        if (++attach_n <= 20) {
+-            uint32_t parent = (uint32_t)ctx->r4;
+-            uint32_t child = (uint32_t)ctx->r5;
+-            uint32_t bm = (uint32_t)ctx->r6 & 0xFFFF;
+-            uint32_t pp = parent >= 0x80000000 && parent < 0x80800000 ? parent - 0x80000000 : 0;
+-            uint32_t cnt0 = pp ? (uint32_t)*(rdram + ((pp + 0x80) ^ 3)) : 0;
+-            uint32_t cnt1 = pp ? (uint32_t)*(rdram + ((pp + 0x81) ^ 3)) : 0;
+-            fprintf(stderr, "[ATTACH#%d] parent=0x%08X child=0x%08X bm=0x%04X type=0x%04X cnt[0]=%d cnt[1]=%d\n",
+-                    attach_n, parent, child, bm,
+-                    (uint32_t)MEM_H(ctx->r4, 0X0) & 0xFFFF, cnt0, cnt1);
+-        }
+-    }
++RECOMP_FUNC void poolObject_attachChild2(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80040844: addiu       $sp, $sp, -0x8
+@@ -4335,7 +4313,7 @@ L_800409E8:
+     // 0x800409F8: nop
+ 
+ ;}
+-RECOMP_FUNC void func_800409FC(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void poolObject_tick(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800409FC: addiu       $sp, $sp, -0x20
+@@ -7536,7 +7514,7 @@ L_80041A04:
+     // 0x80041A44: jal         0x80041C54
+     // 0x80041A48: sw          $t0, 0x10($sp)
+     MEM_W(0X10, ctx->r29) = ctx->r8;
+-    func_80041C54(rdram, ctx);
++    poolObject_complete(rdram, ctx);
+         goto after_0;
+     // 0x80041A48: sw          $t0, 0x10($sp)
+     MEM_W(0X10, ctx->r29) = ctx->r8;
+@@ -7673,7 +7651,7 @@ L_80041AA8:
+     // 0x80041AE8: jal         0x80041C54
+     // 0x80041AEC: sw          $v1, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r3;
+-    func_80041C54(rdram, ctx);
++    poolObject_complete(rdram, ctx);
+         goto after_1;
+     // 0x80041AEC: sw          $v1, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r3;
+@@ -7786,7 +7764,7 @@ L_80041B20:
+     // 0x80041B68: jal         0x80041C54
+     // 0x80041B6C: sw          $t0, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r8;
+-    func_80041C54(rdram, ctx);
++    poolObject_complete(rdram, ctx);
+         goto after_2;
+     // 0x80041B6C: sw          $t0, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r8;
+@@ -7925,7 +7903,7 @@ L_80041BF4:
+     // 0x80041C04: jal         0x80041C54
+     // 0x80041C08: sw          $v1, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r3;
+-    func_80041C54(rdram, ctx);
++    poolObject_complete(rdram, ctx);
+         goto after_3;
+     // 0x80041C08: sw          $v1, 0x14($sp)
+     MEM_W(0X14, ctx->r29) = ctx->r3;
+@@ -7985,7 +7963,7 @@ L_80041C1C:
+     // 0x80041C50: addiu       $sp, $sp, 0x70
+     ctx->r29 = ADD32(ctx->r29, 0X70);
+ ;}
+-RECOMP_FUNC void func_80041C54(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void poolObject_complete(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80041C54: addiu       $sp, $sp, -0x178
+diff --git a/RecompiledFuncs/funcs_44.c b/RecompiledFuncs/funcs_44.c
+index 571d08f..b98eac6 100644
+--- a/RecompiledFuncs/funcs_44.c
++++ b/RecompiledFuncs/funcs_44.c
+@@ -1011,7 +1011,7 @@ L_80142090:
+     // 0x80142090: jal         0x80002CE0
+     // 0x80142094: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+-    func_80002CE0(rdram, ctx);
++    object_destroyChildrenAndModelInfo(rdram, ctx);
+         goto after_1;
+     // 0x80142094: lw          $a0, 0x20($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X20);
+@@ -2061,7 +2061,7 @@ L_801425D4:
+     // 0x801425DC: jal         0x80005A30
+     // 0x801425E0: sw          $a3, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r7;
+-    func_80005A30(rdram, ctx);
++    sceneLookup(rdram, ctx);
+         goto after_0;
+     // 0x801425E0: sw          $a3, 0x28($sp)
+     MEM_W(0X28, ctx->r29) = ctx->r7;
+@@ -3415,7 +3415,7 @@ L_80142DB0:
+     // 0x80142DBC: jal         0x80002CE0
+     // 0x80142DC0: sh          $t5, 0x2($v1)
+     MEM_H(0X2, ctx->r3) = ctx->r13;
+-    func_80002CE0(rdram, ctx);
++    object_destroyChildrenAndModelInfo(rdram, ctx);
+         goto after_1;
+     // 0x80142DC0: sh          $t5, 0x2($v1)
+     MEM_H(0X2, ctx->r3) = ctx->r13;
+@@ -3725,7 +3725,7 @@ L_80142F2C:
+     // 0x80142F2C: jal         0x80002510
+     // 0x80142F30: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    func_80002510(rdram, ctx);
++    object_findFirstObjectByID(rdram, ctx);
+         goto after_1;
+     // 0x80142F30: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+@@ -3771,7 +3771,7 @@ L_80142F60:
+     // 0x80142F60: jal         0x80002510
+     // 0x80142F64: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    func_80002510(rdram, ctx);
++    object_findFirstObjectByID(rdram, ctx);
+         goto after_2;
+     // 0x80142F64: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+@@ -4091,7 +4091,7 @@ L_801430C8:
+     // 0x801430CC: jal         0x80002410
+     // 0x801430D0: sw          $a3, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r7;
+-    func_80002410(rdram, ctx);
++    object_createAndSetChild(rdram, ctx);
+         goto after_0;
+     // 0x801430D0: sw          $a3, 0x24($sp)
+     MEM_W(0X24, ctx->r29) = ctx->r7;
+@@ -4286,7 +4286,7 @@ RECOMP_FUNC void func_801431AC(uint8_t* rdram, recomp_context* ctx) {
+     // 0x801431C8: swc1        $f8, 0x58($a1)
+     MEM_W(0X58, ctx->r5) = ctx->f8.u32l;
+ ;}
+-RECOMP_FUNC void func_801431CC(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void sceneStateCopy(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x801431CC: lw          $v0, 0x70($a0)
+diff --git a/RecompiledFuncs/funcs_60.c b/RecompiledFuncs/funcs_60.c
+index 98bda7b..1cd725c 100644
+--- a/RecompiledFuncs/funcs_60.c
++++ b/RecompiledFuncs/funcs_60.c
+@@ -1,5 +1,6 @@
+ #include "recomp.h"
+ #include "funcs.h"
++
+ RECOMP_FUNC void func_80176020(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -4259,7 +4260,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
+     // 0x8017785C: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80177860(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void bgHandler_dispatch(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80177860: lui         $t6, 0x801D
+@@ -4309,7 +4310,7 @@ RECOMP_FUNC void func_80177860(uint8_t* rdram, recomp_context* ctx) {
+     // 0x801778A0: jal         0x80177B4C
+     // 0x801778A4: lw          $a0, 0x18($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X18);
+-    func_80177B4C(rdram, ctx);
++    bgHandler_inactive(rdram, ctx);
+         goto after_1;
+     // 0x801778A4: lw          $a0, 0x18($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X18);
+@@ -4324,7 +4325,7 @@ L_801778B0:
+     // 0x801778B0: jal         0x80177948
+     // 0x801778B4: lw          $a0, 0x18($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X18);
+-    func_80177948(rdram, ctx);
++    bgHandler_active(rdram, ctx);
+         goto after_2;
+     // 0x801778B4: lw          $a0, 0x18($sp)
+     ctx->r4 = MEM_W(ctx->r29, 0X18);
+@@ -4426,7 +4427,7 @@ L_80177938:
+     // 0x80177944: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80177948(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void bgHandler_active(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80177948: lui         $v0, 0x801D
+@@ -4437,7 +4438,6 @@ RECOMP_FUNC void func_80177948(uint8_t* rdram, recomp_context* ctx) {
+     ctx->r29 = ADD32(ctx->r29, -0X40);
+     // 0x80177954: lw          $t6, 0x295C($v0)
+     ctx->r14 = MEM_W(ctx->r2, 0X295C);
+-    // NOTE: sys+0x295C is NULL — NI system never inits. func_80177948 early-exits.
+     // 0x80177958: sw          $ra, 0x1C($sp)
+     MEM_W(0X1C, ctx->r29) = ctx->r31;
+     // 0x8017795C: sw          $s1, 0x18($sp)
+@@ -4806,7 +4806,7 @@ L_80177B38:
+     // 0x80177B48: addiu       $sp, $sp, 0x40
+     ctx->r29 = ADD32(ctx->r29, 0X40);
+ ;}
+-RECOMP_FUNC void func_80177B4C(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void bgHandler_inactive(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80177B4C: addiu       $sp, $sp, -0x20
+@@ -5569,7 +5569,7 @@ L_80177EC0:
+     // 0x80177EE0: jal         0x80013F50
+     // 0x80177EE4: swc1        $f0, 0x34($sp)
+     MEM_W(0X34, ctx->r29) = ctx->f0.u32l;
+-    func_80013F50(rdram, ctx);
++    vec3f_multiplyByOne(rdram, ctx);
+         goto after_3;
+     // 0x80177EE4: swc1        $f0, 0x34($sp)
+     MEM_W(0X34, ctx->r29) = ctx->f0.u32l;
+@@ -6113,7 +6113,7 @@ RECOMP_FUNC void func_801780C4(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80178134: jal         0x80013E6C
+     // 0x80178138: addiu       $a1, $sp, 0x4C
+     ctx->r5 = ADD32(ctx->r29, 0X4C);
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_1;
+     // 0x80178138: addiu       $a1, $sp, 0x4C
+     ctx->r5 = ADD32(ctx->r29, 0X4C);
+@@ -6125,7 +6125,7 @@ RECOMP_FUNC void func_801780C4(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80178144: jal         0x80013E6C
+     // 0x80178148: addiu       $a2, $sp, 0x4C
+     ctx->r6 = ADD32(ctx->r29, 0X4C);
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_2;
+     // 0x80178148: addiu       $a2, $sp, 0x4C
+     ctx->r6 = ADD32(ctx->r29, 0X4C);
+diff --git a/RecompiledFuncs/funcs_62.c b/RecompiledFuncs/funcs_62.c
+index 215c2c2..f59c219 100644
+--- a/RecompiledFuncs/funcs_62.c
++++ b/RecompiledFuncs/funcs_62.c
+@@ -1,5 +1,6 @@
+ #include "recomp.h"
+ #include "funcs.h"
++
+ RECOMP_FUNC void func_80179FD0(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -68,7 +69,7 @@ RECOMP_FUNC void func_80179FD0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x8017A030: jal         0x80013E6C
+     // 0x8017A034: addiu       $a2, $sp, 0xB4
+     ctx->r6 = ADD32(ctx->r29, 0XB4);
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_3;
+     // 0x8017A034: addiu       $a2, $sp, 0xB4
+     ctx->r6 = ADD32(ctx->r29, 0XB4);
+@@ -1446,9 +1447,6 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
+     ctx->r2 = ADD32(ctx->r2, -0X7D40);
+     // 0x8017A608: lw          $t6, 0x295C($v0)
+     ctx->r14 = MEM_W(ctx->r2, 0X295C);
+-    // NOTE: sys+0x295C is NULL (NI system never inits). Rendering early-exits here.
+-    // Bypassing this causes a crash in func_80182058 (bad NI object dereference).
+-    // Proper NI init is needed to populate this with a real object.
+     // 0x8017A60C: addiu       $sp, $sp, -0x18
+     ctx->r29 = ADD32(ctx->r29, -0X18);
+     // 0x8017A610: sw          $ra, 0x14($sp)
+@@ -1477,6 +1475,16 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
+     skip_1:
+     // 0x8017A628: lw          $t8, 0x2B70($v0)
+     ctx->r24 = MEM_W(ctx->r2, 0X2B70);
++    // 0x8017A62C: beql        $t8, $zero, L_8017A660
++    if (ctx->r24 == 0) {
++        // 0x8017A630: lw          $ra, 0x14($sp)
++        ctx->r31 = MEM_W(ctx->r29, 0X14);
++            goto L_8017A660;
++    }
++    goto skip_2;
++    // 0x8017A630: lw          $ra, 0x14($sp)
++    ctx->r31 = MEM_W(ctx->r29, 0X14);
++    skip_2:
+     // 0x8017A634: jal         0x8017A790
+     // 0x8017A638: nop
+ 
+@@ -2517,7 +2525,7 @@ RECOMP_FUNC void func_8017AAE0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x8017AB5C: jal         0x8001439C
+     // 0x8017AB60: sw          $v0, 0x1C($sp)
+     MEM_W(0X1C, ctx->r29) = ctx->r2;
+-    func_8001439C(rdram, ctx);
++    f32_normalize(rdram, ctx);
+         goto after_0;
+     // 0x8017AB60: sw          $v0, 0x1C($sp)
+     MEM_W(0X1C, ctx->r29) = ctx->r2;
+@@ -2571,7 +2579,7 @@ L_8017AB7C:
+     // 0x8017ABA0: jal         0x8001439C
+     // 0x8017ABA4: sw          $v0, 0x1C($sp)
+     MEM_W(0X1C, ctx->r29) = ctx->r2;
+-    func_8001439C(rdram, ctx);
++    f32_normalize(rdram, ctx);
+         goto after_1;
+     // 0x8017ABA4: sw          $v0, 0x1C($sp)
+     MEM_W(0X1C, ctx->r29) = ctx->r2;
+@@ -2630,7 +2638,7 @@ L_8017ABBC:
+     CHECK_FR(ctx, 6);
+     NAN_CHECK(ctx->f6.fl); 
+     ctx->f12.fl = -ctx->f6.fl;
+-    func_8001439C(rdram, ctx);
++    f32_normalize(rdram, ctx);
+         goto after_2;
+     // 0x8017ABF8: neg.s       $f12, $f6
+     CHECK_FR(ctx, 12);
+@@ -2679,7 +2687,7 @@ L_8017AC0C:
+     CHECK_FR(ctx, 12);
+     CHECK_FR(ctx, 10);
+     ctx->f12.fl = ctx->f10.fl;
+-    func_8001439C(rdram, ctx);
++    f32_normalize(rdram, ctx);
+         goto after_3;
+     // 0x8017AC30: mov.s       $f12, $f10
+     CHECK_FR(ctx, 12);
+@@ -2849,7 +2857,7 @@ L_8017ACE8:
+     // 0x8017AD04: jal         0x80013E6C
+     // 0x8017AD08: swc1        $f2, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->f2.u32l;
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_0;
+     // 0x8017AD08: swc1        $f2, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->f2.u32l;
+@@ -3210,7 +3218,7 @@ L_8017AEB0:
+     // 0x8017AEE4: jal         0x80013E6C
+     // 0x8017AEE8: or          $a1, $a0, $zero
+     ctx->r5 = ctx->r4 | 0;
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_4;
+     // 0x8017AEE8: or          $a1, $a0, $zero
+     ctx->r5 = ctx->r4 | 0;
+@@ -3418,7 +3426,7 @@ L_8017AFAC:
+     // 0x8017AFDC: jal         0x80013E6C
+     // 0x8017AFE0: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    func_80013E6C(rdram, ctx);
++    vec3f_crossProduct(rdram, ctx);
+         goto after_1;
+     // 0x8017AFE0: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+@@ -5447,7 +5455,7 @@ L_8017B970:
+     // 0x8017B970: jal         0x80001FD0
+     // 0x8017B974: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+-    func_80001FD0(rdram, ctx);
++    cmdNodeTable_classify(rdram, ctx);
+         goto after_0;
+     // 0x8017B974: or          $a0, $a1, $zero
+     ctx->r4 = ctx->r5 | 0;
+diff --git a/RecompiledFuncs/funcs_69.c b/RecompiledFuncs/funcs_69.c
+index c042b0d..08acc5d 100644
+--- a/RecompiledFuncs/funcs_69.c
++++ b/RecompiledFuncs/funcs_69.c
+@@ -1,6 +1,6 @@
+ #include "recomp.h"
+ #include "funcs.h"
+-#include <stdio.h>
++
+ RECOMP_FUNC void overlay_system_func_801D0CE8(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -1993,7 +1993,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3B70(uint8_t* rdram, recomp_context* ctx) {
+     ctx->r25 = ADD32(ctx->r25, ctx->r8);
+     // 0x802E3BB4: lw          $t9, -0x46A8($t9)
+     ctx->r25 = MEM_W(ctx->r25, -0X46A8);
+-    fprintf(stderr, "[OVL00_DISPATCH] state=%d handler=0x%08X\n", (int32_t)ctx->r3, (uint32_t)ctx->r25);
+     // 0x802E3BB8: jalr        $t9
+     // 0x802E3BBC: nop
+ 
+@@ -2174,7 +2173,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3C4C(uint8_t* rdram, recomp_context* ctx) {
+     ctx->r25 = ADD32(ctx->r25, 0X48A0);
+     // 0x802E3CCC: addiu       $a0, $a0, -0x55A0
+     ctx->r4 = ADD32(ctx->r4, -0X55A0);
+-    // No forced patches — let the game's own state machine handle bit-2
+     // 0x802E3CD0: addiu       $a1, $zero, 0x2
+     ctx->r5 = ADD32(0, 0X2);
+     // 0x802E3CD4: jalr        $t9
+@@ -2529,10 +2527,6 @@ L_802E3ECC:
+     ctx->r29 = ADD32(ctx->r29, 0XA8);
+ ;}
+ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
+-    fprintf(stderr, "[OVL00_S0_2] obj=0x%08X slot0=0x%08X slot15=0x%08X\n",
+-            (uint32_t)ctx->r4,
+-            *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x34 - 0x80000000)),
+-            *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x70 - 0x80000000)));
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x802E3F08: addiu       $sp, $sp, -0x38
+@@ -2563,8 +2557,6 @@ RECOMP_FUNC void map_ovl_00_func_802E3F08(uint8_t* rdram, recomp_context* ctx) {
+     // 0x802E3F34: sw          $t6, 0x30($sp)
+     MEM_W(0X30, ctx->r29) = ctx->r14;
+     after_0:
+-    fprintf(stderr, "[OVL00_S0_2] func_8014314C returned v0=%d (%s)\n",
+-            (int32_t)ctx->r2, ctx->r2 == 0 ? "continue" : "DESTROY");
+     // 0x802E3F38: beq         $v0, $zero, L_802E3F58
+     if (ctx->r2 == 0) {
+         // 0x802E3F3C: lw          $v1, 0x34($sp)
+@@ -2610,45 +2602,6 @@ L_802E3F58:
+     ctx->r25 = ADD32(ctx->r25, 0X4780);
+     // 0x802E3F78: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    // ni_desc+0x4C (sub-figure bitmask) now populated by DMA completion pipeline.
+-    {
+-        static int ni4c_n = 0;
+-        if (++ni4c_n <= 10) {
+-            uint32_t ni_desc_addr = (uint32_t)ctx->r4;
+-            uint32_t bitmask = (uint32_t)ctx->r8;
+-            uint32_t chain64 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_W(ctx->r4, 0X64) : 0;
+-            uint32_t field34 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_W(ctx->r4, 0X34) : 0;
+-            uint32_t field08 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_W(ctx->r4, 0X8) : 0;
+-            uint32_t type00 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_HU(ctx->r4, 0X0) : 0;
+-            uint32_t flags02 = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_HU(ctx->r4, 0X2) : 0;
+-            uint32_t field0A = (ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000)
+-                ? (uint32_t)MEM_HU(ctx->r4, 0XA) : 0;
+-            // Also dump the chain entry at +0x64
+-            uint32_t chain_type = 0, chain_34 = 0, chain_4C = 0, chain_0C = 0;
+-            if (chain64 >= 0x80000000 && chain64 < 0x80800000) {
+-                chain_type = (uint32_t)MEM_HU((gpr)(int32_t)chain64, 0X0);
+-                chain_34 = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X34);
+-                chain_4C = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X4C);
+-                chain_0C = (uint32_t)MEM_W((gpr)(int32_t)chain64, 0X0C);
+-            }
+-            // Full hex dump of first 0x70 bytes of NI descriptor
+-            if (ni4c_n == 1 && ni_desc_addr >= 0x80000000 && ni_desc_addr < 0x80800000) {
+-                uint32_t phys = ni_desc_addr - 0x80000000;
+-                fprintf(stderr, "[NI_DESC_DUMP] addr=0x%08X (rdram+0x%06X)\n", ni_desc_addr, phys);
+-                for (uint32_t off = 0; off < 0x9C; off += 4) {
+-                    uint32_t val = *(uint32_t*)(rdram + phys + off);
+-                    fprintf(stderr, "  +0x%02X: 0x%08X\n", off, val);
+-                }
+-            }
+-            fprintf(stderr, "[NI_DESC#%d] +4C=0x%08X +64=0x%08X\n",
+-                    ni4c_n, bitmask, chain64);
+-        }
+-    }
+     // 0x802E3F7C: beql        $t0, $zero, L_802E4008
+     if (ctx->r8 == 0) {
+         // 0x802E3F80: lh          $v1, 0xE($s0)
+@@ -2777,11 +2730,6 @@ L_802E4008:
+     ctx->r25 = ADD32(ctx->r25, ctx->r13);
+     // 0x802E4040: lw          $t9, -0x467C($t9)
+     ctx->r25 = MEM_W(ctx->r25, -0X467C);
+-    { uint32_t _a0 = *(uint32_t*)(rdram + ((uint32_t)ctx->r4 + 0x34 - 0x80000000));
+-      int32_t _timer = *(int32_t*)(rdram + (_a0 + 0xC - 0x80000000));
+-      fprintf(stderr, "[OVL00_NESTED] handler=0x%08X timer=%d\n",
+-              (uint32_t)ctx->r25, _timer);
+-    }
+     // 0x802E4044: jalr        $t9
+     // 0x802E4048: nop
+ 
+@@ -10104,7 +10052,7 @@ L_802E676C:
+     // 0x802E6774: jal         0x80002410
+     // 0x802E6778: addiu       $a1, $zero, 0x20E4
+     ctx->r5 = ADD32(0, 0X20E4);
+-    func_80002410(rdram, ctx);
++    object_createAndSetChild(rdram, ctx);
+         goto after_33;
+     // 0x802E6778: addiu       $a1, $zero, 0x20E4
+     ctx->r5 = ADD32(0, 0X20E4);
+@@ -10708,7 +10656,7 @@ RECOMP_FUNC void map_ovl_00_func_802E69EC(uint8_t* rdram, recomp_context* ctx) {
+     // 0x802E6A88: jal         0x80002410
+     // 0x802E6A8C: sw          $a3, 0x20($sp)
+     MEM_W(0X20, ctx->r29) = ctx->r7;
+-    func_80002410(rdram, ctx);
++    object_createAndSetChild(rdram, ctx);
+         goto after_1;
+     // 0x802E6A8C: sw          $a3, 0x20($sp)
+     MEM_W(0X20, ctx->r29) = ctx->r7;
+diff --git a/RecompiledFuncs/funcs_7.c b/RecompiledFuncs/funcs_7.c
+index 6d5df95..f93635b 100644
+--- a/RecompiledFuncs/funcs_7.c
++++ b/RecompiledFuncs/funcs_7.c
+@@ -1,10 +1,7 @@
+ #include "recomp.h"
+ #include "funcs.h"
+ #include <stdio.h>
+-// File-scope counters (static locals break in RECOMP_FUNC due to extern inline weak)
+-int dmamgr_dispatch_n = 0;
+-int dmamgr_state0_n = 0;
+-int dmamgr_state0_alloc_ok = 0;
++
+ RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+@@ -1899,7 +1896,7 @@ L_80010B74:
+     // 0x80010B80: nop
+ 
+ ;}
+-RECOMP_FUNC void func_80010B84(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_executeChildObject(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80010B84: addiu       $sp, $sp, -0x40
+@@ -2005,7 +2002,7 @@ L_80010C24:
+     // 0x80010C24: jal         0x80002410
+     // 0x80010C28: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+-    func_80002410(rdram, ctx);
++    object_createAndSetChild(rdram, ctx);
+         goto after_0;
+     // 0x80010C28: or          $a1, $s0, $zero
+     ctx->r5 = ctx->r16 | 0;
+@@ -2061,7 +2058,7 @@ L_80010C50:
+     // 0x80010C7C: addiu       $sp, $sp, 0x40
+     ctx->r29 = ADD32(ctx->r29, 0X40);
+ ;}
+-RECOMP_FUNC void func_80010C80(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_activateChildren(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80010C80: addiu       $sp, $sp, -0x38
+@@ -2138,7 +2135,7 @@ L_80010CD4:
+     // 0x80010CF4: jal         0x80002410
+     // 0x80010CF8: or          $a1, $t6, $zero
+     ctx->r5 = ctx->r14 | 0;
+-    func_80002410(rdram, ctx);
++    object_createAndSetChild(rdram, ctx);
+         goto after_0;
+     // 0x80010CF8: or          $a1, $t6, $zero
+     ctx->r5 = ctx->r14 | 0;
+@@ -2190,7 +2187,7 @@ L_80010D1C:
+     // 0x80010D44: addiu       $sp, $sp, 0x38
+     ctx->r29 = ADD32(ctx->r29, 0X38);
+ ;}
+-RECOMP_FUNC void func_80010D48(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void GameStateMgr_executeGameStateUncappedFramerate(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80010D48: addiu       $sp, $sp, -0x28
+@@ -2260,7 +2257,7 @@ L_80010DA0:
+     // 0x80010DA0: jal         0x800029EC
+     // 0x80010DA4: or          $a0, $t6, $s3
+     ctx->r4 = ctx->r14 | ctx->r19;
+-    func_800029EC(rdram, ctx);
++    object_dispatch2(rdram, ctx);
+         goto after_1;
+     // 0x80010DA4: or          $a0, $t6, $s3
+     ctx->r4 = ctx->r14 | ctx->r19;
+@@ -2298,7 +2295,7 @@ L_80010DB8:
+     // 0x80010DD0: addiu       $sp, $sp, 0x28
+     ctx->r29 = ADD32(ctx->r29, 0X28);
+ ;}
+-RECOMP_FUNC void func_80010DD4(uint8_t* rdram, recomp_context* ctx) {
++RECOMP_FUNC void object_execute(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80010DD4: addiu       $sp, $sp, -0x30
+@@ -2342,15 +2339,6 @@ RECOMP_FUNC void func_80010DD4(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80010E18: lw          $v0, 0x0($s0)
+     ctx->r2 = MEM_W(ctx->r16, 0X0);
+ L_80010E1C:
+-    {
+-        // Watch bit-2 at 0x801CAA60
+-        static uint32_t bit2_prev = 0xDEAD;
+-        uint32_t bit2_raw = *(uint32_t*)(rdram + 0x001CAA60);
+-        if (bit2_raw != bit2_prev) {
+-            fprintf(stderr, "[BIT2_WATCH] changed 0x%08X -> 0x%08X\n", bit2_prev, bit2_raw);
+-            bit2_prev = bit2_raw;
+-        }
+-    }
+     // 0x80010E1C: beq         $v0, $zero, L_80010E70
+     if (ctx->r2 == 0) {
+         // 0x80010E20: and         $t6, $v0, $s1
+@@ -2414,7 +2402,7 @@ L_80010E54:
+     // 0x80010E58: jal         0x800029EC
+     // 0x80010E5C: or          $a0, $t0, $s3
+     ctx->r4 = ctx->r8 | ctx->r19;
+-    func_800029EC(rdram, ctx);
++    object_dispatch2(rdram, ctx);
+         goto after_1;
+     // 0x80010E5C: or          $a0, $t0, $s3
+     ctx->r4 = ctx->r8 | ctx->r19;
+@@ -2513,11 +2501,7 @@ RECOMP_FUNC void func_80010EA0(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80010EF8: addiu       $sp, $sp, 0x18
+     ctx->r29 = ADD32(ctx->r29, 0X18);
+ ;}
+-int ovl_load_n = 0;
+ RECOMP_FUNC void func_80010EFC(uint8_t* rdram, recomp_context* ctx) {
+-    if (++ovl_load_n <= 10)
+-        fprintf(stderr, "[OVL_LOAD#%d] obj=0x%08X tmpl_arg=0x%08X\n",
+-                ovl_load_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5);
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80010EFC: addiu       $sp, $sp, -0x30
+@@ -2631,7 +2615,7 @@ L_80010F8C:
+     // 0x80010F8C: jal         0x80001968
+     // 0x80010F90: sw          $a3, 0x2C($sp)
+     MEM_W(0X2C, ctx->r29) = ctx->r7;
+-    func_80001968(rdram, ctx);
++    cmdNodeTable_alloc(rdram, ctx);
+         goto after_1;
+     // 0x80010F90: sw          $a3, 0x2C($sp)
+     MEM_W(0X2C, ctx->r29) = ctx->r7;
+@@ -2668,8 +2652,6 @@ L_80010F8C:
+     // 0x80010FC0: lw          $a1, 0x34($sp)
+     ctx->r5 = MEM_W(ctx->r29, 0X34);
+     after_3:
+-    if (ovl_load_n <= 10)
+-        fprintf(stderr, "[OVL_LOAD] func_80010EA0 returned v0=%d (0=ok, -1=err)\n", (int32_t)ctx->r2);
+     // 0x80010FC4: addiu       $a0, $zero, -0x1
+     ctx->r4 = ADD32(0, -0X1);
+     // 0x80010FC8: lui         $a1, 0x800C
+@@ -3390,22 +3372,7 @@ RECOMP_FUNC void func_800113A8(uint8_t* rdram, recomp_context* ctx) {
+     // 0x800113E8: nop
+ 
+ ;}
+-int tmpl3_n = 0;
+-// Write-watch: detect when +0x00 type field changes on the NI descriptor at 0x800F42E8
+-static uint32_t ni_desc_type_prev = 0;
+-RECOMP_FUNC void func_800113EC(uint8_t* rdram, recomp_context* ctx) {
+-    {
+-        uint32_t ni_type = *(uint32_t*)(rdram + 0x0F42E8);
+-        uint32_t ni_4c = *(uint32_t*)(rdram + 0x0F4334);
+-        if (ni_type != ni_desc_type_prev) {
+-            fprintf(stderr, "[NI_TYPE_CHANGE] 0x%08X -> 0x%08X (4C=0x%08X)\n",
+-                    ni_desc_type_prev, ni_type, ni_4c);
+-            ni_desc_type_prev = ni_type;
+-        }
+-        if (++tmpl3_n <= 5)
+-            fprintf(stderr, "[TMPL3#%d] ni_type=0x%08X ni_4C=0x%08X\n",
+-                    tmpl3_n, ni_type, ni_4c);
+-    }
++RECOMP_FUNC void ni_system_dispatcher(uint8_t* rdram, recomp_context* ctx) {
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x800113EC: addiu       $sp, $sp, -0x270
+@@ -3567,7 +3534,7 @@ L_800114B8:
+     // 0x800114C8: jal         0x80001090
+     // 0x800114CC: addiu       $a2, $zero, 0x200
+     ctx->r6 = ADD32(0, 0X200);
+-    func_80001090(rdram, ctx);
++    memory_copy(rdram, ctx);
+         goto after_2;
+     // 0x800114CC: addiu       $a2, $zero, 0x200
+     ctx->r6 = ADD32(0, 0X200);
+@@ -3673,6 +3640,21 @@ L_80011548:
+     }
+     // 0x80011550: addiu       $fp, $fp, 0x4
+     ctx->r30 = ADD32(ctx->r30, 0X4);
++    // --- PATCH: Hook poolObject_tick (NI per-frame update) ---
++    {
++        static int ni_update_started = 0;
++        uint32_t ni_type = MEM_W(ctx->r4, 0X0);
++        if (!ni_update_started && ni_type != 0)
++            ni_update_started = 1;
++        if (ni_update_started) {
++            gpr saved_r4 = ctx->r4;
++            gpr saved_r31 = ctx->r31;
++            poolObject_tick(rdram, ctx);
++            ctx->r4 = saved_r4;
++            ctx->r31 = saved_r31;
++        }
++    }
++    // --- END PATCH ---
+     // 0x80011554: lui         $s1, 0x801D
+     ctx->r17 = S32(0X801D << 16);
+     // 0x80011558: addiu       $s1, $s1, -0x7D40
+@@ -4031,15 +4013,7 @@ L_8001174C:
+     // 0x80011750: nop
+ 
+ ;}
+-int dma_enq_n = 0;
+ RECOMP_FUNC void func_80011754(uint8_t* rdram, recomp_context* ctx) {
+-    if (++dma_enq_n <= 5) {
+-        fprintf(stderr, "[DMA_ENQ#%d] a0(dmamgr)=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X\n",
+-                dma_enq_n, (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6, (uint32_t)ctx->r7);
+-        // Check file_ptr_array[0x14D] via direct rdram access
+-        uint32_t fpa_val = *(uint32_t*)(rdram + 0x001C8D64);
+-        fprintf(stderr, "[DMA_ENQ] file_ptr_array[0x14D]=0x%08X (at rdram+0x001C8D64)\n", fpa_val);
+-    }
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80011754: addiu       $sp, $sp, -0x50
+@@ -4126,15 +4100,6 @@ L_800117BC:
+     // 0x800117E0: sll         $t3, $t1, 2
+     ctx->r11 = S32(ctx->r9 << 2);
+     // 0x800117E4: bne         $v0, $zero, L_80011954
+-    {
+-        static int dma_gate_n = 0;
+-        if (++dma_gate_n <= 20) {
+-            fprintf(stderr, "[DMA_GATE#%d] file_id=%d fpa=0x%08X %s\n",
+-                    dma_gate_n, (int)(uint32_t)ctx->r18,
+-                    (uint32_t)ctx->r2,
+-                    ctx->r2 != 0 ? "SKIP (already loaded)" : "PROCEED (will DMA)");
+-        }
+-    }
+     if (ctx->r2 != 0) {
+         // 0x800117E8: addiu       $t4, $t3, -0x8
+         ctx->r12 = ADD32(ctx->r11, -0X8);
+@@ -5069,10 +5034,6 @@ L_80011D00:
+ 
+ ;}
+ RECOMP_FUNC void func_80011D10(uint8_t* rdram, recomp_context* ctx) {
+-    if (++dmamgr_dispatch_n <= 5)
+-        fprintf(stderr, "[DMAMGR_DISPATCH#%d] obj=0x%08X state=%d\n",
+-                dmamgr_dispatch_n, (uint32_t)ctx->r4,
+-                (int)(int16_t)*(int16_t*)(rdram + (((uint32_t)ctx->r4 + 0xE) ^ 2) - 0x80000000));
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80011D10: addiu       $sp, $sp, -0x18
+@@ -5139,8 +5100,6 @@ RECOMP_FUNC void func_80011D10(uint8_t* rdram, recomp_context* ctx) {
+ 
+ ;}
+ RECOMP_FUNC void func_80011D80(uint8_t* rdram, recomp_context* ctx) {
+-    if (++dmamgr_state0_n <= 3)
+-        fprintf(stderr, "[DMAMGR_STATE0#%d] obj=0x%08X\n", dmamgr_state0_n, (uint32_t)ctx->r4);
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80011D80: addiu       $sp, $sp, -0x20
+@@ -5167,9 +5126,6 @@ RECOMP_FUNC void func_80011D80(uint8_t* rdram, recomp_context* ctx) {
+     // 0x80011DA4: or          $a3, $zero, $zero
+     ctx->r7 = 0 | 0;
+     after_0:
+-    if (dmamgr_state0_n <= 3)
+-        fprintf(stderr, "[DMAMGR_STATE0] alloc result v0=0x%08X (%s)\n",
+-                (uint32_t)ctx->r2, ctx->r2 != 0 ? "OK" : "FAILED");
+     // 0x80011DA8: bne         $v0, $zero, L_80011DC8
+     if (ctx->r2 != 0) {
+         // 0x80011DAC: lui         $at, 0x800C
+@@ -5273,13 +5229,7 @@ L_80011E38:
+     // 0x80011E44: nop
+ 
+ ;}
+-int dma_proc_n = 0;
+ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
+-    if (++dma_proc_n <= 5) {
+-        uint32_t buf = (uint32_t)MEM_W(ctx->r4, 0x34);
+-        uint16_t count = *(uint16_t*)(rdram + ((buf + 0x846) ^ 2) - 0x80000000);
+-        fprintf(stderr, "[DMA_PROC#%d] obj=0x%08X req_count=%d\n", dma_proc_n, (uint32_t)ctx->r4, count);
+-    }
+     uint64_t hi = 0, lo = 0, result = 0;
+     int c1cs = 0;
+     // 0x80011E48: addiu       $sp, $sp, -0x40
+@@ -5382,9 +5332,6 @@ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
+     after_1:
+     // 0x80011EF0: sll         $t9, $v1, 0
+     ctx->r25 = S32(ctx->r3 << 0);
+-    if (dma_proc_n <= 5)
+-        fprintf(stderr, "[DMA_PROC] 64bit_result: v0=0x%08X v1=0x%08X (bgez %s)\n",
+-                (uint32_t)ctx->r2, (uint32_t)ctx->r3, SIGNED(ctx->r25) >= 0 ? "TAKE(notdone)" : "SKIP(done)");
+     // 0x80011EF4: bgez        $t9, L_80011F58
+     if (SIGNED(ctx->r25) >= 0) {
+         // 0x80011EF8: addiu       $a0, $s0, 0x8
+@@ -5435,9 +5382,6 @@ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
+     ctx->r25 = ADD32(ctx->r25, ctx->r13);
+     // 0x80011F44: lw          $t9, -0xAA0($t9)
+     ctx->r25 = MEM_W(ctx->r25, -0XAA0);
+-    if (dma_proc_n <= 5)
+-        fprintf(stderr, "[DMA_PROC] completion handler=0x%08X a0=0x%08X\n",
+-                (uint32_t)ctx->r25, (uint32_t)ctx->r4);
+     // 0x80011F48: jalr        $t9
+     // 0x80011F4C: nop
+ 

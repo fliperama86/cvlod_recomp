@@ -1011,7 +1011,7 @@ L_80142090:
     // 0x80142090: jal         0x80002CE0
     // 0x80142094: lw          $a0, 0x20($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X20);
-    func_80002CE0(rdram, ctx);
+    object_destroyChildrenAndModelInfo(rdram, ctx);
         goto after_1;
     // 0x80142094: lw          $a0, 0x20($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X20);
@@ -2061,7 +2061,7 @@ L_801425D4:
     // 0x801425DC: jal         0x80005A30
     // 0x801425E0: sw          $a3, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r7;
-    func_80005A30(rdram, ctx);
+    sceneLookup(rdram, ctx);
         goto after_0;
     // 0x801425E0: sw          $a3, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r7;
@@ -3415,7 +3415,7 @@ L_80142DB0:
     // 0x80142DBC: jal         0x80002CE0
     // 0x80142DC0: sh          $t5, 0x2($v1)
     MEM_H(0X2, ctx->r3) = ctx->r13;
-    func_80002CE0(rdram, ctx);
+    object_destroyChildrenAndModelInfo(rdram, ctx);
         goto after_1;
     // 0x80142DC0: sh          $t5, 0x2($v1)
     MEM_H(0X2, ctx->r3) = ctx->r13;
@@ -3725,7 +3725,7 @@ L_80142F2C:
     // 0x80142F2C: jal         0x80002510
     // 0x80142F30: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
-    func_80002510(rdram, ctx);
+    object_findFirstObjectByID(rdram, ctx);
         goto after_1;
     // 0x80142F30: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
@@ -3771,7 +3771,7 @@ L_80142F60:
     // 0x80142F60: jal         0x80002510
     // 0x80142F64: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
-    func_80002510(rdram, ctx);
+    object_findFirstObjectByID(rdram, ctx);
         goto after_2;
     // 0x80142F64: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
@@ -4091,7 +4091,7 @@ L_801430C8:
     // 0x801430CC: jal         0x80002410
     // 0x801430D0: sw          $a3, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r7;
-    func_80002410(rdram, ctx);
+    object_createAndSetChild(rdram, ctx);
         goto after_0;
     // 0x801430D0: sw          $a3, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r7;
@@ -4286,7 +4286,7 @@ RECOMP_FUNC void func_801431AC(uint8_t* rdram, recomp_context* ctx) {
     // 0x801431C8: swc1        $f8, 0x58($a1)
     MEM_W(0X58, ctx->r5) = ctx->f8.u32l;
 ;}
-RECOMP_FUNC void func_801431CC(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void sceneStateCopy(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x801431CC: lw          $v0, 0x70($a0)
