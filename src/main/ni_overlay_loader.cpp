@@ -80,32 +80,68 @@ static void load_ni_overlay(int pair_index) {
     }
 }
 
+// Fingerprint table for overlay identification
+#include "ni_ovl_fingerprints.h"
+
+// Match decompressed data at paddr against known overlay fingerprints.
+// The game decompresses NI files to its own heap in low RDRAM, so we
+// read the first 128 bytes and compare against precomputed signatures.
+static int match_overlay_fingerprint(uint8_t* rdram, uint32_t paddr) {
+    if (paddr + 128 > 0x00800000) return -1;  // sanity: within 8MB RDRAM
+
+    // Read 32 big-endian words from the decompressed data.
+    // The data in RDRAM is byte-swapped (LE), so we read as LE uint32
+    // and the fingerprints are stored as BE. We need to match what the
+    // game sees, which is the byte-swapped version in RDRAM.
+    // Actually: RDRAM stores data in the host's native byte order after
+    // the byte-swap in lod_init. The fingerprints are from the raw BE
+    // decompressed data. We need to byte-swap when comparing.
+    const uint32_t* data = (const uint32_t*)(rdram + paddr);
+
+    for (int i = 0; i < NI_FP_COUNT; i++) {
+        bool match = true;
+        for (int j = 0; j < NI_FP_WORDS; j++) {
+            // RDRAM stores decompressed data as-is (BE words read as uint32)
+            uint32_t rdram_word = data[j];
+            if (rdram_word != ni_fingerprints[i].words[j]) {
+                match = false;
+                break;
+            }
+        }
+        if (match) {
+            return ni_fingerprints[i].pair_index;
+        }
+    }
+    return -1;
+}
+
 // Called from osMapTLB hook when vaddr is 0x0E000000 or 0x0F000000
 extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr) {
     if (vaddr != 0x0F000000 && vaddr != 0x0E000000) return;
 
-    extern uint32_t ni_decompressed_addrs[];
-    extern int ni_decompressed_count;
-
-    uint32_t target = even_paddr;
-
-    for (int i = 0; i < ni_decompressed_count; i++) {
-        if (ni_decompressed_addrs[i] == 0) continue;
-        uint32_t entry_offset = ni_decompressed_addrs[i] & 0x7FFFFFFF;
-        if (entry_offset == target) {
-            int pair = ni_index_to_pair(i);
-            if (pair >= 0) {
-                load_ni_overlay(pair);
-                return;
-            }
-        }
+    int pair = match_overlay_fingerprint(rdram, even_paddr);
+    if (pair >= 0) {
+        load_ni_overlay(pair);
+        return;
     }
 
     static int miss_count = 0;
     miss_count++;
     if (miss_count <= 10) {
-        fprintf(stderr, "[ni_ovl] WARNING: TLB map 0x%08X paddr=0x%08X — no matching NI entry\n",
+        fprintf(stderr, "[ni_ovl] WARNING: TLB map 0x%08X paddr=0x%08X — no matching overlay\n",
                 vaddr, even_paddr);
+        // Debug: dump first 32 bytes at paddr in both byte orders
+        if (even_paddr + 32 <= 0x00800000) {
+            const uint32_t* p = (const uint32_t*)(rdram + even_paddr);
+            fprintf(stderr, "[ni_ovl]   LE words: %08X %08X %08X %08X\n", p[0], p[1], p[2], p[3]);
+            fprintf(stderr, "[ni_ovl]   BE words: %08X %08X %08X %08X\n",
+                    __builtin_bswap32(p[0]), __builtin_bswap32(p[1]),
+                    __builtin_bswap32(p[2]), __builtin_bswap32(p[3]));
+            // Show expected first words from overlay 0
+            fprintf(stderr, "[ni_ovl]   Expected (ovl 0): %08X %08X %08X %08X\n",
+                    ni_fingerprints[0].words[0], ni_fingerprints[0].words[1],
+                    ni_fingerprints[0].words[2], ni_fingerprints[0].words[3]);
+        }
     }
 }
