@@ -1290,3 +1290,53 @@ jr    $25                  # jump to table entry
 - 6,261 functions recompiled, 1 stub (cross-segment jump table)
 - Runtime: fingerprint-based overlay identification working
 - Blocker: null function pointer crash after first overlay loads
+
+### 2026-03-20 — NI overlay data section fix + cleanup (session 2)
+
+#### Forced patch removal (commit 582e132)
+- Removed ALL 6 forced bring-up patches from recompiled functions (funcs_0, 1, 2, 7, 11, 20, 44, 60, 62, 69)
+- Reverted lod_symbols.h named constants back to raw hex
+- Clean recompiled code now runs with NI overlays loading naturally
+
+#### NULL dispatch investigation
+- Reproduced crash: `Failed to find function at 0x00000000` after NI overlay pair 105 loads
+- Backtrace: `graphThread_entrypoint → func_80017DB8 → object_dispatch1 → GameStateMgr_execute → object_execute → object_dispatch2 → object_dispatch1 → ni_ovl_NNN_func_0F000000 → null_dispatch_stub`
+- Added NULL dispatch stub in overlays.cpp: returns no-op instead of aborting
+
+#### Three root causes found and fixed (commit dae7c34)
+
+**1. NI overlay data section not accessible**
+- Overlay code at `0x0F000000` references .data via absolute addresses (e.g., `lw $t9, 0x340($t9)` for jump tables)
+- `MEM_W(0x0F000340)` resolves to `rdram + 0x8F000340` — the segment region
+- TLB handler only copied 8KB (2×4KB pages) from game's decompressed heap
+- But overlays have .data sections beyond 8KB (up to 166KB total text+data)
+- **Fix**: copy full overlay text+data from extended ROM to segment region in `load_ni_overlay()`
+- **Also**: skip TLB copy for 0x0F/0x0E to prevent overwriting with small decompressed blob
+
+**2. Extended ROM not mapped in RDRAM**
+- `lod_init.cpp` mapped only 16MB original ROM at `rdram+0x10000000`
+- NI overlay sections in extended ROM start at offset `0x01000000` (beyond 16MB)
+- `copy_overlay_data_to_segment()` read from `rdram + 0x10000000 + rom_offset` — all zeros
+- **Fix**: load NI portion (4.5MB) of `castlevania2_ni_extended.z64` directly, byte-swap to `rdram+0x11000000`
+
+**3. NI_OVERLAY_ID_START wrong (48→54)**
+- `overlay_sections_by_index[]` has 3 invalid entries at start (IDs 0-2 = -1)
+- Pair N needs overlay ID `54+N` to resolve through the table to section index `51+N`
+- With ID=48+N, pair 105 → ID 153 → section 150 → ni_ovl_099 (WRONG)
+- With ID=54+N, pair 105 → ID 159 → section 156 → ni_ovl_105 (CORRECT)
+
+#### VI null-mode guard
+- Added null check for `next_state->mode` in `update_vi()` — prevents crash when `osViSetMode` hasn't been called yet
+
+#### Generated files
+- `src/main/ni_ovl_data.h`: 245-entry table mapping pair_index → {rom_offset, full_size}
+
+#### Current state (end of session 2)
+- NI overlay loading fully working: fingerprint match → load section → copy data → functions resolve
+- Jump tables in .data section accessible (verified: `seg[0x340]=0x0F000070`)
+- No crashes — NULL dispatches handled gracefully via stub
+- **Remaining blocker**: NULL function dispatches from uninitialized child objects
+  - Overlay entry `0x0F000000` runs correctly, reads jump table, dispatches sub-functions
+  - But some child objects created by the overlay have `obj+0x10 = 0` (no handler set)
+  - Same root cause as pre-NI activation chain issue: game boot sequence doesn't complete full object initialization
+  - NOT a data section / overlay loading issue — the overlay code itself works correctly
