@@ -31,6 +31,10 @@ struct TlbEntry {
 
 static TlbEntry tlb_table[32] = {};
 
+// NI overlay loader hook
+extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
+                                       uint32_t even_paddr, uint32_t odd_paddr);
+
 // Override the weak RECOMP_FUNC stub in funcs_40.c
 // osMapTLB(index, page_mask, vaddr, even_paddr, odd_paddr, asid)
 extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
@@ -39,6 +43,9 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     uint32_t vaddr      = (uint32_t)ctx->r6;
     uint32_t even_paddr = (uint32_t)ctx->r7;
     uint32_t odd_paddr  = MEM_W(0x10, ctx->r29);
+
+    // Hook: load NI overlay when mapping 0x0F000000
+    ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
 
     // Handle osUnmapTLB (index = -1 or vaddr = 0xFFFFFFFF)
     if (index < 0 || index >= 32) {

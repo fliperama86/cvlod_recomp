@@ -76,6 +76,7 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/ignored_func_stubs.cpp
     ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
     ${CMAKE_SOURCE_DIR}/src/main/lod_init.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/ni_overlay_loader.cpp
     ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp

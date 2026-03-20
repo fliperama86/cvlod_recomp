@@ -1,4 +1,5 @@
 #include "librecomp/overlays.hpp"
+#include "../../RecompiledFuncs/funcs.h"
 
 #define ARRLEN(x) (sizeof(x) / sizeof((x)[0]))
 
