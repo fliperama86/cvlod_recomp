@@ -1206,3 +1206,38 @@ Key addresses for investigation:
 - `object_dispatch1` uses `0x800AD640` for dispatch. `object_createAndSetChild` uses `0x800AEA8C` for NI file info.
 - **Templates 3 and 4 ARE alive and dispatched every frame.** Previous analysis was WRONG about them being dead.
 - The real stall is within the NI pipeline itself, not object dispatch. Need to trace what `ni_system_dispatcher` and DMAMgr actually do on each frame and why the pipeline doesn't complete.
+
+### 2026-03-20 — NI overlay extraction, recompilation, and runtime loading (DONE)
+
+Implemented full 9-step plan to extract, recompile, and load all NI overlays.
+
+**Extraction pipeline** (`tools/ni_ovl/step1-7`):
+- NI table: 944 entries, 245 code pairs. Flag byte 0x00=text, 0x80=data. All use **zlib** (not LZKN64 — `78 DA` magic at byte 4 of every entry, streaming `decompressobj()` needed for trailing data).
+- Decompressed 245 overlays: 4.3 MB total. 238/245 start with MIPS `addiu sp` prologues, 7 are leaf functions (`jr $ra` or `lui`).
+- .text/.data boundaries: 3.0 MB code, 1.4 MB data. Found via last `jr $ra` + delay slot + 16-byte alignment.
+- 6,261 functions identified. Zero validation issues (full .text coverage, 4-byte aligned).
+- Extended ROM: `resources/castlevania2_ni_extended.z64` (19 MB). Original 16 MB + .text sections appended at 0x1000000.
+- Generated 245 `[[section]]` entries (vram=0x0F000000, `..ni_ovl_NNN` prefix).
+
+**N64Recomp integration**:
+- 11,508 total functions (5,247 original + 6,261 NI).
+- 235 NI functions stubbed (jump table analysis failures) — iteratively discovered via `find_stubs.sh`.
+- Post-recomp fixes required:
+  - `funcs.h`: truncated by N64Recomp. Missing header guard (`#ifndef`/`extern "C"`), missing 50 OS function declarations (`osJamMesg_recomp` etc.).
+  - `recomp_overlays.inl`: N64Recomp only output 51 section table entries (original sections). 245 NI sections missing. Fixed by `fix_overlay_table.py` — generates `FuncEntry` arrays + section_table entries.
+  - Cross-function `goto` labels: N64Recomp emits `goto L_0FXXXXXX` where target is in a different function (function boundary detection imperfect). Fixed by `fix_undeclared_labels.py` — replaces with `return;`.
+  - `funcs_229.c` truncated mid-instruction. Manually completed.
+  - 212 `static_NNN_0FXXXXXX` symbols: N64Recomp generates references to jump table helper functions but doesn't output their definitions when parent is stubbed. Generated `ni_ovl_static_stubs.c` with empty stubs.
+  - `register_overlays.cpp` needed `#include "funcs.h"` for OS function declarations used in `.inl`.
+
+**Runtime loader** (`src/main/ni_overlay_loader.cpp`):
+- Hooks `osMapTLB` in `tlb_segment.cpp` when `vaddr == 0x0F000000`.
+- Matches `even_paddr` to NI file index via `ni_decompressed_addrs[]` table (from `lod_init.cpp`).
+- Converts NI text index → pair index → overlay ID. Calls `load_overlay_by_id()` / `unload_overlay_by_id()` (mutually exclusive at 0x0F).
+
+**Build**: compiles and links. Committed `8e7cdac`, pushed to main.
+
+**Not yet tested at runtime.** Expected issues:
+- Stubbed functions (235) may be game-critical — need jump table fixes or manual recomp.
+- Relocations: NI code references main-code via `lui`/`addiu` (0x801DXXXX). May need R_MIPS reloc entries if N64Recomp doesn't handle automatically.
+- Physical address matching in loader may need tuning depending on how DMA pipeline delivers data.
