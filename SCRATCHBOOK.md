@@ -1238,6 +1238,37 @@ Implemented full 9-step plan to extract, recompile, and load all NI overlays.
 **Build**: compiles and links. Committed `8e7cdac`, pushed to main.
 
 **Not yet tested at runtime.** Expected issues:
-- Stubbed functions (235) may be game-critical — need jump table fixes or manual recomp.
+- ~~Stubbed functions (235) may be game-critical~~ — FIXED: down to 1 stub (see below).
 - Relocations: NI code references main-code via `lui`/`addiu` (0x801DXXXX). May need R_MIPS reloc entries if N64Recomp doesn't handle automatically.
 - Physical address matching in loader may need tuning depending on how DMA pipeline delivers data.
+
+### 2026-03-20 — Jump table root cause: .data in ROM + 0x0E/0x0F VRAM classification
+
+**Problem**: 235 NI functions had "Failed to determine size of jump table" errors, requiring stubs.
+
+**Root cause 1: Missing .data in extended ROM.** Jump tables (switch/case dispatch) live in the `.data` section. N64Recomp reads jump table entries from `rom_file_path` at `section.rom_addr + offset`. We only put `.text` in the extended ROM — N64Recomp read garbage from adjacent overlays at jump table offsets.
+
+MIPS jump table pattern:
+```
+sll   $25, $25, 2          # index * 4
+lui   $1, 0x0F01           # high half of table addr
+addu  $1, $1, $25          # base + idx*4
+lw    $25, -5648($1)       # load from 0x0F00E9F0 = .data section
+jr    $25                  # jump to table entry
+```
+
+**Fix**: Include full `.text + .data` in extended ROM. Section `size` in syms.toml stays as `.text` only (N64Recomp won't try to disassemble .data as code), but the ROM data behind it includes .data so jump table reads work.
+
+**Root cause 2: 79 overlays compiled for `vram = 0x0E000000`, not `0x0F000000`.** The LoD engine (same as CV64) has TWO TLB-mapped overlay regions:
+- `0x0F000000` = `nisitenma_ichigo_overlays` — game object code (enemies, UI)
+- `0x0E000000` = `nisitenma_ichigo_cutscenes` — cutscene/textbox code
+
+(Confirmed via [CV64 decomp](https://github.com/k64ret/cv64) `castlevania.yaml`)
+
+79 NI overlays are compiled for `0x0E`. Their internal `jal` calls use absolute addresses baked at compile time — `jal 0x0E00XXXX` for self-calls, which we misinterpreted as cross-segment references.
+
+**Discovery method**: For each overlay, count internal `jal` targets in `0x0E` vs `0x0F`. If self-calls go to `0x0E`, the overlay was compiled for `0x0E`. Clean separation: 0 mixed overlays.
+
+**Result**: 1 NI stub remains (`ni_ovl_242_func_0F000358` — genuine cross-segment jump table in 0x0F code reading from 0x0E data). Down from 235.
+
+**Runtime loader** updated: tracks 0x0E and 0x0F independently, loads/unloads the correct section when osMapTLB maps either vaddr.
