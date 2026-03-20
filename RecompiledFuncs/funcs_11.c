@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "lod_symbols.h"
 
 RECOMP_FUNC void func_80016B48(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -2643,7 +2644,7 @@ RECOMP_FUNC void game_main(uint8_t* rdram, recomp_context* ctx) {
     // 0x80017838: nop
 
 ;}
-RECOMP_FUNC void func_8001783C(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void idleThread_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x8001783C: addiu       $sp, $sp, -0x20
@@ -3219,7 +3220,7 @@ L_80017BB4:
     // 0x80017BC0: jal         0x80018890
     // 0x80017BC4: addiu       $a1, $sp, 0x40
     ctx->r5 = ADD32(ctx->r29, 0X40);
-    func_80018890(rdram, ctx);
+    scheduler_addClient(rdram, ctx);
         goto after_10;
     // 0x80017BC4: addiu       $a1, $sp, 0x40
     ctx->r5 = ADD32(ctx->r29, 0X40);
@@ -3339,7 +3340,7 @@ L_80017BB4:
     // 0x80017C60: jal         0x80000460
     // 0x80017C64: addiu       $a0, $zero, 0x4
     ctx->r4 = ADD32(0, 0X4);
-    func_80000460(rdram, ctx);
+    gamestate_create(rdram, ctx);
         goto after_20;
     // 0x80017C64: addiu       $a0, $zero, 0x4
     ctx->r4 = ADD32(0, 0X4);

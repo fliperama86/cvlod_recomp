@@ -1,6 +1,7 @@
 #include "recomp.h"
 #include "funcs.h"
 #include <stdio.h>
+#include "lod_symbols.h"
 
 RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -3631,7 +3632,7 @@ L_80011544:
     ctx->r23 = ADD32(ctx->r23, 0X1);
 L_80011548:
     // 0x80011548: slti        $at, $s7, 0x2B0
-    ctx->r1 = SIGNED(ctx->r23) < 0X2B0 ? 1 : 0;
+    ctx->r1 = SIGNED(ctx->r23) < 0X2B0 /* NI_MAX_ENTRIES */ ? 1 : 0;
     // 0x8001154C: bne         $at, $zero, L_800114EC
     if (ctx->r1 != 0) {
         // 0x80011550: addiu       $fp, $fp, 0x4

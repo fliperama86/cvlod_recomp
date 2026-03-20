@@ -98,7 +98,7 @@ def patch_gsm_bootstrap():
                 gpr saved_r4 = ctx->r4;
                 gpr saved_r5 = ctx->r5;
                 gpr saved_r31 = ctx->r31;
-                func_8001BA78(rdram, ctx);
+                overlay_system_create(rdram, ctx);
                 ctx->r4 = saved_r4;
                 ctx->r5 = saved_r5;
                 ctx->r31 = saved_r31;

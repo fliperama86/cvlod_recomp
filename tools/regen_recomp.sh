@@ -106,4 +106,12 @@ else
     python3 "$(dirname "$0")/apply_patches.py"
 fi
 
+# --- Step 7: Apply named symbol replacements ---
+echo "==> Applying symbol replacements..."
+if [ $DRY_RUN -eq 1 ]; then
+    echo "    [dry-run] Would run: python3 tools/apply_symbols.py"
+else
+    python3 "$(dirname "$0")/apply_symbols.py"
+fi
+
 echo "==> Done. Review changes with: git diff $FUNC_DIR/"

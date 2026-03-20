@@ -116,6 +116,11 @@ strlen  = 0x800A136C; // type:func
 // Game-specific functions (from CV64 decomp cross-reference + debugging)
 // ============================================================================
 
+// Scene / gamestate lifecycle
+gamestate_create           = 0x80000460; // type:func  // loads scene: calls init func, creates root object, copies GSS slots
+gamestate_change           = 0x8000053C; // type:func  // requests scene change: sets obj+0x24 = -scene_id
+scene4_init                = 0x8000067C; // type:func  // scene 4 (save game) init: heaps, objects, display, sound
+
 // Game State Manager
 GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene
 GameStateMgr_enqueue       = 0x80002D5C; // type:func  // enqueues command node to manager queue
@@ -123,6 +128,8 @@ GameStateMgr_dispatch      = 0x80002E3C; // type:func  // consumes manager queue
 
 // Scene system
 scene_init                 = 0x800007B0; // type:func  // scene init, writes scene_arg, loads scene
+object_dispatch_table      = 0x800AD640; // type:data  // per-frame handler dispatch (indexed by template_id)
+object_file_info_table     = 0x800AEA8C; // type:data  // NI file info / creation guard (indexed by template_id)
 sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
 sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform
 sceneSelector_write        = 0x80149DE4; // type:func  // writes scene selector record to sys+0x7C
@@ -152,8 +159,15 @@ ni_figure_process          = 0x800448FC; // type:func  // NI figure bitmask proc
 poolObject_create          = 0x80040524; // type:func  // creates pooled NI object
 poolObject_attachChild     = 0x80040628; // type:func  // attaches child to pool object
 poolObject_attachChild2    = 0x80040844; // type:func  // attaches child (variant)
+atari_work_table_init      = 0x800404D0; // type:func  // zeroes pool/atari_work table structures (CV64 match)
+atari_work_entry_tick      = 0x80040948; // type:func  // ticks single active pool entry
 poolObject_tick            = 0x800409FC; // type:func  // NI per-frame update (clear/rebuild/pair-process)
+atari_work_post_update     = 0x80040A6C; // type:func  // post-update after all pool entries processed
 poolObject_complete        = 0x80041C54; // type:func  // pool object completion handler
+
+// NI system handler / overlay_system lifecycle
+ni_system_handler          = 0x8001B9A0; // type:func  // NI system object handler (obj+0x10), increments sys+0x2B24
+overlay_system_create      = 0x8001BA78; // type:func  // creates overlay_system (TMPL 0x1AB), guarded by sys+0x2B24
 
 // Scheduler (CV64 decomp: k64ret/cv64 include/ultra64/PR/sched.h)
 scheduler_create           = 0x800184E0; // type:func  // init scheduler struct, create queues, register events
@@ -163,6 +177,10 @@ scheduler_eventBroadcast   = 0x80018968; // type:func  // iterates client list, 
 scheduler_executeAudio     = 0x800189B8; // type:func  // audio thread: runs audio+GFX tasks on RSP
 scheduler_executeGraphics  = 0x80018B50; // type:func  // graphics thread (thread 17)
 scheduler_taskDispatch     = 0x80018E30; // type:func  // sends task to scheduler cmdQ via osJamMesg
+
+// Boot threads
+idleThread_entrypoint      = 0x8001783C; // type:func  // creates PI mgr + graph thread, then self-pauses at priority 0
+scheduler_addClient        = 0x80018890; // type:func  // registers client with scheduler event system
 
 // Game threads and rendering
 graphThread_entrypoint     = 0x800178D0; // type:func  // thread 5 / render thread, receives VI/DP msgs

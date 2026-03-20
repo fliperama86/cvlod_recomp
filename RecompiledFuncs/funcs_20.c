@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "lod_symbols.h"
 
 RECOMP_FUNC void func_8003F22C(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -3440,7 +3441,7 @@ L_800404A0:
     // 0x800404B0: nop
 
 ;}
-RECOMP_FUNC void func_800404D0(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void atari_work_table_init(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x800404D0: lui         $a0, 0x8010
@@ -4168,7 +4169,7 @@ RECOMP_FUNC void func_80040938(uint8_t* rdram, recomp_context* ctx) {
     // 0x80040944: sh          $t7, 0x0($a0)
     MEM_H(0X0, ctx->r4) = ctx->r15;
 ;}
-RECOMP_FUNC void func_80040948(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void atari_work_entry_tick(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80040948: lh          $v0, 0x0($a0)
@@ -4350,7 +4351,7 @@ L_80040A20:
     // 0x80040A30: jal         0x80040948
     // 0x80040A34: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_80040948(rdram, ctx);
+    atari_work_entry_tick(rdram, ctx);
         goto after_0;
     // 0x80040A34: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
@@ -4369,7 +4370,7 @@ L_80040A38:
     // 0x80040A40: jal         0x80040A6C
     // 0x80040A44: nop
 
-    func_80040A6C(rdram, ctx);
+    atari_work_post_update(rdram, ctx);
         goto after_1;
     // 0x80040A44: nop
 
@@ -4403,7 +4404,7 @@ L_80040A38:
     // 0x80040A68: addiu       $sp, $sp, 0x20
     ctx->r29 = ADD32(ctx->r29, 0X20);
 ;}
-RECOMP_FUNC void func_80040A6C(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void atari_work_post_update(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80040A6C: addiu       $sp, $sp, -0x30

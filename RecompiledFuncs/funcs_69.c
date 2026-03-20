@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include "lod_symbols.h"
 
 RECOMP_FUNC void overlay_system_func_801D0CE8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;

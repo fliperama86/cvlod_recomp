@@ -1137,3 +1137,72 @@ Key addresses for investigation:
   5. Title screen (game start, options)
 - Scene 4 being the initial scene is **correct and natural** — the game is NOT being forced into scene 4.
 - The `lod_init.cpp` comment "since we boot directly into scene 4" was accurate; it's the game's intended first scene.
+
+### 2026-03-20 — Symbol system + function renames
+- Created `include/lod_symbols.h`: named constants from CV64 decomp (Object struct, system_work, OSSched, gamestate IDs, template IDs, NI system).
+- Created `tools/apply_symbols.py`: post-regen script that replaces hex literals with named constants in function-scoped context. Wired into `regen_recomp.sh` as step 7.
+- Renamed 9 functions in `castlevania2.syms.toml` and `symbol_addrs.txt`:
+  - `func_80000460` → `gamestate_create` (CV64 exact match)
+  - `func_8000053C` → `gamestate_change` (CV64 equivalent)
+  - `func_8000067C` → `scene4_init` (scene 4's init function from descriptor)
+  - `func_8001783C` → `idleThread_entrypoint` (creates PI mgr + graph thread)
+  - `func_80018890` → `scheduler_addClient` (registers scheduler event client)
+  - `func_800404D0` → `atari_work_table_init` (CV64 match: pool table zeroing)
+  - `func_80040948` → `atari_work_entry_tick` (per-entry pool tick)
+  - `func_80040A6C` → `atari_work_post_update` (post-tick cleanup)
+  - `func_8001BA78` → `overlay_system_create` (creates TMPL 0x1AB)
+  - `func_8001B9A0` → `ni_system_handler` (NI system object handler)
+- Full regen + build + run verified: same behavior as before.
+- Fixed N64Recomp truncation: funcs.h line 5179 and recomp_overlays.inl line 5353 had mid-line truncation not caught by fix script.
+
+### 2026-03-20 — Patch audit: all 3 patches mask the same root cause
+- **Patch 1** (GSM bootstrap): creates overlay_system prematurely — on cold boot, `sys+0x2B24` is 0 and overlay_system should NOT exist yet. It's created by `ni_system_handler` after NI files load.
+- **Patch 2** (+0x4C bypass): skips NI pipeline completion gate. `ni_desc+0x4C` is set by DMA→decompress→figure creation chain.
+- **Patch 3** (poolObject_tick hook): calls pool tick from wrong context. Normally called via object dispatch system.
+- **Root cause**: NI file loading pipeline isn't completing. DMAMgr (template 3/5) needs to be properly dispatched.
+- Next step: trace exactly where the NI/DMA pipeline stalls.
+
+### 2026-03-20 — NI pipeline tracing: DMA works, decompression path runs
+- `ni_system_dispatcher` called every frame ✓ (object at 0x8031AEBC)
+- DMAMgr (object at 0x8031AF30) called every frame, state 0→1 ✓
+- Phase 2 iterates 687 entries: 382 non-zero file_info, 305 zero
+- Only 1 file requested: **file 0x14D** (333) with entry `0x4000014D` (bit30=requested, bit31=not loaded)
+- DMA DOES complete: pending goes 1→0, cur_idx advances 0→1
+- DMA result: `v1=0x8038DE10` (negative = **compressed data**) → takes compressed path
+- `object_curLevel_goToFunc(obj+8, obj+E, 4)` correctly sets state from 1 to 4
+- State 4 handler (`0x800129F8`) runs inline (ENTER pattern dispatches it immediately within same frame)
+- After full frame: state is back to 1 — state 4 handler likely resets to 1 after processing
+- **KEY**: the decompression IS happening within one frame. The question is whether the decompressed result is stored to `file_ptr_array` and whether bit 31 gets set on the NI entry.
+- Next: trace state 4/5/6/7 handlers and the completion callback that should set bit 31.
+
+### 2026-03-20 — ROOT CAUSE FOUND: TLB-mapped NI overlay code at 0x0F000000
+- DMA + decompression WORKS: file 0x14D decompressed to 0x8038F000, stored in file_ptr_array ✓
+- State 6 (completion) NEVER fires because the game crashes before reaching it
+- **Crash**: `osMapTLB(idx=0, vaddr=0x0F000000, even=0x0038F000, odd=0x00390000)` maps the decompressed NI data as executable TLB region, then tries `LOOKUP_FUNC(0x0F000000)` → "Failed to find function" → abort
+- The decompressed NI file 0x14D contains **overlay CODE** that the game executes via TLB mapping
+- On real N64: TLB maps 0x0F000000 → physical 0x0038F000, CPU runs code from there
+- In recomp: `osMapTLB` doesn't register functions, `LOOKUP_FUNC` has no entry → crash
+- **Fix needed**: register recompiled functions for the NI overlay at the TLB-mapped address (0x0F000000+), similar to how map overlays at 0x802E3B70 are loaded via `load_overlays`
+- This explains why ALL three patches were needed: the crash happens silently (caught by error handler), preventing state 6 from completing, leaving bit 31 unset, so the NI pipeline never finishes
+
+### 2026-03-20 — NI overlays: the missing recompilation layer
+- 464 NI compressed files contain MIPS executable code (NI files 0x1C5–0x3AE, ~232 unique overlays in pairs)
+- These are ALL game object overlays: enemies, effects, menus, save screen, cutscenes, stage objects
+- They load at TLB-mapped VRAM `0x0F000000` (shared/exclusive like map overlays at `0x802E3B70`)
+- 131 templates dispatch to `0x0F000000` entry, 100+ more dispatch to specific offsets within
+- **None of this code is recompiled.** It only exists as zlib-compressed MIPS in the NI file table.
+- Full overlay architecture:
+  1. Main code (0x80000460) — ✅ recompiled
+  2. Common code (0x80141870) — ✅ recompiled
+  3. Overlay system (0x801CAEA0) — ✅ recompiled
+  4. Map overlays ×47 (0x802E3B70) — ✅ recompiled
+  5. **NI overlays ~232 (0x0F000000) — ❌ NOT recompiled**
+- Next steps: extract NI overlay code → splat/disassemble → feed to N64Recomp → register at 0x0F000000
+
+### 2026-03-20 — MAJOR CORRECTION: two object tables, NI pipeline IS running
+- There are TWO object tables, not one:
+  - `0x800AD640` = **dispatch table** (per-frame handler). Templates 0-10 are POPULATED here. `ni_system_dispatcher` (tmpl 3) and DMAMgr (tmpl 4) ARE dispatched every frame.
+  - `0x800AEA8C` = **file info table** (NI file lookup / creation guard). Templates 0-10 are NULL here. This is NOT the dispatch table.
+- `object_dispatch1` uses `0x800AD640` for dispatch. `object_createAndSetChild` uses `0x800AEA8C` for NI file info.
+- **Templates 3 and 4 ARE alive and dispatched every frame.** Previous analysis was WRONG about them being dead.
+- The real stall is within the NI pipeline itself, not object dispatch. Need to trace what `ni_system_dispatcher` and DMAMgr actually do on each frame and why the pipeline doesn't complete.

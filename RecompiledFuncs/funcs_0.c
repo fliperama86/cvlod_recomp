@@ -1,6 +1,7 @@
 #include "recomp.h"
 #include "funcs.h"
 #include <stdio.h>
+#include "lod_symbols.h"
 
 RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -42,7 +43,7 @@ L_80000410:
     // 0x80000434: addiu       $sp, $sp, 0x3680
     ctx->r29 = ADD32(ctx->r29, 0X3680);
 ;}
-RECOMP_FUNC void func_80000460(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void gamestate_create(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80000460: sll         $t6, $a0, 2
@@ -62,7 +63,7 @@ RECOMP_FUNC void func_80000460(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000047C: addu        $s2, $t6, $t7
     ctx->r18 = ADD32(ctx->r14, ctx->r15);
     // 0x80000480: lw          $t9, -0x48($s2)
-    ctx->r25 = MEM_W(ctx->r18, -0X48);
+    ctx->r25 = MEM_W(ctx->r18, GSS_CFG_INIT_FUNC);
     // 0x80000484: sw          $ra, 0x24($sp)
     MEM_W(0X24, ctx->r29) = ctx->r31;
     // 0x80000488: sw          $s1, 0x1C($sp)
@@ -151,17 +152,17 @@ L_800004CC:
     // 0x800004FC: lw          $t5, 0x0($s0)
     ctx->r13 = MEM_W(ctx->r16, 0X0);
     // 0x80000500: addiu       $a0, $s2, -0x40
-    ctx->r4 = ADD32(ctx->r18, -0X40);
+    ctx->r4 = ADD32(ctx->r18, GSS_CFG_SLOTS);
     // 0x80000504: addiu       $a2, $zero, 0x40
-    ctx->r6 = ADD32(0, 0X40);
+    ctx->r6 = ADD32(0, 0X40); /* NUM_GSS_SLOTS * 4 */
     // 0x80000508: sw          $t4, 0x10($t5)
-    MEM_W(0X10, ctx->r13) = ctx->r12;
+    MEM_W(OBJ_DESTROY, ctx->r13) = ctx->r12;
     // 0x8000050C: lw          $t7, 0x0($s0)
     ctx->r15 = MEM_W(ctx->r16, 0X0);
     // 0x80000510: lw          $t6, 0x28($sp)
     ctx->r14 = MEM_W(ctx->r29, 0X28);
     // 0x80000514: sw          $t6, 0x24($t7)
-    MEM_W(0X24, ctx->r15) = ctx->r14;
+    MEM_W(OBJ_FIGURES_0, ctx->r15) = ctx->r14 /* scene_arg */;
     // 0x80000518: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
     // 0x8000051C: jal         0x80001090
@@ -187,7 +188,7 @@ L_800004CC:
     // 0x80000538: addiu       $sp, $sp, 0x28
     ctx->r29 = ADD32(ctx->r29, 0X28);
 ;}
-RECOMP_FUNC void func_8000053C(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void gamestate_change(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x8000053C: lui         $v1, 0x800C
@@ -248,7 +249,7 @@ RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
                 gpr saved_r4 = ctx->r4;
                 gpr saved_r5 = ctx->r5;
                 gpr saved_r31 = ctx->r31;
-                func_8001BA78(rdram, ctx);
+                overlay_system_create(rdram, ctx);
                 ctx->r4 = saved_r4;
                 ctx->r5 = saved_r5;
                 ctx->r31 = saved_r31;
@@ -263,7 +264,7 @@ RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
     // 0x80000580: sw          $s0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r16;
     // 0x80000584: lw          $v0, 0x24($a0)
-    ctx->r2 = MEM_W(ctx->r4, 0X24);
+    ctx->r2 = MEM_W(ctx->r4, OBJ_FIGURES_0) /* scene_arg */;
     // 0x80000588: or          $s0, $a0, $zero
     ctx->r16 = ctx->r4 | 0;
     // 0x8000058C: lui         $a0, 0x800C
@@ -313,7 +314,7 @@ RECOMP_FUNC void GameStateMgr_execute(uint8_t* rdram, recomp_context* ctx) {
     // 0x800005C4: jal         0x80000460
     // 0x800005C8: negu        $a0, $v1
     ctx->r4 = SUB32(0, ctx->r3);
-    func_80000460(rdram, ctx);
+    gamestate_create(rdram, ctx);
         goto after_1;
     // 0x800005C8: negu        $a0, $v1
     ctx->r4 = SUB32(0, ctx->r3);
@@ -333,7 +334,7 @@ L_800005D4:
     MEM_H(0X6, ctx->r16) = ctx->r15;
 L_800005DC:
     // 0x800005DC: lbu         $v1, 0x9($s0)
-    ctx->r3 = MEM_BU(ctx->r16, 0X9);
+    ctx->r3 = MEM_BU(ctx->r16, OBJ_STATE);
     // 0x800005E0: sll         $t8, $v0, 2
     ctx->r24 = S32(ctx->r2 << 2);
     // 0x800005E4: addu        $t8, $t8, $v0
@@ -452,7 +453,7 @@ L_8000066C:
     // 0x80000678: nop
 
 ;}
-RECOMP_FUNC void func_8000067C(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void scene4_init(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x8000067C: addiu       $sp, $sp, -0x18
@@ -555,7 +556,7 @@ L_800006B4:
     after_3:
     // 0x80000710: jal         0x80001F30
     // 0x80000714: addiu       $a0, $zero, 0x12C
-    ctx->r4 = ADD32(0, 0X12C);
+    ctx->r4 = ADD32(0, 0X12C) /* 300 objects */;
     func_80001F30(rdram, ctx);
         goto after_4;
     // 0x80000714: addiu       $a0, $zero, 0x12C
@@ -764,7 +765,7 @@ RECOMP_FUNC void scene_init(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000084C: jal         0x800404D0
     // 0x80000850: nop
 
-    func_800404D0(rdram, ctx);
+    atari_work_table_init(rdram, ctx);
         goto after_1;
     // 0x80000850: nop
 

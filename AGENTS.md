@@ -56,6 +56,8 @@
 | `tools/fix_n64recomp_truncation.py` | Truncation auto-fixer | No | Yes |
 | `tools/regen_recomp.sh` | Full regen pipeline | No | Yes |
 | `tools/match_cv64.py` | CV64-to-LoD function matcher | No | Yes |
+| `tools/apply_symbols.py` | Post-regen symbol renaming (hex→named constants) | No | Yes |
+| `include/lod_symbols.h` | Named constants (structs, enums, offsets) from CV64+LoD RE | No | Yes |
 
 ### Running LodRecomp safely
 - Always codesign before running: `codesign -s - --entitlements .github/macos/entitlements.plist -f build/LodRecomp`
