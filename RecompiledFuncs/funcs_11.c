@@ -3377,6 +3377,9 @@ L_80017C78:
     ctx->r1 = ADD32(0, 0X1);
     // 0x80017C94: lh          $v1, 0x0($t3)
     ctx->r3 = MEM_H(ctx->r11, 0X0);
+    { static int msg_count = 0; msg_count++;
+      if (msg_count <= 20) fprintf(stderr, "[GRAPH_MSG#%d] msg_type=%d\n", msg_count, (int32_t)ctx->r3);
+    }
     // 0x80017C98: beq         $v1, $at, L_80017CB8
     if (ctx->r3 == ctx->r1) {
         // 0x80017C9C: addiu       $at, $zero, 0x2
@@ -3412,108 +3415,15 @@ L_80017C78:
 L_80017CB8:
     // 0x80017CB8: lhu         $t4, 0x0($s1)
     ctx->r12 = MEM_HU(ctx->r17, 0X0);
-    // Force guard transition after init cycles.
-    // On real N64, this is triggered by msg_type=3 (pre-NMI/scheduler-ready event).
-    // In the recomp, pre-NMI events are not delivered, so we simulate the transition
-    // after the init loop has run a few cycles.
-    {
-        static int init_retrace_count = 0;
-        if (ctx->r12 == 0) {
-            init_retrace_count++;
-            if (init_retrace_count >= 4) {
-                // PATCH: Replicate the msg_type=3 handler:
-                // 1. func_80091108(10) — scheduler finalization
-                ctx->r4 = ADD32(0, 0XA);
-                func_80091108(rdram, ctx);
-                // 2. osViSetYScale(1.0)
-                ctx->f12.u32l = 0x3F800000; // 1.0f
-                osViSetYScale_recomp(rdram, ctx);
-                // 3. osViSetXScale(1.0) — original uses f20 which is 1.0
-                ctx->f12.u32l = 0x3F800000; // 1.0f
-                osViSetXScale_recomp(rdram, ctx);
-                // 4. osViBlack(1)
-                ctx->r4 = ADD32(0, 0X1);
-                osViBlack_recomp(rdram, ctx);
-                // 5. DON'T set the guard — stay in init mode so func_80017DB8
-                // keeps dispatching objects. The frame SM doesn't dispatch game objects.
-                // 6. Force execution flags bit 28 (0x10000000) in sys+0x2908
-                // This enables func_80177860 to execute the game state handler.
-                // Without it, the game draws empty framebuffers forever.
-                {
-                    gpr sys_flags_addr = S32(0x801CABC8);
-                    uint32_t flags = (uint32_t)MEM_W(sys_flags_addr, 0);
-                    // Force all known required execution flags:
-                    // bit 3 (0x8), bit 6 (0x40), bit 7 (0x80): set by overlay_system funcs
-                    // bit 15 (0x8000): NI file load trigger
-                    // bit 27 (0x08000000): set by func_8001AC50
-                    // bit 28 (0x10000000): main game state gate
-                    // bit 29 (0x20000000): NI init complete
-                    flags |= 0x380080C8;
-                    MEM_W(sys_flags_addr, 0) = (int32_t)flags;
-                    // PATCH: Call NI system init (overlay_system_func_801CB5CC)
-                    // to properly initialize sys+0x295C. This function creates
-                    // the NI file management system that all rendering depends on.
-                    // We create a minimal object and call it directly.
-                    {
-                        static int ni_sys_done = 0;
-                        if (!ni_sys_done && (uint32_t)MEM_W(S32(0x801CAC1C), 0) == 0) {
-                            ni_sys_done = 1;
-                            // Use an unused RDRAM region for the NI system object.
-                            // The object needs: +0x10 (dispatch func), +0x20 (flags),
-                            // +0x34 (buffer, set by func_80002808), +0x02 (flags2).
-                            gpr ni_obj = S32(0x80310000);
-                            uint32_t ni_off = 0x310000;
-                            // Zero 1KB for the object
-                            memset(rdram + ni_off, 0, 1024);
-                            // Set obj+0x10 = default dispatch (fallback if alloc fails)
-                            MEM_W(ni_obj, 0x10) = (int32_t)0x80002CE0;
-                            // Set obj+0x00 = flags (needs valid object ID)
-                            MEM_H(ni_obj, 0x00) = 0;
-                            // Call NI init
-                            gpr saved_r4 = ctx->r4;
-                            ctx->r4 = ni_obj;
-                            overlay_system_func_801CB5CC(rdram, ctx);
-                            ctx->r4 = saved_r4;
-                            // Note: file pointers NOT re-applied here. Setting them
-                            // breaks overlay/TLB. send_dl() fixes segment 6 at DL time
-                            // using the ni_decompressed_addrs[] table.
-                            uint32_t result = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
-                            fprintf(stderr, "[NI_INIT] done, sys+0x295C=0x%08X, file[97]=0x%08X\n",
-                                    result, (uint32_t)MEM_W(S32(0x801C89B4), 0));
-                        }
-                    }
-                    // NOTE: 0x800C671C is event_struct+0x89C = frame completion counter.
-                    // Previously forced to 2, which made completions >= buffer_count (2),
-                    // permanently stalling DL submission. Must stay 0 so the double-buffer
-                    // mechanism can reset the counter and generate new display lists.
-                    MEM_W(S32(0x800C671C), 0) = 0;
-                    // Set overlay selector to 1 (Konami logo scene).
-                    // On real N64, set by game state command system. Required for
-                    // mapOverlay to find the correct overlay descriptor.
-                    {
-                        gpr ovl_sel = S32(0x800F3F54);
-                        if ((int16_t)MEM_H(ovl_sel, 0) == 0) {
-                            MEM_H(ovl_sel, 0) = (int16_t)1;
-                        }
-                    }
-                    // Call func_8001A8C4 to create NI system objects
-                    {
-                        static int ni_init_done = 0;
-                        if (!ni_init_done) {
-                            func_8001A8C4(rdram, ctx);
-                            ni_init_done = 1;
-                        }
-                    }
-                }
-            }
-        }
-    }
-    // PATCH: Set overlay selector at retrace 1, before overlay object creation at retrace 2
+    // Diagnostic: log exec_flags and guard state each retrace
     {
         static int retrace_count = 0; retrace_count++;
-        if (retrace_count == 1) {
-            gpr ovl_sel = S32(0x800F3F54);
-            MEM_H(ovl_sel, 0) = (int16_t)1;  // Konami logo
+        if (retrace_count <= 20 || retrace_count % 100 == 0) {
+            uint32_t exec_flags = (uint32_t)MEM_W(S32(0x801CABC8), 0);
+            uint32_t ni_sys = (uint32_t)MEM_W(S32(0x801CAC1C), 0);
+            uint32_t guard = ctx->r12;
+            fprintf(stderr, "[RETRACE#%d] guard=%d exec_flags=0x%08X ni_sys=0x%08X\n",
+                    retrace_count, (int)guard, exec_flags, ni_sys);
         }
     }
     // 0x80017CBC: bne         $t4, $zero, L_80017CD4
@@ -3738,6 +3648,16 @@ L_80017D50:
     ctx->r29 = ADD32(ctx->r29, 0X48);
 ;}
 RECOMP_FUNC void func_80017DB8(uint8_t* rdram, recomp_context* ctx) {
+    { static int db8_n = 0; db8_n++;
+      if (db8_n <= 10 || db8_n % 50 == 0) {
+        uint32_t sys = 0x001C82C0;
+        uint32_t obj_ptr = *(uint32_t*)(rdram + 0x000C1520);
+        int16_t retrace_ctr = *(int16_t*)(rdram + sys + 0x88);
+        int16_t scene_arg = *(int16_t*)(rdram + sys + 0x24);
+        fprintf(stderr, "[INIT_FRAME#%d] retrace_ctr=%d scene_arg=%d obj_ptr=0x%08X\n",
+                db8_n, retrace_ctr, scene_arg, obj_ptr);
+      }
+    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80017DB8: addiu       $sp, $sp, -0x20

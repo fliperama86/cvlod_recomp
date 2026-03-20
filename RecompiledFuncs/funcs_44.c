@@ -4181,13 +4181,6 @@ L_8014313C:
 
 ;}
 RECOMP_FUNC void func_8014314C(uint8_t* rdram, recomp_context* ctx) {
-    // PATCH: Always return 1 (ready). Without this, the overlay's inner state
-    // machine hangs and DL generation stops after frame 4. The NI file loading
-    // doesn't work because obj+0x70 (file handle) is never set.
-    {
-        ctx->r2 = 1;
-        return;
-    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x8014314C: addiu       $sp, $sp, -0x18

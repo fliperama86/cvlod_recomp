@@ -20,6 +20,27 @@
 uint32_t ni_decompressed_addrs[1024] = {};
 int ni_decompressed_count = 0;
 
+// Called from game code (after BSS clear) to re-populate a single file_ptr_array entry.
+// Only populates entries that are currently 0 (zeroed by BSS clear).
+extern "C" void lod_repopulate_file_ptr_array(uint8_t* rdram) {
+    constexpr uint32_t file_ptr_array = 0x801C8830;
+    uint32_t fpa_phys = file_ptr_array - 0x80000000;
+    // Only populate file 0x14D (333) — the overlay's critical NI file
+    constexpr int target = 0x14D;
+    fprintf(stderr, "[lod_repop] called: ni_count=%d addrs[0x14D]=0x%08X\n",
+            ni_decompressed_count, ni_decompressed_addrs[target]);
+    if (target < ni_decompressed_count && ni_decompressed_addrs[target] != 0) {
+        uint32_t cur = *(uint32_t*)(rdram + fpa_phys + target * 4);
+        fprintf(stderr, "[lod_repop] cur=0x%08X, writing 0x%08X to rdram+0x%06X\n",
+                cur, ni_decompressed_addrs[target], fpa_phys + target * 4);
+        *(uint32_t*)(rdram + fpa_phys + target * 4) = ni_decompressed_addrs[target];
+        if (cur == 0) {
+            fprintf(stderr, "[lod_repop] file_ptr_array[0x%X] = 0x%08X\n",
+                    target, ni_decompressed_addrs[target]);
+        }
+    }
+}
+
 void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Load the ORIGINAL compressed ROM for NI decompression. The decompressed ROM
     // has different NI table format (shared offsets, no size info). The compressed
@@ -226,71 +247,13 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[init]   File ptr array at 0x%08X, bitmask at 0x%08X\n",
                 file_ptr_array, bitmask_array);
 
-        // Dump NI files as raw binaries for asset extraction
-        {
-            char dir[] = "/tmp/lod_assets/ni_files";
-            mkdir(dir, 0755);
-            int dumped = 0;
-            for (int f = 0; f < ni_decompressed_count && f < 1024; f++) {
-                uint32_t ext = ni_decompressed_addrs[f];
-                if (ext == 0) continue;
-                uint32_t phys = ext & 0x7FFFFFFF;
-                // Estimate size from next file's address
-                uint32_t next_phys = 0;
-                for (int g = f + 1; g < ni_decompressed_count && g < 1024; g++) {
-                    if (ni_decompressed_addrs[g] != 0) {
-                        next_phys = ni_decompressed_addrs[g] & 0x7FFFFFFF;
-                        break;
-                    }
-                }
-                uint32_t size = (next_phys > phys) ? (next_phys - phys) : 65536;
-                if (size > 512 * 1024) size = 512 * 1024;
-                char path[128];
-                snprintf(path, sizeof(path), "%s/ni_%03d.bin", dir, f);
-                FILE* nf = fopen(path, "wb");
-                if (nf) {
-                    fwrite(rdram + phys, 1, size, nf);
-                    fclose(nf);
-                    dumped++;
-                }
-            }
-            fprintf(stderr, "[init] Dumped %d NI files to %s/\n", dumped, dir);
-        }
-        // Debug: check file[97] data
-        if (ni_decompressed_addrs[97] != 0) {
-            uint32_t phys = ni_decompressed_addrs[97] & 0x7FFFFFFF;
-            fprintf(stderr, "[init] file[97] at 0x%08X, phys rdram+0x%08X, first 16 bytes:",
-                    ni_decompressed_addrs[97], phys);
-            for (int b = 0; b < 16; b++) fprintf(stderr, " %02X", rdram[phys + b]);
-            fprintf(stderr, "\n");
-        } else {
-            fprintf(stderr, "[init] file[97] NOT loaded (addr=0)\n");
-        }
-    }
-
-    // === Controller Pak detection ===
-    // osContInit writes OSContStatus to rdram+0x80000000 (KSEK0 mirror for data_=0).
-    // But the game reads CONT_CARD_ON from 0x800EFB92 (pad buffer + status offset).
-    // Copy the status byte so the game sees the Controller Pak.
-    {
-        // OSContStatus layout: { u16 type, u8 status, u8 err_no } = 4 bytes per controller
-        // osContInit wrote to KSEK0 mirror: rdram[0x80000002] = status
-        // Force CONT_CARD_ON (0x01) at the game's pad buffer status byte.
-        // osContInit's output goes to the wrong address (KSEK0 mirror + byte-swap).
-        rdram[0x000EFB92] = 0x01; // CONT_CARD_ON
-        // Also set max_controllers for PIF formatter
-        rdram[0x0013EDB1] = 1;
-        fprintf(stderr, "[init] Controller Pak: CONT_CARD_ON → 0x800EFB92, max_controllers=1\n");
-    }
-
-    // === Dummy NI system object ===
-    {
-        constexpr uint32_t ni_sys_ptr_addr = 0x801CAC1C; // sys+0x295C
-        constexpr uint32_t dummy_ni_obj = 0x80310000;
-        constexpr uint32_t dummy_rdram_off = dummy_ni_obj - 0x80000000;
-        memset(rdram + dummy_rdram_off, 0, 256);
-        *(int32_t*)(rdram + (ni_sys_ptr_addr - 0x80000000)) = (int32_t)dummy_ni_obj;
-        fprintf(stderr, "[init] Set sys+0x295C (NI system ptr) = 0x%08X (dummy)\n", dummy_ni_obj);
+        // DO NOT populate file_ptr_array here. The game's DMAMgr (object ID 5,
+        // "obj_decode") must handle NI file loading naturally so that the full
+        // pipeline runs: DMA → decompress → create tracking object → link
+        // completion notification (+0x4C) → figure creation → sub-figure bitmask.
+        // Pre-populating file_ptr_array causes func_80011754 to skip all of this,
+        // leaving ni_desc+0x4C == 0 and stalling the overlay state machine.
+        fprintf(stderr, "[init] NI file_ptr_array NOT pre-populated (letting DMAMgr handle loading)\n");
     }
 
     // === ROM byte-swap mapping ===

@@ -1,5 +1,7 @@
 #include "recomp.h"
 #include "funcs.h"
+#include <stdio.h>
+int pathA_log_n = 0;
 RECOMP_FUNC void func_80001FFC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1772,6 +1774,16 @@ L_80002944:
 
 ;}
 RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
+    { static int d50_n = 0; d50_n++;
+      if (d50_n <= 10) {
+        // MEM_H(obj, 0) reads from ((addr+0)^2) and MEM_HU(obj, 2) from ((addr+2)^2)
+        uint32_t obj_phys = (uint32_t)ctx->r4 - 0x80000000;
+        int16_t id = *(int16_t*)(rdram + (obj_phys ^ 2));       // MEM_H(obj, 0)
+        uint16_t flags = *(uint16_t*)(rdram + ((obj_phys + 2) ^ 2)); // MEM_HU(obj, 2)
+        fprintf(stderr, "[OBJ_PROC] #%d obj=0x%08X id=%d(0x%04X) flags=0x%04X tmpl=%d\n",
+                d50_n, (uint32_t)ctx->r4, id, (uint16_t)id, flags, id & 0x7FF);
+      }
+    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80002950: addiu       $sp, $sp, -0x18
@@ -1832,18 +1844,18 @@ RECOMP_FUNC void func_80002950(uint8_t* rdram, recomp_context* ctx) {
     // 0x800029A0: nop
 
     // Translate N64 segment addresses to overlay vram.
-    // Dynamic overlay sections 4-50 all share vram 0x802E3B70.
-    // overlay_system (section 3) is at 0x801CAEA0.
-    // The overlay slot table determines which is active, but since our bypass
-    // doesn't update it, use the dynamic overlay vram as default.
     {
         uint32_t orig = (uint32_t)ctx->r25;
+        // Log all path A dispatches (limited by pathA_log counter)
+        if (pathA_log_n++ <= 20) {
+            uint32_t obj_addr = (uint32_t)MEM_W(ctx->r29, 0x18);
+            int16_t tmpl = (*(int16_t*)(rdram + ((obj_addr + 0) ^ 2) - 0x80000000)) & 0x7FF;
+            fprintf(stderr, "[PATH_A#%d] tmpl=%d raw_func=0x%08X\n", pathA_log_n, tmpl, orig);
+        }
         if ((orig >> 24) == 0x0F) {
             uint32_t offset = orig & 0x00FFFFFF;
-            // Read current overlay vram from slot 0 at 0x800C15E8
             uint32_t ovl_vram = (uint32_t)MEM_W(S32(0x800C15E8), 0);
             if (ovl_vram == 0 || ovl_vram < 0x80000000) {
-                // Use dynamic overlay vram (all sections 4-50 load here)
                 ovl_vram = 0x802E3B70;
             }
             ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
@@ -1889,6 +1901,10 @@ L_800029B8:
     ctx->r25 = ADD32(ctx->r25, ctx->r13);
     // 0x800029D0: lw          $t9, -0x29C0($t9)
     ctx->r25 = MEM_W(ctx->r25, -0X29C0);
+    { static int pathB_n = 0; pathB_n++;
+      if (pathB_n <= 10) fprintf(stderr, "[DISPATCH_B] #%d tmpl=%d func=0x%08X\n",
+                                  pathB_n, (int)(ctx->r12), (uint32_t)ctx->r25);
+    }
     // 0x800029D4: jalr        $t9
     // 0x800029D8: nop
 
@@ -1898,17 +1914,21 @@ L_800029B8:
         uint32_t ovl_vram = (uint32_t)MEM_W(S32(0x800C15E8), 0);
         if (ovl_vram == 0 || ovl_vram < 0x80000000) ovl_vram = 0x802E3B70;
         ctx->r25 = (gpr)(int32_t)(ovl_vram + offset);
+        { static int xlat_n = 0; xlat_n++;
+          if (xlat_n <= 5) fprintf(stderr, "[DISPATCH_B] translated 0x0F... → 0x%08X\n", (uint32_t)ctx->r25);
+        }
+    }
+    { static int lf_n = 0; lf_n++;
+      if (lf_n <= 5) fprintf(stderr, "[LOOKUP_B] #%d calling LOOKUP_FUNC(0x%08X)\n", lf_n, (uint32_t)ctx->r25);
     }
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+    { static int lf2_n = 0; lf2_n++;
+      if (lf2_n <= 5) fprintf(stderr, "[LOOKUP_B] #%d returned\n", lf2_n);
+    }
         goto after_3;
     // 0x800029D8: nop
 
     after_3:
-    // PATCH: Call func_8001123C (child linked list traversal) after path B too.
-    // On real N64, overlay children in the linked list are traversed here.
-    // Without this, overlay objects (like the Konami logo renderer) never execute.
-    ctx->r4 = MEM_W(ctx->r29, 0X18);  // restore obj ptr from stack
-    func_8001123C(rdram, ctx);
 L_800029DC:
     // 0x800029DC: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);

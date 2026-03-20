@@ -125,9 +125,37 @@ func_80090744              = 0x80090744; // type:func  // frame builder, calls d
 func_8009CA90              = 0x8009CA90; // type:func  // display list builder (returns dl size)
 func_8001A350              = 0x8001A350; // type:func  // called during graphThread init
 
+// Object system (names from CV64 decomp cross-reference, k64ret/cv64)
+GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene via scene_arg
+scene_init                 = 0x800007B0; // type:func  // scene init, writes scene_arg=4, calls scene loader
+object_curLevel_goToNextFunc = 0x80001CE8; // type:func  // advances state schedule
+object_allocate            = 0x8000224C; // type:func  // allocs object struct (bzero 0x74 bytes)
+object_create              = 0x80002410; // type:func  // creates object from template ID
+object_allocEntryInList    = 0x80002808; // type:func  // allocs data in object's alloc_data[] array
+object_free                = 0x80002CE0; // type:func  // default destroy function
+sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
+object_executeChildObject  = 0x80010B84; // type:func  // iterates parent slots, creates child objects
+object_execute             = 0x80010DD4; // type:func  // dispatches object's state function
+sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform data
+
+// Controller Pak / Input
+contpak_init               = 0x800195E0; // type:func  // PADMGR init, calls osContStartReadData
+contpak_statusCheck        = 0x8001CCC0; // type:func  // checks CONT_CARD_ON, sets contpak_uninserted
+contpak_mainLoop           = 0x800196DC; // type:func  // PADMGR loop, reads controllers periodically
+contpak_readPIF            = 0x80098B50; // type:func  // low-level PIF SI DMA read/write
+contpak_formatPIF          = 0x80098C60; // type:func  // formats PIF command buffer for button read
+contpak_parsePIF           = 0x80098BD4; // type:func  // parses PIF response, extracts button data
+
+// NI (Nisitenma-Ichigo) system
+NI_systemInit              = 0x801CB5CC; // type:func  // overlay_system: creates NI file management object
+
 // Key globals
 D_800B0088 = 0x800B0088; // type:data  // "video ready" flag, set to 1 by scheduler on PRE-NMI event
 gDisplayListHead = 0x800CE760; // type:data  // current display list write pointer
+contpak_uninserted = 0x800F2260; // type:data  // byte[4]: per-controller "no pak" flag
+max_controllers = 0x8013EDB1; // type:data  // byte: number of detected controllers
+pif_buffer = 0x8013ED70; // type:data  // 64-byte PIF command/response buffer
+scene_table = 0x800ACFDC; // type:data  // scene descriptor table, 80 bytes per entry
 
 // C Library / Math
 sinf    = 0x80097170; // type:func

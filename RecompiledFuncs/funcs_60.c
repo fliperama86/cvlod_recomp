@@ -3714,17 +3714,6 @@ RECOMP_FUNC void func_801774EC(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = ADD32(ctx->r2, -0X7D40);
     // 0x801774F4: lw          $t6, 0x2B6C($v0)
     ctx->r14 = MEM_W(ctx->r2, 0X2B6C);
-    // PATCH: On first call, sys+0x2B6C may already be set by child object creation.
-    // Clear it so the camera/rendering system gets initialized properly.
-    // The original N64 has this as 0 on first entry to func_801774EC.
-    {
-        static int first_774ec = 0;
-        if (!first_774ec) {
-            first_774ec = 1;
-            MEM_W(ctx->r2, 0X2B6C) = 0;
-            ctx->r14 = 0;
-        }
-    }
     // 0x801774F8: addiu       $sp, $sp, -0x28
     ctx->r29 = ADD32(ctx->r29, -0X28);
     // 0x801774FC: sw          $s0, 0x18($sp)

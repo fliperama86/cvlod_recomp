@@ -1477,15 +1477,6 @@ RECOMP_FUNC void func_8017A600(uint8_t* rdram, recomp_context* ctx) {
     skip_1:
     // 0x8017A628: lw          $t8, 0x2B70($v0)
     ctx->r24 = MEM_W(ctx->r2, 0X2B70);
-    // PATCH: Skip sys+0x2B70 null check. func_8017A790 never uses this pointer —
-    // it only uses sys+0x2B6C. The pointer is set by func_8001A8C4 which is never
-    // called in the recomp. Safe to bypass since the actual work doesn't need it.
-    // Original: if (ctx->r24 == 0) goto L_8017A660;
-    ctx->r24 = 1; // force non-zero
-    goto skip_2;
-    // 0x8017A630: lw          $ra, 0x14($sp)
-    ctx->r31 = MEM_W(ctx->r29, 0X14);
-    skip_2:
     // 0x8017A634: jal         0x8017A790
     // 0x8017A638: nop
 

@@ -1,5 +1,6 @@
 #include "recomp.h"
 #include "funcs.h"
+#include <stdio.h>
 RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -232,6 +233,14 @@ L_80000568:
 
 ;}
 RECOMP_FUNC void func_80000578(uint8_t* rdram, recomp_context* ctx) {
+    // Note: RECOMP_FUNC (extern inline weak) breaks static locals
+    {
+        uint32_t obj_phys = (uint32_t)ctx->r4 - 0x80000000;
+        int32_t scene_arg = *(int32_t*)(rdram + obj_phys + 0x24);
+        // state byte at obj+0x09: MEM_BU reads at (addr+0x09)^3
+        uint8_t state = rdram[(obj_phys + 0x09) ^ 3];
+        fprintf(stderr, "[GSM] scene=%d state=%d\n", scene_arg, state);
+    }
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80000578: addiu       $sp, $sp, -0x28
@@ -357,16 +366,7 @@ L_80000604:
     // 0x80000618: nop
 
     after_2:
-    // PATCH: Create NI system objects BEFORE child creation
-    {
-        static int ni_init = 0;
-        if (!ni_init) {
-            ni_init = 1;
-            func_8001A8C4(rdram, ctx);
-            ctx->r4 = ctx->r16 | 0; // restore a0
-        }
-    }
-    // After func_80010B84 creates children, force the DMAMgr init.
+    //
     // The DMAMgr (object 4) registers itself at 0x800C1600 during its
     // state 0 handler (func_80011D80). This must happen BEFORE the overlay
     // loading in state 1. We dispatch DMAMgr's state 0 manually here.
@@ -420,22 +420,7 @@ L_80000658:
     ctx->r5 = S32(0X801D << 16);
     // 0x8000065C: lw          $a1, -0x7D30($a1)
     ctx->r5 = MEM_W(ctx->r5, -0X7D30);
-    {
-        // PATCH: Force mask to dispatch all children unconditionally.
-        ctx->r5 = (gpr)(int32_t)0xFFFFFFFF;
-        // Clear bit 30 from overlay object entries so DD4 dispatches them.
-        // Bit 30 is set by func_80010B84 for deferred overlay creation.
-        // After creation in func_80010C80, bit 30 should be cleared but isn't.
-        {
-            gpr obase = S32(0x8031AC78);
-            for (int i = 0; i < 16; i++) {
-                uint32_t spec = (uint32_t)MEM_W(obase, 0x34 + i*4);
-                if (spec & 0x40000000) {
-                    MEM_W(obase, 0x34 + i*4) = (int32_t)(spec & ~0x40000000);
-                }
-            }
-        }
-    }
+    // (no patches — let game use its natural dispatch mask)
     // 0x80000660: jal         0x80010DD4
     // 0x80000664: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
