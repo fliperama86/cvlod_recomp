@@ -31,6 +31,7 @@
 - The regen script: saves patches, runs N64Recomp, fixes truncation bugs, re-applies hand-written patches.
 - CV64 decomp (`../references/cv64_decomp/`) is the primary reference for shared engine function names.
 - `tools/match_cv64.py` matches CV64 functions to LoD by instruction fingerprinting (requires both ROMs).
+- **ALWAYS update function names whenever progress is made.** Every debugging session, code trace, or investigation that identifies a `func_XXXXXXXX` must result in a rename. Do not leave identified functions unnamed — name them immediately in `castlevania2.syms.toml` and `symbol_addrs.txt`.
 
 ### Hand-written patches
 - Patches live in `tools/apply_patches.py`, keyed by MIPS VRAM address (never changes across regens).

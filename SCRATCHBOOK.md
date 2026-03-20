@@ -1126,3 +1126,14 @@ Key addresses for investigation:
 - General N64 recomp bring-up pattern: first establish whether failure class is runtime contract, boot/scheduler/event ordering, asset/init state, input/save I/O, or game-side state-machine/object dispatch.
 - Normal long-lived workaround categories in other recomp projects: runtime shims, targeted recompiled-function patches, boot/init ordering fixes, asset/state repopulation after BSS clears, and small fidelity restores for platform services.
 - Current repo still looks primarily like a missing original game-side state/dispatch handoff, not a broad "many syscalls missing" problem.
+
+### 2026-03-20 — Boot sequence clarification (user-confirmed)
+- LoD boots directly into the **save game screen** (scene 4) as its FIRST scene. This differs from CV64 (which starts with Konami logo).
+- Full boot order on real N64:
+  1. Save game screen (create save / continue without saving)
+  2. Konami logo, then KCEK logo
+  3. Expansion Pak screen (high/low resolution selection — requires input)
+  4. Intro movie (real-time rendered cutscene)
+  5. Title screen (game start, options)
+- Scene 4 being the initial scene is **correct and natural** — the game is NOT being forced into scene 4.
+- The `lod_init.cpp` comment "since we boot directly into scene 4" was accurate; it's the game's intended first scene.
