@@ -1340,3 +1340,37 @@ jr    $25                  # jump to table entry
   - But some child objects created by the overlay have `obj+0x10 = 0` (no handler set)
   - Same root cause as pre-NI activation chain issue: game boot sequence doesn't complete full object initialization
   - NOT a data section / overlay loading issue — the overlay code itself works correctly
+
+### 2026-03-20 — Overlay sort bug fix: GAME RENDERS (session 3)
+
+#### Root cause: init_overlays() sort invalidates overlay ID mapping
+- `init_overlays()` sorts `code_sections[]` by ROM address
+- `overlay_sections_by_index[]` was built against pre-sort array indices
+- After sort, `load_overlay_by_id(159)` resolved to the wrong section:
+  - Pre-sort: index 156 → ni_ovl_105 (correct)
+  - Post-sort: index 156 → ni_ovl_052 (wrong — different ROM address order)
+- Result: every NI overlay loaded the wrong code, causing NULL dispatch crashes
+
+#### Fix (in N64ModernRuntime/librecomp/src/overlays.cpp)
+- After sorting, build `index_to_sorted_pos` map from `.index` → new array position
+- Remap all entries in `overlays_info.table[]` through this map
+- Now `load_overlay_by_id()` correctly resolves to the right section
+
+#### Hacks removed
+- **Auto-press A+START** (main.cpp): debug hack that auto-pressed buttons during boot
+- **Bootstrap guard** (lod_init.cpp): forced `0x801CADE4=1` to create overlay_system early
+- **NULL dispatch stub** (overlays.cpp): silently swallowed NULL function pointer calls
+- These were all masking the sort bug — removing them exposed the real crash
+
+#### PRENMI validated
+- Initially removed PRENMI auto-fire (thought it was a hack)
+- Traced LoD's `scheduler_eventHandler`: PRENMI triggers `video_init()` + VI setup
+- Without PRENMI, display never initializes → black screen
+- Restored with corrected comment explaining LoD's use
+
+#### Current state
+- Game boots to "Controller Pak not inserted" screen with rendered graphics
+- Multiple NI overlays load and swap dynamically (pairs 105, 120 observed)
+- No crashes
+- Screen goes black after save dialog dismisses — needs investigation
+- PRENMI fires at retrace 60 — may be auto-advancing the save screen
