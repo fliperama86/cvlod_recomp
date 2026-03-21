@@ -1450,3 +1450,51 @@ jr    $25                  # jump to table entry
 - Possible causes: (1) threading issue — buffer overwritten between write and read, (2) contpak_readPIF's internal SI DMA flow causing extra buffer modifications, (3) the game has a SECOND PIF buffer copy mechanism we haven't traced
 - The MEM_W word write approach places buttons at the correct physical positions for the lwl/lwr + MEM_HU extraction chain. If the buffer contents reach the parser unmodified, buttons should read correctly.
 - Next step: use lldb breakpoint on contpak_parsePIF to dump the PIF buffer (rdram+0x13ED70) while A is pressed, compare to SI_RESP dump
+
+2026-03-21 (continued - PIF parser buffer overrun fix)
+- **Root cause found**: PIF parser ran off end of 64-byte buffer. Byte 63 (position 0x3C via XOR-3)
+  contained `1` from contpak_readPIF's status flag write (`MEM_W(0x3C, pif_base) = 1`).
+  Our parser saw tx=1 at pos=63, read rx/cmd from pos=64-65 (out of bounds!), then wrote
+  a 4-byte button response at off=0x13EDB2 — stomping on `max_controllers` at 0x8013EDB1.
+- **Fix 1**: Changed PIF parse loop bound from `pos < 64` to `pos < 63` (byte 63 = PIF status byte,
+  not a command). Added bounds check: `if (pos + 2 + tx + rx > 64) break;`
+- **Fix 2**: Write `max_controllers` (rdram[0x13EDB2]) unconditionally on every SI DMA READ
+  (not just when zero), since game BSS or other code may clear it.
+- **Result**: contpak_parsePIF now correctly extracts buttons (0x8000 for A), stick, error.
+  Game controller struct at 0x801C87F4 shows held=0x8000 when A pressed.
+- **Previous "err=0x80" was misleading**: The debug printf in funcs_40.c was broken (varargs issue),
+  AND the real problem was max_controllers=0 causing parsePIF to skip all processing.
+  PIF byte order was always correct.
+
+2026-03-21 (continued - Input bypass, save screen skip, expansion pak screen)
+
+#### Input bypass: contpak_mainLoop override
+- Replaced the game's custom PIF-based input loop with direct runtime callbacks.
+- `contpak_mainLoop_recomp` calls `get_n64_input()` directly and writes to the game's
+  controller struct at 0x801C87F4 (14 bytes per controller), matching the cv64 Controller layout.
+- This is the same approach used by every other N64 recomp project (Zelda, Banjo, MK64, etc.).
+- Also overrode `contpak_is_plug_recomp`, `contpak_get_inserted_status_recomp`,
+  `contpak_check_rumble_pak_recomp` to bypass PIF protocol for pak detection.
+
+#### Save screen stuck — root cause
+- LoD uses Controller Pak ONLY for saving (save type 0 in ROM database — no EEPROM).
+- With no virtual Controller Pak implementation, the game's save screen loops indefinitely.
+- The "abnormality" screen loop is NOT an input issue — input reaches the game controller struct.
+- The game's save overlay state machine requires pak filesystem operations to proceed.
+- No other N64 recomp project implements virtual Controller Pak (all use EEPROM/Flash).
+
+#### Gamestate skip workaround
+- `try_skip_save_screen()` forces gamestate transition after 30 SI polls.
+- Writes to GameStateMgr at 0x8031AC78: `current_game_state = -1`, `exitingGameState = 1`.
+- Equivalent to calling `gamestate_change(1)` (Konami logo).
+- Game successfully shows: Konami logo → KCEK logo → Expansion Pak screen.
+
+#### Current blocker: Expansion Pak screen crash
+- Overlay pair 104 (0x2840 bytes) loads, osMapTLB maps TWO pages:
+  - idx=0: vaddr=0x0F000000 (standard, handled)
+  - idx=1: vaddr=0x0F002000 (second page, NOT handled — but data already copied)
+- Crash: `Failed to find function at 0xA20B0074` (KSEG1 address = garbage)
+- This is a function pointer in the overlay's data section resolving to invalid data.
+- Likely cause: overlay data section contents mismatch between what the game decompresses
+  at `even_paddr` and what our extended ROM copy provides.
+- Next step: investigate overlay 104 data section, compare game-decompressed vs extended ROM copy.

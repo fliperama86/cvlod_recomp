@@ -11,6 +11,28 @@
 
 #include "recomp.h"
 
+// Force gamestate transition from save screen (4) to Konami logo (1).
+static void try_skip_save_screen(uint8_t* rdram) {
+    static int skip_counter = 0;
+    skip_counter++;
+    if (skip_counter != 30) return;
+
+    // GameStateMgr* at 0x800C1520
+    uint32_t gsm_ptr_phys = 0x0C1520;
+    int32_t gsm_addr = *(int32_t*)(rdram + gsm_ptr_phys);
+    if (gsm_addr == 0) return;
+
+    uint32_t gsm_phys = (uint32_t)gsm_addr & 0x1FFFFFFF;
+    int32_t cur_state = *(int32_t*)(rdram + gsm_phys + 0x24);
+
+    fprintf(stderr, "[SKIP_SAVE] gsm=0x%08X cur_state=%d, forcing transition to gamestate 1\n",
+            gsm_addr, cur_state);
+
+    // gamestate_change(1): current_game_state = -1, exitingGameState = 1
+    *(int32_t*)(rdram + gsm_phys + 0x24) = -1;
+    *(int16_t*)(rdram + ((gsm_phys + 0x06) ^ 2)) = 1;
+}
+
 extern "C" {
 
 void __osDequeueThread_recomp(uint8_t* rdram, recomp_context* ctx) {}
@@ -67,10 +89,9 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         // PIF READ: populate response buffer with controller data.
         uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
 
-        // Ensure max_controllers is set (game reads from RDRAM, not C++ variable)
-        if (rdram[0x13EDB1 ^ 3] == 0) {
-            rdram[0x13EDB1 ^ 3] = 1;
-        }
+        // Ensure max_controllers is set (game reads from RDRAM at 0x8013EDB1).
+        // MEM_BU(0x8013EDB1) → rdram[0x13EDB1 ^ 3] = rdram[0x13EDB2]
+        rdram[0x13EDB2] = 1;
 
         // Parse the PIF command buffer to determine what the game is asking for.
         // The game uses swl/swr (raw big-endian) to write the PIF buffer, and
@@ -78,7 +99,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         // Parse PIF command buffer using XOR-3 byte access (consistent with
         // game's swl/swr writes and lwl/lwr reads which go through MEM_W).
         int pos = 0;
-        while (pos < 64) {
+        while (pos < 63) {  // PIF buffer is 64 bytes; byte 63 is status, not a command
             uint8_t tx = RD_MEM_B(pif, pos);
             if (tx == 0xFE) break;    // end marker
             if (tx == 0x00) { pos++; continue; } // skip padding
@@ -86,13 +107,14 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
 
             uint8_t rx = RD_MEM_B(pif, pos + 1);
             if (tx == 0 || rx == 0) break;
+            // Bounds check: ensure response fits within PIF buffer
+            if (pos + 2 + tx + rx > 64) break;
 
             uint8_t cmd = RD_MEM_B(pif, pos + 2);
             int response_start = pos + 2 + tx;
 
             if (cmd == 0x00) {
                 // Controller status query: report controller, no pak
-                // Write as native-endian word (same as MEM_W / swl/swr)
                 uint32_t off = (dram_addr & 0x3FFFFF) + response_start;
                 *(int32_t*)(rdram + off) =
                     (int32_t)((0x05 << 24) | (0x00 << 16) | (0x00 << 8) | 0x00);
@@ -113,6 +135,11 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
             }
             pos += 2 + tx + rx;
         }
+    }
+
+    // Try to skip past the save screen after it's been running a while
+    if (direction == 0) {
+        try_skip_save_screen(rdram);
     }
 
     // Send SI completion message so the game doesn't hang waiting for SI DMA.
@@ -166,6 +193,69 @@ void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {
     rdram[0x0013EDB1 ^ 3] = 1; // 1 controller connected (byte-swapped)
 
 }
+// Override the game's custom PIF-based input loop with direct runtime callbacks.
+// This is how every other N64 recomp project handles input — bypass PIF emulation
+// and use the runtime's poll_input() / get_input() callbacks directly.
+//
+// Game controller struct at 0x801C87F4, 14 (0xE) bytes per controller:
+//   +0x00: u16 (connection/misc)
+//   +0x02: u16 btns_held
+//   +0x04: u16 btns_pressed (accumulated, cleared by game)
+//   +0x06: s16 joy_x
+//   +0x08: s16 joy_y
+//   +0x0A: u16 btns_pressed2 (accumulated, cleared by game)
+//   +0x0C: s16 (angle/duration)
+void contpak_mainLoop_recomp(uint8_t* rdram, recomp_context* ctx) {
+    constexpr uint32_t CTRL_BASE = 0x801C87F4;
+    constexpr int CTRL_STRIDE = 0x0E;
+    constexpr int NUM_CONTROLLERS = 4;
+
+    for (int c = 0; c < NUM_CONTROLLERS; c++) {
+        uint16_t buttons = 0;
+        float x = 0.0f, y = 0.0f;
+
+        bool connected = get_n64_input(c, &buttons, &x, &y);
+
+        // KSEG0 address of this controller's struct
+        gpr base = (gpr)(int32_t)(CTRL_BASE + c * CTRL_STRIDE);
+
+        // Read previous held state
+        uint16_t prev_held = (uint16_t)MEM_HU(0x02, base);
+        uint16_t prev_pressed = (uint16_t)MEM_HU(0x04, base);
+
+        // Newly pressed = buttons that weren't held last frame
+        uint16_t newly_pressed = (prev_held ^ buttons) & buttons;
+
+        // Write held buttons
+        MEM_H(0x02, base) = (int16_t)buttons;
+        // Accumulate pressed (game clears this when it processes)
+        MEM_H(0x04, base) = (int16_t)(prev_pressed | newly_pressed);
+
+        // Stick values: convert float -1..1 to int8 -80..80, then to s16
+        int8_t sx = (int8_t)(x * 80.0f);
+        int8_t sy = (int8_t)(y * 80.0f);
+        MEM_H(0x06, base) = (int16_t)sx;
+        MEM_H(0x08, base) = (int16_t)sy;
+
+        // Generate D-pad-like flags from stick position (dead zone = ±40)
+        uint16_t stick_flags = 0;
+        if (sx < -40) stick_flags |= 0x0200; // left
+        if (sx > 40)  stick_flags |= 0x0100; // right
+        if (sy > 40)  stick_flags |= 0x0800; // up
+        if (sy < -40) stick_flags |= 0x0400; // down
+
+        uint16_t prev_pressed2 = (uint16_t)MEM_HU(0x0A, base);
+        uint16_t prev_stick_flags = (prev_pressed2 & 0x0F00);
+        uint16_t new_stick = (prev_stick_flags ^ stick_flags) & stick_flags;
+        MEM_H(0x0A, base) = (int16_t)(prev_pressed2 | new_stick);
+    }
+
+    // Send SI completion message so osRecvMesg in the game's input path doesn't block
+    if (ultramodern::is_game_started()) {
+        ultramodern::send_si_message();
+    }
+}
+
 void __osPackRequestData_recomp(uint8_t* rdram, recomp_context* ctx) {
     // __osPackRequestData(u8 cmd) — formats __osContPifRam for a PIF command.
     // cmd = $a0 (0x00 = status query, 0x01 = read buttons, etc.)
@@ -204,6 +294,35 @@ void __osPiRawWriteIo_recomp(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)(int64_t)-1;
 }
 void __osPfsCheckRamArea_recomp(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = 1; // PFS_ERR_NOPACK
+}
+
+// Override game's contpak_is_plug to bypass PIF protocol entirely.
+// Returns 0 (success) and writes bitpattern=0 (no paks) via $a0 pointer.
+void contpak_is_plug_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // a0 = bitpattern output pointer (u8*)
+    uint32_t bp_addr = (uint32_t)ctx->r5;
+    if (bp_addr != 0) {
+        uint32_t phys = bp_addr & 0x1FFFFFFF;
+        rdram[phys ^ 3] = 0x00; // no paks on any controller
+    }
+    ctx->r2 = 0; // success
+}
+
+// Override contpak_get_inserted_status: set all controllers as "not inserted"
+// without going through PIF/SI DMA.
+void contpak_get_inserted_status_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // contpak_uninserted[] at 0x800F0000 + 0x2260 = 0x800F2260
+    // Each entry is 1 byte, indexed by controller number
+    for (int c = 0; c < 4; c++) {
+        uint32_t addr = 0x800F2260 + c;
+        uint32_t phys = addr & 0x1FFFFFFF;
+        rdram[phys ^ 3] = 1; // not inserted
+    }
+}
+
+// Override contpak_check_rumble_pak: no pak present
+void contpak_check_rumble_pak_recomp(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = 1; // PFS_ERR_NOPACK
 }
 void __f_to_ull_recomp(uint8_t* rdram, recomp_context* ctx) {}
