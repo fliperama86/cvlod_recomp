@@ -49,43 +49,70 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     #define WR_MEM_B(base, offset, val) (base)[(offset) ^ 3] = (uint8_t)(val)
 
     if (direction == 1 && dram_addr != 0) {
+        // PIF WRITE: game sends command buffer. If empty, format a button read.
         uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
-        if (RD_MEM_B(pif, 0) == 0x00 || RD_MEM_B(pif, 3) == 0xFE) {
-            // Format a PIF button read command for controller 0
-            WR_MEM_B(pif, 0, 0x01); // TX count
-            WR_MEM_B(pif, 1, 0x04); // RX count
-            WR_MEM_B(pif, 2, 0x01); // command: read buttons
-            WR_MEM_B(pif, 3, 0x00); // buttons_hi (filled on READ)
-            WR_MEM_B(pif, 4, 0x00); // buttons_lo
-            WR_MEM_B(pif, 5, 0x00); // stick_x
-            WR_MEM_B(pif, 6, 0x00); // stick_y
-            WR_MEM_B(pif, 7, 0xFE); // end
+        if (RD_MEM_B(pif, 0) == 0x00 || RD_MEM_B(pif, 0) == 0xFE) {
+            WR_MEM_B(pif, 0, 0xFF); // channel separator
+            WR_MEM_B(pif, 1, 0x01); // TX count
+            WR_MEM_B(pif, 2, 0x04); // RX count
+            WR_MEM_B(pif, 3, 0x01); // command: read buttons
+            WR_MEM_B(pif, 4, 0x00); // buttons_hi (filled on READ)
+            WR_MEM_B(pif, 5, 0x00); // buttons_lo
+            WR_MEM_B(pif, 6, 0x00); // stick_x
+            WR_MEM_B(pif, 7, 0xFE); // end marker
         }
     }
 
     if (direction == 0 && dram_addr != 0) {
         // PIF READ: populate response buffer with controller data.
-        // contpak_parsePIF reads 8 bytes per controller via lwl/lwr (MEM_W),
-        // then extracts buttons from bytes 4-5, stick from 6-7.
-        uint16_t buttons = 0;
-        float x = 0.0f, y = 0.0f;
-        get_n64_input(0, &buttons, &x, &y);
+        uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
 
         // Ensure max_controllers is set (game reads from RDRAM, not C++ variable)
         if (rdram[0x13EDB1 ^ 3] == 0) {
             rdram[0x13EDB1 ^ 3] = 1;
         }
 
-        // Write PIF response using MEM_B-compatible byte order (XOR 3).
-        uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
-        WR_MEM_B(pif, 0, 0x01);  // TX count
-        WR_MEM_B(pif, 1, 0x04);  // RX count
-        WR_MEM_B(pif, 2, 0x00);  // status (no error)
-        WR_MEM_B(pif, 3, 0x01);  // command
-        WR_MEM_B(pif, 4, (buttons >> 8) & 0xFF);
-        WR_MEM_B(pif, 5, buttons & 0xFF);
-        WR_MEM_B(pif, 6, (int8_t)(x * 127));
-        WR_MEM_B(pif, 7, (int8_t)(y * 127));
+        // Parse the PIF command buffer to determine what the game is asking for.
+        // The game uses swl/swr (raw big-endian) to write the PIF buffer, and
+        // lwl/lwr to read it. These bypass XOR-3. So we use DIRECT byte access.
+        // Parse PIF command buffer using XOR-3 byte access (consistent with
+        // game's swl/swr writes and lwl/lwr reads which go through MEM_W).
+        int pos = 0;
+        while (pos < 64) {
+            uint8_t tx = RD_MEM_B(pif, pos);
+            if (tx == 0xFE) break;    // end marker
+            if (tx == 0x00) { pos++; continue; } // skip padding
+            if (tx == 0xFF) { pos++; continue; } // skip separator
+
+            uint8_t rx = RD_MEM_B(pif, pos + 1);
+            if (tx == 0 || rx == 0) break;
+
+            uint8_t cmd = RD_MEM_B(pif, pos + 2);
+            int response_start = pos + 2 + tx;
+
+            if (cmd == 0x00) {
+                // Controller status query: report controller, no pak
+                // Write as native-endian word (same as MEM_W / swl/swr)
+                uint32_t off = (dram_addr & 0x3FFFFF) + response_start;
+                *(int32_t*)(rdram + off) =
+                    (int32_t)((0x05 << 24) | (0x00 << 16) | (0x00 << 8) | 0x00);
+            } else if (cmd == 0x01) {
+                // Read buttons — write as native-endian word (MEM_W format)
+                uint16_t buttons = 0;
+                float x = 0.0f, y = 0.0f;
+                get_n64_input(0, &buttons, &x, &y);
+                uint8_t sx = (uint8_t)(int8_t)(x * 127);
+                uint8_t sy = (uint8_t)(int8_t)(y * 127);
+                uint32_t off = (dram_addr & 0x3FFFFF) + response_start;
+                *(int32_t*)(rdram + off) =
+                    (int32_t)(((buttons >> 8) << 24) | ((buttons & 0xFF) << 16) |
+                              (sy << 8) | sx);
+            } else if (cmd == 0x02 || cmd == 0x03) {
+                // Controller Pak read/write: set error flag
+                WR_MEM_B(pif, pos + 1, rx | 0x80);
+            }
+            pos += 2 + tx + rx;
+        }
     }
 
     // Send SI completion message so the game doesn't hang waiting for SI DMA.
@@ -96,41 +123,89 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     }
     ctx->r2 = 0; // return success
 }
+extern "C" s32 osContSetCh(uint8_t* rdram, uint8_t ch);
+
 void __osContGetInitData_recomp(uint8_t* rdram, recomp_context* ctx) {
     // void __osContGetInitData(u8* bitpattern, OSContStatus* data)
     // bitpattern = $a0, data = $a1
     // Populate controller detection data: report controller 0 as connected.
+
+    // Set the runtime's max_controllers so osContGetReadData works.
+    // LoD bypasses osContInit, so the runtime never learns about controllers.
+    osContSetCh(rdram, 1);
+
     uint32_t pattern_addr = (uint32_t)ctx->r4 & 0x3FFFFF;
     uint32_t data_addr = (uint32_t)ctx->r5 & 0x3FFFFF;
 
+    // Use byte-swapped writes (XOR 3) to match how recompiled code reads via MEM_B/MEM_H.
+    #define WR_B(addr, val) rdram[(addr) ^ 3] = (uint8_t)(val)
     if (pattern_addr < 0x800000) {
-        rdram[pattern_addr] = 0x01; // bit 0 = controller 0 connected
+        WR_B(pattern_addr, 0x01); // bit 0 = controller 0 connected
     }
     if (data_addr < 0x800000) {
-        // OSContStatus: { u16 type, u8 status, u8 err_no }
-        *(uint16_t*)(rdram + data_addr) = 0x0005; // CONT_TYPE_NORMAL
-        rdram[data_addr + 2] = 0x00;
-        rdram[data_addr + 3] = 0x00; // success
+        // OSContStatus per controller: { u16 type, u8 status, u8 err_no } = 4 bytes
+        // Controller 0: type=0x0005, status=0x00 (no pak), err_no=0x00
+        WR_B(data_addr + 0, 0x00); // type high byte
+        WR_B(data_addr + 1, 0x05); // type low byte (CONT_TYPE_NORMAL)
+        WR_B(data_addr + 2, 0x00); // status: 0 = no pak
+        WR_B(data_addr + 3, 0x00); // err_no: success
+        // Controllers 1-3: no response
         for (int c = 1; c < 4; c++) {
-            *(uint16_t*)(rdram + data_addr + c * 4) = 0;
-            rdram[data_addr + c * 4 + 2] = 0;
-            rdram[data_addr + c * 4 + 3] = 0x08; // no response
+            WR_B(data_addr + c * 4 + 0, 0x00);
+            WR_B(data_addr + c * 4 + 1, 0x00);
+            WR_B(data_addr + c * 4 + 2, 0x00);
+            WR_B(data_addr + c * 4 + 3, 0x08); // CONT_NO_RESPONSE_ERROR
         }
     }
+    #undef WR_B
 
     // CRITICAL: Also set the game's internal max_controllers at 0x8013EDB1.
     // The PIF command formatter (func_80098C60) and response parser (func_80098BD4)
     // both read this byte. Without it, they skip all controller data.
     // 0x80140000 - 0x124F = 0x8013EDB1
-    rdram[0x0013EDB1] = 1; // 1 controller connected
+    rdram[0x0013EDB1 ^ 3] = 1; // 1 controller connected (byte-swapped)
 
-    fprintf(stderr, "[CONT] __osContGetInitData: pattern=0x%02X, max_controllers=1 at 0x0013EDB1\n",
-            pattern_addr < 0x800000 ? rdram[pattern_addr] : 0);
 }
-void __osPackRequestData_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __osPiRawReadIo_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __osPiRawWriteIo_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __osPfsCheckRamArea_recomp(uint8_t* rdram, recomp_context* ctx) {}
+void __osPackRequestData_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // __osPackRequestData(u8 cmd) — formats __osContPifRam for a PIF command.
+    // cmd = $a0 (0x00 = status query, 0x01 = read buttons, etc.)
+    // Format the PIF buffer at 0x8013ED70 so __osSiRawStartDma READ can parse it.
+    uint8_t cmd = (uint8_t)ctx->r4;
+
+    // PIF buffer uses XOR-3 byte access (consistent with MEM_W/swl/swr).
+    uint8_t* pif = &rdram[0x13ED70];
+    if (cmd == 0x00) {
+        // Status query: [sep][TX=1][RX=3][cmd=0x00][type_hi][type_lo][status][end]
+        WR_MEM_B(pif, 0, 0xFF);
+        WR_MEM_B(pif, 1, 0x01);
+        WR_MEM_B(pif, 2, 0x03);
+        WR_MEM_B(pif, 3, 0x00);
+        WR_MEM_B(pif, 4, 0x00);
+        WR_MEM_B(pif, 5, 0x00);
+        WR_MEM_B(pif, 6, 0x00);
+        WR_MEM_B(pif, 7, 0xFE);
+    } else if (cmd == 0x01) {
+        // Read buttons: [sep][TX=1][RX=4][cmd=0x01][btn_hi][btn_lo][stick_x][stick_y]
+        WR_MEM_B(pif, 0, 0xFF);
+        WR_MEM_B(pif, 1, 0x01);
+        WR_MEM_B(pif, 2, 0x04);
+        WR_MEM_B(pif, 3, 0x01);
+        WR_MEM_B(pif, 4, 0x00);
+        WR_MEM_B(pif, 5, 0x00);
+        WR_MEM_B(pif, 6, 0x00);
+        WR_MEM_B(pif, 7, 0x00);
+    }
+    ctx->r2 = 0;
+}
+void __osPiRawReadIo_recomp(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = (uint64_t)(int64_t)-1;
+}
+void __osPiRawWriteIo_recomp(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = (uint64_t)(int64_t)-1;
+}
+void __osPfsCheckRamArea_recomp(uint8_t* rdram, recomp_context* ctx) {
+    ctx->r2 = 1; // PFS_ERR_NOPACK
+}
 void __f_to_ull_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void osPiGetCmdQueue_recomp(uint8_t* rdram, recomp_context* ctx) {}
 

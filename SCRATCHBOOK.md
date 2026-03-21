@@ -1419,3 +1419,34 @@ jr    $25                  # jump to table entry
 - Added `backups/` and `**/build_tool/` to .gitignore.
 - Updated AGENTS.md with critical rules: never run N64Recomp directly, never modify submodule source, never create local builds.
 - Verified end-to-end: copied project to lod_test/, wiped RecompiledFuncs, ran regen_recomp.sh from scratch → build → run → overlays load, no crash. Pipeline is reproducible.
+
+2026-03-21 (continued)
+- Fixed `Failed to find function at 0x0F00086C` crash.
+- Root cause: game stores function pointers in object vtables while overlay A is loaded. When overlay B replaces A at same VRAM (0x0F000000), stale pointers cause lookup failures. The recomp runtime's `func_map` only maps exact function entry addresses.
+- Address `0x0F00086C` falls mid-function inside `ni_ovl_101_func_0F0006B4` (offset 0x6B4, size 0x6B8) — NOT a real function boundary. It's a stale/computed pointer.
+- Fix: modified `get_function()` in `librecomp/src/overlays.cpp` to fall back to range-based lookup when exact match fails. Searches loaded sections for containing function by offset range, caches result in func_map.
+- Verified: 30s run, 2500+ overlay loads, 800+ DLs, zero crashes, RSS stable at 1MB.
+- NI overlay pipeline was already complete (6,261 functions in syms.toml). Previous scratchbook "blocker" about missing functions was stale.
+
+2026-03-21 (continued - Controller Pak / input investigation)
+- Controller Pak abnormality screen: game shows this on boot (normal N64 behavior without pak)
+- Selecting "Proceed without saving" loops back to same screen
+- Root cause 1: runtime max_controllers was 0 (osContInit never called). Fixed with osContSetCh(1) from __osContGetInitData_recomp.
+- Root cause 2: __osPackRequestData_recomp was empty, PIF command buffer never formatted for status queries. Fixed by formatting PIF buffer with proper command template.
+- Root cause 3 (CURRENT BLOCKER): PIF response byte order is wrong. Game's contpak_parsePIF reads buttons as 0x0001 when we write 0x8000. Also err=0x80 (error bit set).
+- Key finding: MEM_W has NO XOR (direct 32-bit native-endian access), MEM_H uses XOR 2, MEM_B uses XOR 3. swl/swr/lwl/lwr use MEM_W internally.
+- Key finding: game has its own PIF format with 0xFF channel separator as byte 0 of each 8-byte controller block, NOT the standard [TX,RX,cmd,...] format.
+- Game reads input through its own contpak_readPIF → contpak_parsePIF pipeline, NOT through runtime's osContGetReadData.
+- Physical PIF buffer layout at 0x30013ED70 (verified with lldb): [01 04 01 FF 00 00 00 00] = LE word 0xFF010401 + response zeros
+- contpak_parsePIF extracts: $sp+6=RX_error_bits, $sp+8=buttons(halfword), $sp+10=stick_x, $sp+11=stick_y
+- Next step: fix PIF response byte positions so contpak_parsePIF sees correct button values. Need to trace exact physical byte positions for btn_hi/btn_lo.
+
+2026-03-21 (continued - PIF byte order investigation)
+- Confirmed physical PIF buffer after SI_RESP: [01 04 01 FF | 00 00 00 80] when A pressed
+- btn_hi (0x80) correctly placed at physical byte 7 via MEM_W native-endian word write
+- But contpak_parsePIF STILL reports btn=0x0000, err=0x80
+- PARSE debug dump in funcs_40.c is broken (dprintf printing 32-bit values for uint8_t args — likely funcs_40.c C file dprintf varargs issue)
+- err=0x80 suggests byte 2 of first PIF word reads as 0x80 instead of 0x04 (RX count) — somehow the game's copy of the buffer is different from what we write
+- Possible causes: (1) threading issue — buffer overwritten between write and read, (2) contpak_readPIF's internal SI DMA flow causing extra buffer modifications, (3) the game has a SECOND PIF buffer copy mechanism we haven't traced
+- The MEM_W word write approach places buttons at the correct physical positions for the lwl/lwr + MEM_HU extraction chain. If the buffer contents reach the parser unmodified, buttons should read correctly.
+- Next step: use lldb breakpoint on contpak_parsePIF to dump the PIF buffer (rdram+0x13ED70) while A is pressed, compare to SI_RESP dump

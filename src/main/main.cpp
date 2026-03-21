@@ -257,7 +257,7 @@ void set_rumble(int, bool) {}
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
     if (controller_num == 0) {
-        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::ControllerPak };
+        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::None };
     }
     return { ultramodern::input::Device::None, ultramodern::input::Pak::None };
 }
