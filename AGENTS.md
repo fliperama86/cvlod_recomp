@@ -39,9 +39,17 @@
 - To add a new patch: add a `@patch("description")` function in `apply_patches.py`.
 - `patches/recompiled_funcs.patch` is a backup diff — the real patches are in `apply_patches.py`.
 
+### RecompiledFuncs regeneration (CRITICAL)
+- **NEVER run N64Recomp directly.** Always use `./tools/regen_recomp.sh`. It verifies binary integrity, backs up before overwriting, fixes truncation bugs, re-applies patches, and fixes cross-function gotos. Running N64Recomp manually skips all of these and will produce broken output.
+- **NEVER modify N64Recomp submodule source** (`lib/N64ModernRuntime/N64Recomp/src/`). Do not build local copies of the tool. The known-good binary is at `../lod_recomp_failed/tools/N64Recomp/build/N64Recomp` and `regen_recomp.sh` verifies its SHA-256 hash before use.
+- **NEVER create `build_tool/` or similar build directories** inside the N64Recomp submodule. This makes the submodule appear dirty and risks using a modified binary.
+- `RecompiledFuncs/` is gitignored — if corrupted, there is no git revert. The only recovery is re-running `regen_recomp.sh` from a clean state.
+- Past incident: a locally-modified N64Recomp binary (turning a fatal error into a warning) was used to regenerate, producing corrupted overlay tables that caused `Failed to find function at 0x3C198000` at runtime.
+
 ### N64Recomp truncation bug
-- N64Recomp crashes on the overlay_system section, truncating `funcs.h`, `recomp_overlays.inl`, and `funcs_102.c`.
+- N64Recomp crashes on the overlay_system section, truncating `funcs.h`, `recomp_overlays.inl`, and the last `.c` file being written.
 - `tools/fix_n64recomp_truncation.py` fixes this automatically (called by `regen_recomp.sh`).
+- `tools/ni_ovl/fix_undeclared_labels.py` fixes cross-function gotos (also called by `regen_recomp.sh`).
 
 ### File roles
 | File | Role | Generated? | Tracked? |

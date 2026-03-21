@@ -119,7 +119,7 @@ if [ $DRY_RUN -eq 1 ]; then
 else
     mkdir -p "$(dirname "$BACKUP_PATH")"
     cp -a "$FUNC_DIR" "$BACKUP_PATH"
-    FILE_COUNT=$(ls "$BACKUP_PATH"/*.c 2>/dev/null | wc -l | tr -d ' ')
+    FILE_COUNT=$(find "$BACKUP_PATH" -maxdepth 1 -name '*.c' 2>/dev/null | wc -l | tr -d ' ')
     echo "    Backed up $FILE_COUNT .c files to $BACKUP_PATH"
     # Keep only the 3 most recent backups to avoid bloat
     ls -dt backups/RecompiledFuncs_* 2>/dev/null | tail -n +4 | xargs rm -rf 2>/dev/null || true
@@ -140,7 +140,7 @@ if [ $DRY_RUN -eq 1 ]; then
 else
     "$N64RECOMP" "$RECOMP_TOML" || true  # N64Recomp returns non-zero on overlay_system info msgs
     echo "    Done. Generated files:"
-    ls "$FUNC_DIR/"*.c | wc -l | xargs -I{} echo "      {} .c files"
+    echo "      $(find "$FUNC_DIR" -maxdepth 1 -name '*.c' | wc -l | tr -d ' ') .c files"
 fi
 
 # --- Step 6: Fix N64Recomp truncation bugs ---

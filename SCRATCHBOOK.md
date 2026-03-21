@@ -1410,3 +1410,12 @@ jr    $25                  # jump to table entry
 - Crashes when game logic calls any NI overlay sub-function (offset > 0)
 - Blocker: NI overlay function extraction — need to identify function boundaries within each overlay and add them to syms.toml
 - Approach: auto-detect MIPS function prologues (`addiu $sp, $sp, -N`) in decompressed NI overlay data, add all functions to recomp pipeline
+
+2026-03-21
+- RecompiledFuncs corruption incident: dirty N64Recomp build (modified src/main.cpp, turning fatal error → warning with -1) was used to regenerate, producing corrupted overlay tables. Caused `Failed to find function at 0x3C198000` crash at overlay load.
+- Root cause: `build_tool/` directory in N64Recomp submodule contained a locally-built binary from modified source. The generated output had -1 section indices and truncated entries.
+- Fix: deleted dirty build_tool/, restored N64Recomp source to clean, ran `regen_recomp.sh` with the known-good binary, fixed additional truncation issues (funcs_234.c, funcs.h line without '(', recomp_overlays.inl truncated section 281 entry, cross-function gotos).
+- Safeguards added to `regen_recomp.sh`: SHA-256 binary verification, submodule cleanliness check, timestamped backups (3 retained), cross-function goto fix in pipeline, `find` instead of `ls *.c` (set -e safe).
+- Added `backups/` and `**/build_tool/` to .gitignore.
+- Updated AGENTS.md with critical rules: never run N64Recomp directly, never modify submodule source, never create local builds.
+- Verified end-to-end: copied project to lod_test/, wiped RecompiledFuncs, ran regen_recomp.sh from scratch → build → run → overlays load, no crash. Pipeline is reproducible.
