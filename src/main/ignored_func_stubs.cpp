@@ -44,98 +44,48 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
 
     // On WRITE: if the PIF buffer is empty (no controller commands), format it
     // ourselves with a standard button read command for controller 0.
+    // MEM_B-compatible byte access: rdram[(addr + offset) ^ 3]
+    #define RD_MEM_B(base, offset) (base)[(offset) ^ 3]
+    #define WR_MEM_B(base, offset, val) (base)[(offset) ^ 3] = (uint8_t)(val)
+
     if (direction == 1 && dram_addr != 0) {
-        uint8_t* buf = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
-        // Check if buffer has no valid commands.
-        // NOTE: N64 is big-endian, recomp host is little-endian.
-        // MEM_B(i, addr) reads buf[(i & ~3) | (3 - (i & 3))].
-        // To write logical byte N: buf[N ^ 3] for first word, buf[4 + ((N-4) ^ 3)] for second.
-        #define PIF_BYTE(buf, n) (buf)[((n) & ~3) | (3 - ((n) & 3))]
-        if (PIF_BYTE(buf, 0) == 0x00 || PIF_BYTE(buf, 3) == 0xFE) {
-            // Format a PIF button read for controller 0 (byte-swapped):
-            PIF_BYTE(buf, 0) = 0x01; // TX count
-            PIF_BYTE(buf, 1) = 0x04; // RX count
-            PIF_BYTE(buf, 2) = 0x01; // command: read buttons
-            PIF_BYTE(buf, 3) = 0x00; // buttons_hi (filled on READ)
-            PIF_BYTE(buf, 4) = 0x00; // buttons_lo
-            PIF_BYTE(buf, 5) = 0x00; // stick_x
-            PIF_BYTE(buf, 6) = 0x00; // stick_y
-            PIF_BYTE(buf, 7) = 0xFE; // end
-            if (si_dma_count <= 5) {
-                fprintf(stderr, "[SI_DMA] #%d WRITE: formatted PIF read command for 1 controller\n", si_dma_count);
-            }
+        uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
+        if (RD_MEM_B(pif, 0) == 0x00 || RD_MEM_B(pif, 3) == 0xFE) {
+            // Format a PIF button read command for controller 0
+            WR_MEM_B(pif, 0, 0x01); // TX count
+            WR_MEM_B(pif, 1, 0x04); // RX count
+            WR_MEM_B(pif, 2, 0x01); // command: read buttons
+            WR_MEM_B(pif, 3, 0x00); // buttons_hi (filled on READ)
+            WR_MEM_B(pif, 4, 0x00); // buttons_lo
+            WR_MEM_B(pif, 5, 0x00); // stick_x
+            WR_MEM_B(pif, 6, 0x00); // stick_y
+            WR_MEM_B(pif, 7, 0xFE); // end
         }
     }
 
     if (direction == 0 && dram_addr != 0) {
-        // PIF READ: game wants controller data. Populate the DRAM buffer with
-        // a PIF response containing our keyboard input.
-        //
-        // PIF response format for osContStartReadData (4 controllers):
-        // Each channel: [TX_LEN | RX_LEN | CMD_BYTE | buttons_hi | buttons_lo | stick_x | stick_y]
-        // Followed by padding, total 64 bytes.
-        //
-        // We only populate controller 0. Others get CONT_NO_RESPONSE_ERROR.
-        uint8_t* buf = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
-
-        // Format a minimal PIF response for a controller read command (0x01)
-        // The buffer was previously written with the command by the game (WRITE direction).
-        // We just overwrite the response bytes in-place.
-        //
-        // Standard N64 PIF controller read response layout per channel:
-        //   byte 0: TX count (0x01)
-        //   byte 1: RX count (0x04)
-        //   byte 2: command (0x01 = read buttons)
-        //   byte 3: buttons high byte
-        //   byte 4: buttons low byte
-        //   byte 5: analog stick X (-128 to 127)
-        //   byte 6: analog stick Y (-128 to 127)
-
+        // PIF READ: populate response buffer with controller data.
+        // contpak_parsePIF reads 8 bytes per controller via lwl/lwr (MEM_W),
+        // then extracts buttons from bytes 4-5, stick from 6-7.
         uint16_t buttons = 0;
         float x = 0.0f, y = 0.0f;
         get_n64_input(0, &buttons, &x, &y);
 
-        // Inject controller data into PIF response buffer.
-        // The game may format the buffer with TX=1,RX=4 commands, OR the buffer
-        // may be empty (just 0xFE end marker). Either way, we write a standard
-        // PIF controller read response for channel 0 at the expected offset.
-        //
-        // Try pattern match first; fall back to writing at offset 0 if empty.
-        // Inject controller data using byte-swapped addressing (N64 big-endian).
-        // MEM_B(n) reads buf[(n&~3)|(3-(n&3))], so we write the same way.
-        #ifndef PIF_BYTE
-        #define PIF_BYTE(buf, n) (buf)[((n) & ~3) | (3 - ((n) & 3))]
-        #endif
-        bool injected = false;
-        for (int offset = 0; offset < 64 - 6; offset++) {
-            if (PIF_BYTE(buf, offset) == 0x01 && PIF_BYTE(buf, offset + 1) == 0x04) {
-                PIF_BYTE(buf, offset + 3) = (buttons >> 8) & 0xFF;
-                PIF_BYTE(buf, offset + 4) = buttons & 0xFF;
-                PIF_BYTE(buf, offset + 5) = (int8_t)(x * 127);
-                PIF_BYTE(buf, offset + 6) = (int8_t)(y * 127);
-                injected = true;
-                break;
-            }
+        // Ensure max_controllers is set (game reads from RDRAM, not C++ variable)
+        if (rdram[0x13EDB1 ^ 3] == 0) {
+            rdram[0x13EDB1 ^ 3] = 1;
         }
-        if (!injected) {
-            // Fallback: write complete PIF response at offset 0
-            PIF_BYTE(buf, 0) = 0x01;
-            PIF_BYTE(buf, 1) = 0x04;
-            PIF_BYTE(buf, 2) = 0x01;
-            PIF_BYTE(buf, 3) = (buttons >> 8) & 0xFF;
-            PIF_BYTE(buf, 4) = buttons & 0xFF;
-            PIF_BYTE(buf, 5) = (int8_t)(x * 127);
-            PIF_BYTE(buf, 6) = (int8_t)(y * 127);
-            PIF_BYTE(buf, 7) = 0xFE;
-            injected = true;
-        }
-        if (injected && (si_dma_count <= 5)) {
-            fprintf(stderr, "[SI_DMA] #%d PIF inject: buttons=0x%04X raw:", si_dma_count, buttons);
-            for (int b = 0; b < 8; b++) fprintf(stderr, " %02X", buf[b]);
-            fprintf(stderr, " logical:");
-            for (int b = 0; b < 8; b++) fprintf(stderr, " %02X", PIF_BYTE(buf, b));
-            fprintf(stderr, "\n");
-        }
+
+        // Write PIF response using MEM_B-compatible byte order (XOR 3).
+        uint8_t* pif = &rdram[(uint64_t)(dram_addr & 0x3FFFFFFF)];
+        WR_MEM_B(pif, 0, 0x01);  // TX count
+        WR_MEM_B(pif, 1, 0x04);  // RX count
+        WR_MEM_B(pif, 2, 0x00);  // status (no error)
+        WR_MEM_B(pif, 3, 0x01);  // command
+        WR_MEM_B(pif, 4, (buttons >> 8) & 0xFF);
+        WR_MEM_B(pif, 5, buttons & 0xFF);
+        WR_MEM_B(pif, 6, (int8_t)(x * 127));
+        WR_MEM_B(pif, 7, (int8_t)(y * 127));
     }
 
     // Send SI completion message so the game doesn't hang waiting for SI DMA.

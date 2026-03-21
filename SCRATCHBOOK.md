@@ -1368,9 +1368,45 @@ jr    $25                  # jump to table entry
 - Without PRENMI, display never initializes → black screen
 - Restored with corrected comment explaining LoD's use
 
-#### Current state
+#### Current state (end of session 3)
 - Game boots to "Controller Pak not inserted" screen with rendered graphics
-- Multiple NI overlays load and swap dynamically (pairs 105, 120 observed)
-- No crashes
+- Multiple NI overlays load and swap dynamically (pairs 105, 120, 101 observed)
+- No crashes during idle
 - Screen goes black after save dialog dismisses — needs investigation
 - PRENMI fires at retrace 60 — may be auto-advancing the save screen
+
+### 2026-03-20 — PRENMI removal, input fix, NI function gap (session 4)
+
+#### PRENMI auto-fire removed
+- Removed the `prenmi_delay >= 60` auto-fire hack from events.cpp
+- Game still renders the save screen — PRENMI was NOT needed for video init
+- The save screen appeared because the game's normal boot path works now
+- Previous sessions added PRENMI because the overlay sort bug prevented the game from reaching video init naturally
+
+#### Input fix: max_controllers not set in RDRAM
+- Input was detected (buttons logged correctly) but game never responded
+- Root cause: `contpak_parsePIF` reads `max_controllers` from RDRAM at `0x8013EDB1`
+- The runtime's `osContInit` override sets a C++ variable but NOT the RDRAM byte
+- Our `__osContGetInitData_recomp` was supposed to set it, but was never called (runtime overrides the call chain)
+- Fix: set `rdram[0x13EDB1 ^ 3] = 1` in `__osSiRawStartDma_recomp` on first READ
+- Result: game accepts keyboard input, save screen responds to A button (Enter)
+
+#### PIF buffer byte order
+- Investigated PIF_BYTE macro vs MEM_B XOR-3 pattern — they're actually identical
+- PIF response format: TX(1), RX(4), status(0), CMD(1), btn_hi, btn_lo, stick_x, stick_y
+- The parser reads 8 bytes per controller via lwl/lwr → MEM_W, then extracts buttons via MEM_HU
+- Byte ordering is correct — the issue was always max_controllers being 0
+
+#### New crash: NI overlay internal functions not registered
+- After pressing A on save screen, game progresses then crashes at `0x0F00086C`
+- This is offset `0x86C` into the current NI overlay — an internal sub-function
+- **All 245 NI overlays have only 1 function registered each** (entry point at offset 0x0)
+- NI overlays contain many internal functions (e.g., ni_ovl_004 is 0x27210 bytes with dozens of sub-functions)
+- None of these internal functions were extracted by the recompilation pipeline
+- The N64Recomp syms.toml needs to define ALL functions within each NI overlay, not just the entry point
+
+#### Current state
+- Game boots, renders save screen, accepts keyboard input
+- Crashes when game logic calls any NI overlay sub-function (offset > 0)
+- Blocker: NI overlay function extraction — need to identify function boundaries within each overlay and add them to syms.toml
+- Approach: auto-detect MIPS function prologues (`addiu $sp, $sp, -N`) in decompressed NI overlay data, add all functions to recomp pipeline
