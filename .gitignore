@@ -20,3 +20,9 @@ undefined_syms_auto.txt
 
 # N64Recomp generated output (regenerated from ROM + config)
 RecompiledFuncs/
+
+# RecompiledFuncs backups (created by regen_recomp.sh)
+backups/
+
+# Local N64Recomp builds (use the known-good binary instead)
+**/build_tool/

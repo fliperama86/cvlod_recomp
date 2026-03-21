@@ -50,15 +50,18 @@ def fix_funcs_h():
         for fn in missing:
             content += f"void {fn}(uint8_t* rdram, recomp_context* ctx);\n"
 
-    # Fix any truncated declaration lines (ending mid-type like "recom" instead of full signature)
+    # Fix any truncated declaration lines (ending mid-type or truncated before '(')
     lines = content.rstrip().split('\n')
     fixed_lines = []
     for line in lines:
         stripped = line.rstrip()
-        if stripped and 'void ' in stripped and '(' in stripped and not stripped.endswith(';') and not stripped.endswith('{'):
-            # Truncated mid-declaration — complete it
-            if 'recomp_context' not in stripped:
+        if stripped and stripped.startswith('void ') and not stripped.endswith(';') and not stripped.endswith('{'):
+            if '(' in stripped and 'recomp_context' not in stripped:
+                # Truncated mid-declaration after '(' — complete it
                 line = re.sub(r'\(uint8_t\*\s*rdram,\s*recom.*$', '(uint8_t* rdram, recomp_context* ctx);', line)
+            elif '(' not in stripped:
+                # Truncated before '(' (e.g. "void static_12") — remove line
+                continue
         fixed_lines.append(line)
     content = '\n'.join(fixed_lines) + '\n'
 
