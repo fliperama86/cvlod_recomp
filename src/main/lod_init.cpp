@@ -256,18 +256,7 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[init] NI file_ptr_array NOT pre-populated (letting DMAMgr handle loading)\n");
     }
 
-    // === Bootstrap overlay_system (NI system) ===
-    // The overlay_system object (type 0x1AB) is normally created in earlier scenes
-    // (title screen etc.) and persists across scene transitions. Since we boot directly
-    // into scene 4, we need to ensure it gets created.
-    //
-    // func_8001BA78 creates the overlay_system but guards on sys+0x2B24 != 0.
-    // We set the guard here; the actual creation is triggered from func_80000578
-    // (GSM handler) on the first dispatch.
-    {
-        constexpr uint32_t guard_addr = 0x801CADE4; // sys+0x2B24
-        *(uint32_t*)(rdram + (guard_addr - 0x80000000)) = 1;
-    }
+
 
     // === ROM byte-swap mapping ===
     // Map the original 16MB ROM (byte-swapped) to rdram+0x10000000.

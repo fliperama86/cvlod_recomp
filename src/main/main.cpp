@@ -249,16 +249,6 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_A]) *x -= 1.0f;
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
-    // DEBUG: Auto-press A to advance past save screen.
-    // Input polling stops after ~3 calls during boot. Must inject immediately.
-    // Alternate: press A, release, press A, release (for transition detection).
-    {
-        static int press_n = 0; press_n++;
-        if (press_n % 2 == 0) *buttons |= 0x9000; // A + START on even calls
-        if (press_n <= 10) {
-            fprintf(stderr, "[INPUT] call #%d buttons=0x%04X\n", press_n, *buttons);
-        }
-    }
 
     return true;
 }
