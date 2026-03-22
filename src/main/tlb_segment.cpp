@@ -49,8 +49,20 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // This copies full overlay data from extended ROM to the segment region.
     // We must skip the normal TLB copy below to avoid overwriting with the
     // small decompressed blob.
-    ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
-    if (vaddr == 0x0F000000 || vaddr == 0x0E000000) {
+    //
+    // Multi-page overlays generate MULTIPLE TLB entries (e.g., 0x0F000000
+    // and 0x0F002000). Only the first entry triggers the overlay loader.
+    // Subsequent entries within the same region must also skip the normal
+    // TLB copy, since copy_overlay_data_to_segment already wrote the full
+    // overlay data. Without this, the normal handler overwrites the data
+    // section with raw game-decompressed bytes (potentially wrong format).
+    bool is_ovl_0f = (vaddr >= 0x0F000000 && vaddr < 0x0F010000);
+    bool is_ovl_0e = (vaddr >= 0x0E000000 && vaddr < 0x0E010000);
+    if (is_ovl_0f || is_ovl_0e) {
+        // Only trigger overlay load on the base address
+        if (vaddr == 0x0F000000 || vaddr == 0x0E000000) {
+            ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
+        }
         // Save mapping info but skip data copy — overlay loader already populated
         uint32_t mf = (page_mask >> 13) & 0xFFF;
         uint32_t ps = (mf + 1) * 4096;

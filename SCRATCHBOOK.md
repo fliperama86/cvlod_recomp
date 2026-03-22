@@ -1489,12 +1489,31 @@ jr    $25                  # jump to table entry
 - Equivalent to calling `gamestate_change(1)` (Konami logo).
 - Game successfully shows: Konami logo → KCEK logo → Expansion Pak screen.
 
-#### Current blocker: Expansion Pak screen crash
-- Overlay pair 104 (0x2840 bytes) loads, osMapTLB maps TWO pages:
-  - idx=0: vaddr=0x0F000000 (standard, handled)
-  - idx=1: vaddr=0x0F002000 (second page, NOT handled — but data already copied)
-- Crash: `Failed to find function at 0xA20B0074` (KSEG1 address = garbage)
-- This is a function pointer in the overlay's data section resolving to invalid data.
-- Likely cause: overlay data section contents mismatch between what the game decompresses
-  at `even_paddr` and what our extended ROM copy provides.
-- Next step: investigate overlay 104 data section, compare game-decompressed vs extended ROM copy.
+#### RESOLVED: Expansion Pak screen crash
+
+**Root cause: TLB multi-page overlay overwrite.**
+Overlay pair 104 is 0x2840 bytes (>8KB), requiring TWO TLB entries. The TLB handler
+only checked `vaddr == 0x0F000000` exactly. The second entry at `vaddr == 0x0F002000`
+fell through to the normal TLB handler, which `memcpy`'d raw game-decompressed data
+from physical RDRAM to the segment region — overwriting the overlay's data section
+(at offset 0x2680, in the third 4K page) with stale framebuffer addresses.
+The value 0xA20B0074 was a KSEG1 framebuffer address (physical 0x020B0074, near
+VI_ORIGIN values like 0x200280) left over in the decompression heap.
+
+**Diagnosis method:**
+1. Python analysis of extended ROM confirmed 0xA20B0074 is NOT in overlay 104's data section
+   (all function pointers are valid 0x0F00XXXX). The corruption was injected at runtime.
+2. Address arithmetic confirmed osMemSize and IPL3 variables survive init (no overlap).
+3. Gamestate table dump (base 0x800AD020, 80 bytes/entry) revealed boot flow and
+   that gs=1 (Konami logo) is required for graphics pipeline initialization.
+
+**Fixes applied:**
+1. `tlb_segment.cpp`: Expanded TLB check from `== 0x0F000000` to
+   `>= 0x0F000000 && < 0x0F010000` (same for 0x0E). Only the base address triggers
+   the overlay loader; subsequent pages skip the copy.
+2. `ignored_func_stubs.cpp`: Refined boot screen skip:
+   - gs=4 (save screen) → gs=1 (Konami logo, needed for graphics init)
+   - gs=12 (expansion pak) → gs=6 (title screen)
+   - gs=5 (KCEK/intro) → gs=6 (title screen)
+
+**Result:** 1500+ DLs in 45s, zero warnings, zero crashes. Title screen reached.

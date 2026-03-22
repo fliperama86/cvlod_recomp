@@ -11,12 +11,11 @@
 
 #include "recomp.h"
 
-// Force gamestate transition from save screen (4) to Konami logo (1).
-static void try_skip_save_screen(uint8_t* rdram) {
-    static int skip_counter = 0;
-    skip_counter++;
-    if (skip_counter != 30) return;
-
+// Force gamestate transitions to skip non-essential boot screens.
+// The game's boot flow is: gs=4 (save) → gs=1 (Konami) → gs=12 (expansion pak)
+// → gs=5 (KCEK/intro) → gs=6 (title). We need to go through gs=1 (Konami logo)
+// because it initializes the graphics pipeline. Then skip gs=12 and gs=5.
+static void try_skip_boot_screens(uint8_t* rdram) {
     // GameStateMgr* at 0x800C1520
     uint32_t gsm_ptr_phys = 0x0C1520;
     int32_t gsm_addr = *(int32_t*)(rdram + gsm_ptr_phys);
@@ -25,12 +24,34 @@ static void try_skip_save_screen(uint8_t* rdram) {
     uint32_t gsm_phys = (uint32_t)gsm_addr & 0x1FFFFFFF;
     int32_t cur_state = *(int32_t*)(rdram + gsm_phys + 0x24);
 
-    fprintf(stderr, "[SKIP_SAVE] gsm=0x%08X cur_state=%d, forcing transition to gamestate 1\n",
-            gsm_addr, cur_state);
+    // Only skip states that are problematic or irrelevant.
+    // gs=4: save screen — no Controller Pak support, would hang. Skip to gs=1.
+    // gs=12: expansion pak screen — irrelevant for PC port. Skip to gs=6.
+    // gs=5: KCEK/intro — gets stuck. Skip to gs=6.
+    // gs=1 (Konami logo): let it run naturally — it initializes the graphics pipeline.
+    int target_gs = 0;
+    int wait_frames = 0;
+    if (cur_state == 4) {
+        target_gs = 1;   // save screen → Konami logo
+        wait_frames = 30;
+    } else if (cur_state == 12 || cur_state == 5) {
+        target_gs = 6;   // expansion pak / KCEK → title screen
+        wait_frames = 3;
+    }
 
-    // gamestate_change(1): current_game_state = -1, exitingGameState = 1
-    *(int32_t*)(rdram + gsm_phys + 0x24) = -1;
+    if (target_gs == 0) return;
+
+    static int skip_count = 0;
+    skip_count++;
+    if (skip_count < wait_frames) return;
+
+    fprintf(stderr, "[SKIP_BOOT] gsm=0x%08X cur_state=%d → forcing transition to gs=%d\n",
+            gsm_addr, cur_state, target_gs);
+
+    // gamestate_change(target): current_game_state = -target, exitingGameState = 1
+    *(int32_t*)(rdram + gsm_phys + 0x24) = -target_gs;
     *(int16_t*)(rdram + ((gsm_phys + 0x06) ^ 2)) = 1;
+    skip_count = 0; // reset for next state
 }
 
 extern "C" {
@@ -137,9 +158,9 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    // Try to skip past the save screen after it's been running a while
+    // Skip non-essential boot screens (save, expansion pak, Konami/KCEK logos)
     if (direction == 0) {
-        try_skip_save_screen(rdram);
+        try_skip_boot_screens(rdram);
     }
 
     // Send SI completion message so the game doesn't hang waiting for SI DMA.
