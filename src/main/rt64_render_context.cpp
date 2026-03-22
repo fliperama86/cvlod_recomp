@@ -258,15 +258,20 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     static int dl_n = 0; dl_n++;
 
     // === Game state diagnostic (read-only) ===
-    if (dl_n <= 10 || dl_n % 100 == 0) {
+    {
         uint32_t exec_flags = *(uint32_t*)(rdram + 0x001CABC8);
         uint32_t ni_sys_ptr = *(uint32_t*)(rdram + 0x001CAC1C);
-        // Check template 12 overlay object state
-        uint32_t tmpl12_obj = 0x0031AF30;
-        uint16_t tmpl12_flags = *(uint16_t*)(rdram + ((tmpl12_obj + 2) ^ 2));
-        uint32_t alloc15 = *(uint32_t*)(rdram + tmpl12_obj + 0x70); // alloc_data[15]
-        fprintf(stderr, "[STATE] DL#%d exec=0x%08X ni=0x%08X fl=0x%04X slot15=0x%08X\n",
-                dl_n, exec_flags, ni_sys_ptr, tmpl12_flags, alloc15);
+        // Read current gamestate from GSM
+        uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+        int32_t cur_gs = 0;
+        if (gsm_addr != 0) {
+            uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+            cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
+        }
+        if (dl_n <= 10 || dl_n % 100 == 0) {
+            fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X\n",
+                    dl_n, cur_gs, exec_flags, ni_sys_ptr);
+        }
     }
 
     // Track 2nd SETCIMG for VI_ORIGIN (1st is Z-buffer, 2nd is color buffer)
@@ -280,6 +285,47 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                 if (cimg_count == 2) { last_displayed_cfb = w1; break; }
             }
             if (((w0 >> 24) & 0xFF) == 0xDF) break;
+        }
+    }
+
+    // Dump DL commands before passing to RT64
+    {
+        static int dump_n = 0;
+        // Dump for the first DL after gs changes, or every 500th DL
+        bool should_dump = (dl_n <= 2) || (dl_n % 500 == 0);
+        // Always dump around the transition point (DLs near gs=5 entry)
+        int32_t cur_gs_check = 0;
+        {
+            uint32_t g = *(uint32_t*)(rdram + 0x0C1520);
+            if (g) cur_gs_check = *(int32_t*)(rdram + (g & 0x1FFFFFFF) + 0x24);
+        }
+        static int32_t last_gs_for_dump = -1;
+        if (cur_gs_check != last_gs_for_dump) {
+            should_dump = true;
+            last_gs_for_dump = cur_gs_check;
+        }
+        if (should_dump) {
+            fprintf(stderr, "\n[DL-DUMP] DL#%d gs=%d addr=0x%06X (first 200 commands):\n", dl_n, cur_gs_check, data_addr);
+            for (int i = 0; i < 200; i++) {
+                uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+                uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+                uint8_t cmd = (w0 >> 24) & 0xFF;
+                fprintf(stderr, "  [%3d] %08X %08X", i, w0, w1);
+                // Annotate key commands
+                if (cmd == 0xDF) { fprintf(stderr, "  ← G_ENDDL\n"); break; }
+                else if (cmd == 0xDE) fprintf(stderr, "  ← G_DL (branch to 0x%08X)", w1);
+                else if (cmd == 0x06) fprintf(stderr, "  ← G_DL (push to 0x%08X)", w1);
+                else if (cmd == 0xFF) fprintf(stderr, "  ← G_SETCIMG");
+                else if (cmd == 0xFE) fprintf(stderr, "  ← G_SETZIMG");
+                else if (cmd == 0xFD) fprintf(stderr, "  ← G_SETTIMG");
+                else if (cmd == 0xDB) fprintf(stderr, "  ← G_MOVEWORD");
+                else if (cmd == 0xE4) fprintf(stderr, "  ← G_TEXRECT");
+                else if (cmd == 0x01) fprintf(stderr, "  ← G_MTX");
+                else if (cmd == 0x04) fprintf(stderr, "  ← G_VTX");
+                else if (cmd == 0x05 || cmd == 0x06) fprintf(stderr, "  ← G_TRI/DL");
+                else if (cmd == 0xB8) fprintf(stderr, "  ← G_ENDDL (F3DEX)");
+                fprintf(stderr, "\n");
+            }
         }
     }
 

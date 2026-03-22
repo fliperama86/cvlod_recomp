@@ -412,9 +412,23 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
 
 // ── Signal handling ─────────────────────────────────────────────────
 
+// Declared in overlays.cpp
+extern uint32_t trace_ring[];
+extern int trace_ring_pos;
+extern int trace_total;
+
 static void crash_handler(int sig, siginfo_t* info, void* ctx) {
     fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
             sig, info->si_addr, info->si_code);
+    // Print last function calls from trace ring
+    int count = trace_total < 32 ? trace_total : 32;
+    if (count > 0) {
+        fprintf(stderr, "  Last %d function lookups:\n", count);
+        for (int i = 0; i < count; i++) {
+            int idx = (trace_ring_pos - count + i + 32) % 32;
+            fprintf(stderr, "    [-%d] 0x%08X\n", count - i, trace_ring[idx]);
+        }
+    }
     _exit(128 + sig);
 }
 

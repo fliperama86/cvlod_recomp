@@ -85,6 +85,34 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
     mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
 
     memcpy(dst, src, size);
+
+    // Debug: dump data section for pair 104 (expansion pak overlay) after copy
+    if (pair_index == 104) {
+        static int dump_count = 0;
+        dump_count++;
+        if (dump_count <= 3) {
+            fprintf(stderr, "[ni_ovl] pair 104 data copied: src=rdram+0x%08X dst=rdram+0x%08lX size=0x%X\n",
+                    0x10000000 + data.rom_offset, (unsigned long)(dst - rdram), size);
+            // Dump data section (offsets 0x2680-0x2840, where function pointers live)
+            uint32_t ds_start = 0x2680;
+            fprintf(stderr, "[ni_ovl] pair 104 data section (offset 0x%X-0x%X):\n", ds_start, size);
+            for (uint32_t i = ds_start; i < size; i += 16) {
+                uint32_t remaining = size - i;
+                if (remaining > 16) remaining = 16;
+                fprintf(stderr, "  seg+%04X:", i);
+                for (uint32_t j = 0; j < remaining; j += 4) {
+                    fprintf(stderr, " %08X", *(uint32_t*)(dst + i + j));
+                }
+                fprintf(stderr, "\n");
+            }
+            // Check for 0xA20B0074 in the copied data
+            for (uint32_t i = 0; i < size; i += 4) {
+                if (*(uint32_t*)(dst + i) == 0xA20B0074 || *(uint32_t*)(dst + i) == __builtin_bswap32(0xA20B0074)) {
+                    fprintf(stderr, "[ni_ovl] WARNING: 0xA20B0074 found at seg+0x%04X immediately after copy!\n", i);
+                }
+            }
+        }
+    }
 }
 
 static void load_ni_overlay(uint8_t* rdram, int pair_index) {

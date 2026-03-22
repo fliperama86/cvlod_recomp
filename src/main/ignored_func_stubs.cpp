@@ -11,6 +11,9 @@
 
 #include "recomp.h"
 
+// Declared in lod_init.cpp
+extern "C" void lod_repopulate_file_ptr_array(uint8_t* rdram);
+
 // Force gamestate transitions to skip non-essential boot screens.
 // The game's boot flow is: gs=4 (save) → gs=1 (Konami) → gs=12 (expansion pak)
 // → gs=5 (intro cutscene) → gs=6 (title). gs=5 has a stale-data bug that stalls
@@ -24,21 +27,58 @@ static void try_skip_boot_screens(uint8_t* rdram) {
     uint32_t gsm_phys = (uint32_t)gsm_addr & 0x1FFFFFFF;
     int32_t cur_state = *(int32_t*)(rdram + gsm_phys + 0x24);
 
-    // Only skip states that are problematic or irrelevant.
-    // gs=4: save screen — no Controller Pak support, would hang. Skip to gs=1.
-    // gs=12: expansion pak screen — irrelevant for PC port. Skip to gs=6.
-    // gs=5: intro cutscene — stalls due to stale MIPS code bytes (0xA20B0074)
-    //        in heap-allocated objects from reused overlay decompression buffers.
-    //        Skip to gs=6 until heap zeroing or object init is fixed.
-    // gs=1: Konami logo — let it run naturally (initializes graphics pipeline).
+    // Skip screens that need N64-specific features:
+    // gs=4 (save): no Controller Pak
+    // gs=12 (expansion pak): needs input to select resolution, irrelevant for PC
     int target_gs = 0;
     int wait_frames = 0;
     if (cur_state == 4) {
         target_gs = 1;   // save screen → Konami logo
         wait_frames = 30;
     } else if (cur_state == 12 || cur_state == 5) {
-        target_gs = 6;   // expansion pak / intro cutscene → title screen
-        wait_frames = 3;
+        // gs=12 = expansion pak screen. Let it run, log state.
+        static int post_gs1_count = 0;
+        post_gs1_count++;
+        if (post_gs1_count <= 3) {
+            fprintf(stderr, "\n=== RDRAM DUMP AT gs=5 (expansion pak screen) ===\n");
+            // Gamestate info
+            fprintf(stderr, "GSM ptr: 0x%08X, cur_state: %d\n", gsm_addr, cur_state);
+            // exec_flags & ni_sys_ptr
+            uint32_t exec = *(uint32_t*)(rdram + 0x1CABC8);
+            uint32_t ni = *(uint32_t*)(rdram + 0x1CAC1C);
+            fprintf(stderr, "exec_flags: 0x%08X, ni_sys_ptr: 0x%08X\n", exec, ni);
+            // Function pointer table at 0x801D1880
+            fprintf(stderr, "Func ptr table at 0x801D1880:\n");
+            for (int i = 0; i < 16; i++) {
+                uint32_t val = *(uint32_t*)(rdram + 0x1D1880 + i*4);
+                fprintf(stderr, "  [%2d] = 0x%08X\n", i, val);
+            }
+            // NI file_ptr_array sample
+            fprintf(stderr, "file_ptr_array (first 20 non-zero):\n");
+            int cnt = 0;
+            for (int i = 0; i < 472 && cnt < 20; i++) {
+                uint32_t val = *(uint32_t*)(rdram + 0x1C8830 - 0x80000000 + 0x80000000 + i*4);
+                // Actually: fpa at VRAM 0x801C8830, rdram offset = 0x1C8830
+                val = *(uint32_t*)(rdram + 0x1C8830 + i*4);
+                if (val != 0) { fprintf(stderr, "  [%3d] = 0x%08X\n", i, val); cnt++; }
+            }
+            // Overlay at 0x0F000000 segment
+            fprintf(stderr, "Segment 0x0F first 32 bytes:\n");
+            uint8_t* seg = rdram + 0x8F000000ULL;
+            for (int i = 0; i < 32; i += 16) {
+                fprintf(stderr, "  %08X %08X %08X %08X\n",
+                    *(uint32_t*)(seg+i), *(uint32_t*)(seg+i+4),
+                    *(uint32_t*)(seg+i+8), *(uint32_t*)(seg+i+12));
+            }
+        }
+        // Let gs=5 run — don't skip it. Let the user interact or wait.
+    }
+    // Log all gamestate transitions
+    static int last_logged_state = -1;
+    if (cur_state != last_logged_state) {
+        fprintf(stderr, "[GS-TRACE] cur_state=%d%s\n", cur_state,
+                (target_gs != 0) ? " (will skip)" : "");
+        last_logged_state = cur_state;
     }
 
     if (target_gs == 0) return;
@@ -84,7 +124,11 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
 
     static int si_dma_count = 0; si_dma_count++;
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
-        fprintf(stderr, "[SI_DMA] #%d dir=%d addr=0x%08X\n", si_dma_count, direction, dram_addr);
+        // Also log gamestate for heartbeat during periods with no DLs
+        uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+        int32_t cur_gs = 0;
+        if (gsm_addr != 0) cur_gs = *(int32_t*)(rdram + (gsm_addr & 0x1FFFFFFF) + 0x24);
+        fprintf(stderr, "[SI_DMA] #%d dir=%d addr=0x%08X gs=%d\n", si_dma_count, direction, dram_addr, cur_gs);
     }
 
     // On WRITE: if the PIF buffer is empty (no controller commands), format it
@@ -160,7 +204,6 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    // Skip non-essential boot screens (save, expansion pak, Konami/KCEK logos)
     if (direction == 0) {
         try_skip_boot_screens(rdram);
     }

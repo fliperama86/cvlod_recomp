@@ -463,6 +463,14 @@ RECOMP_FUNC void func_800048A0(uint8_t* rdram, recomp_context* ctx) {
     ctx->r15 = S32(ctx->r14 << 2);
     // 0x800048A8: addu        $t8, $a0, $t7
     ctx->r24 = ADD32(ctx->r4, ctx->r15);
+    // Guard: if computed address is outside valid RDRAM (8MB), return 0
+    {
+        uint32_t addr = (uint32_t)ctx->r24;
+        if (addr < 0x80000000 || addr >= 0x80800000) {
+            ctx->r2 = 0;
+            return;
+        }
+    }
     // 0x800048AC: lw          $t9, 0x0($t8)
     ctx->r25 = MEM_W(ctx->r24, 0X0);
     // 0x800048B0: andi        $t0, $a1, 0x1F
@@ -487,6 +495,14 @@ RECOMP_FUNC void func_800048C4(uint8_t* rdram, recomp_context* ctx) {
     ctx->r15 = S32(ctx->r14 << 2);
     // 0x800048CC: addu        $v0, $a0, $t7
     ctx->r2 = ADD32(ctx->r4, ctx->r15);
+    // Guard: if computed address is outside valid RDRAM, return without writing
+    {
+        uint32_t addr = (uint32_t)ctx->r2;
+        if (addr < 0x80000000 || addr >= 0x80800000) {
+            ctx->r2 = 0;
+            return;
+        }
+    }
     // 0x800048D0: lw          $t8, 0x0($v0)
     ctx->r24 = MEM_W(ctx->r2, 0X0);
     // 0x800048D4: andi        $t9, $a1, 0x1F
