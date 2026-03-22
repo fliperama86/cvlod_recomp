@@ -13,8 +13,8 @@
 
 // Force gamestate transitions to skip non-essential boot screens.
 // The game's boot flow is: gs=4 (save) → gs=1 (Konami) → gs=12 (expansion pak)
-// → gs=5 (KCEK/intro) → gs=6 (title). We need to go through gs=1 (Konami logo)
-// because it initializes the graphics pipeline. Then skip gs=12 and gs=5.
+// → gs=5 (intro cutscene) → gs=6 (title). gs=5 has a stale-data bug that stalls
+// it (see below), so we skip it along with gs=12 until the root cause is fixed.
 static void try_skip_boot_screens(uint8_t* rdram) {
     // GameStateMgr* at 0x800C1520
     uint32_t gsm_ptr_phys = 0x0C1520;
@@ -27,15 +27,17 @@ static void try_skip_boot_screens(uint8_t* rdram) {
     // Only skip states that are problematic or irrelevant.
     // gs=4: save screen — no Controller Pak support, would hang. Skip to gs=1.
     // gs=12: expansion pak screen — irrelevant for PC port. Skip to gs=6.
-    // gs=5: KCEK/intro — gets stuck. Skip to gs=6.
-    // gs=1 (Konami logo): let it run naturally — it initializes the graphics pipeline.
+    // gs=5: intro cutscene — stalls due to stale MIPS code bytes (0xA20B0074)
+    //        in heap-allocated objects from reused overlay decompression buffers.
+    //        Skip to gs=6 until heap zeroing or object init is fixed.
+    // gs=1: Konami logo — let it run naturally (initializes graphics pipeline).
     int target_gs = 0;
     int wait_frames = 0;
     if (cur_state == 4) {
         target_gs = 1;   // save screen → Konami logo
         wait_frames = 30;
     } else if (cur_state == 12 || cur_state == 5) {
-        target_gs = 6;   // expansion pak / KCEK → title screen
+        target_gs = 6;   // expansion pak / intro cutscene → title screen
         wait_frames = 3;
     }
 

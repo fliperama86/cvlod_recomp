@@ -1517,3 +1517,59 @@ VI_ORIGIN values like 0x200280) left over in the decompression heap.
    - gs=5 (KCEK/intro) → gs=6 (title screen)
 
 **Result:** 1500+ DLs in 45s, zero warnings, zero crashes. Title screen reached.
+
+#### Original N64 boot sequence (for reference)
+
+On real hardware / emulator, Castlevania: Legacy of Darkness boots as:
+
+1. **gs=4 — Save game screen**: Controller Pak management (create/continue without saving).
+   Requires Controller Pak hardware. No EEPROM — LoD uses Pak-only saves.
+2. **gs=1 — Konami logo**: Static logo display, timed transition.
+3. **gs=12 — Expansion Pak resolution screen**: If 8MB detected (expansion pak present),
+   offers "High Resolution" / "Low Resolution" choice. If 4MB, auto-selects low-res.
+   Irrelevant for PC port (always 8MB, resolution handled natively).
+4. **gs=5 — Intro cutscene**: Girl running through forest (Carrie fleeing).
+   Sets up game world state needed by the title screen (map, camera, objects).
+5. **gs=6 — Title screen**: "Game Start" / "Options" menu over Dracula's castle backdrop.
+   Depends on gs=5 having initialized the castle scene.
+
+#### Current recomp boot behavior (as of 2026-03-21)
+
+Gamestate skip in `ignored_func_stubs.cpp::try_skip_boot_screens()`:
+- gs=4 → skip to gs=1 (save screen bypass — no Controller Pak emulation)
+- gs=1 runs naturally (Konami logo — required for graphics pipeline init)
+- gs=12 → skip to gs=6 (expansion pak screen — irrelevant for PC port)
+- gs=5 → skip to gs=6 (intro cutscene — stalls, see below)
+- gs=6 reached (title screen)
+
+**What the user sees:**
+- Save screen flickers briefly, then Konami logo plays normally
+- Expansion pak and intro cutscene are skipped
+- Title screen appears BUT with wrong background (forest from briefly-flickered
+  intro instead of Dracula's castle) because gs=5 initialization was skipped
+- "Game Start" spawns player in invalid state → falls → Game Over
+- "Previous saved" / any save-related option → Controller Pak screen (stuck, no pak)
+- "Restart this stage" → black screen
+- "Exit" → loops back to Konami logo
+
+#### Remaining blocker: gs=5 stalls due to stale heap data
+
+The TLB multi-page fix resolved ONE source of the 0xA20B0074 corruption (the second
+TLB page overwriting the overlay data section). But a SECOND source remains:
+
+- The game decompresses NI overlay files to heap buffers in low RDRAM (~0x325000-0x370000)
+- These buffers contain raw overlay data including MIPS instructions
+- When the overlay is unloaded and the heap reuses that memory for game objects,
+  the old bytes persist as stale data
+- 0xA20B0074 is the MIPS instruction `sb $t3, 0x74($s0)` found in main_text (ROM 0x608F0)
+  and overlay_system (ROM 0x760F50) — confirmed via Python search of all ROM sections
+- NOT found in any decompressed NI file (searched all 944) nor in the extended ROM
+- An object's OBJ_DESTROY field (+0x10) inherits this stale value
+- The get_function() no-op handler prevents crashes but the affected object never
+  executes, stalling gs=5 indefinitely
+
+**Why this doesn't happen on real N64:** The game's object creation path must
+initialize OBJ_DESTROY (+0x10) properly. Something in our recomp prevents that
+initialization from running — either a stubbed function, a missing hook, or a
+byte-order mismatch in the object template/allocation system. Needs lldb
+investigation with watchpoints on the object's +0x10 field to find the divergence.
