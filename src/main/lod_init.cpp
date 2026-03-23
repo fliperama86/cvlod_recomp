@@ -173,6 +173,19 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x00800000 (8MB)\n");
     }
 
+    // === Null-pointer guard region ===
+    // Game code accesses null pointers with struct offsets (e.g., MEM_W(0x846, 0)).
+    // On real N64, address 0x00000846 reads as 0 from RDRAM. In the recomp,
+    // MEM_W(0x846, 0) → rdram + (0x846 - 0x80000000_sign_ext) = rdram + 0x80000846.
+    // But addresses like MEM_W(-0x10F5, 0) → rdram + 0x7FFFEF0B (below KSEG0 mirror).
+    // Map both sides of the KSEG0 boundary to catch all null-pointer patterns.
+    {
+        // Below KSEG0 mirror: rdram+0x7FF00000 to rdram+0x80000000 (1MB)
+        mprotect(rdram + 0x7FF00000, 0x100000, PROT_READ | PROT_WRITE);
+        memset(rdram + 0x7FF00000, 0, 0x100000);
+        fprintf(stderr, "[mprotect] Null-pointer guard: rdram+0x7FF00000 (1 MB) OK\n");
+    }
+
     // === ROM KSEK0 region ===
     // Map ROM at rdram+0x90000000 for KSEK0 ROM access (0x9XXXXXXX).
     {

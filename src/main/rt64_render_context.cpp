@@ -268,9 +268,14 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
             uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
             cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
         }
-        if (dl_n <= 10 || dl_n % 100 == 0) {
-            fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X\n",
-                    dl_n, cur_gs, exec_flags, ni_sys_ptr);
+        static uint32_t prev_exec = 0, prev_ni = 0;
+        static int32_t prev_gs = -1;
+        bool changed = (exec_flags != prev_exec || ni_sys_ptr != prev_ni || cur_gs != prev_gs);
+        if (dl_n <= 10 || dl_n % 100 == 0 || changed) {
+            fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X%s\n",
+                    dl_n, cur_gs, exec_flags, ni_sys_ptr,
+                    changed ? " ← CHANGED" : "");
+            prev_exec = exec_flags; prev_ni = ni_sys_ptr; prev_gs = cur_gs;
         }
     }
 
@@ -291,9 +296,7 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     // Dump DL commands before passing to RT64
     {
         static int dump_n = 0;
-        // Dump for the first DL after gs changes, or every 500th DL
         bool should_dump = (dl_n <= 2) || (dl_n % 500 == 0);
-        // Always dump around the transition point (DLs near gs=5 entry)
         int32_t cur_gs_check = 0;
         {
             uint32_t g = *(uint32_t*)(rdram + 0x0C1520);
@@ -304,9 +307,21 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
             should_dump = true;
             last_gs_for_dump = cur_gs_check;
         }
+        // Dump all DLs during gs=5 and transition to gs=6
+        if (cur_gs_check == 5 || cur_gs_check == -5 || cur_gs_check == -6) {
+            should_dump = true;
+        }
         if (should_dump) {
-            fprintf(stderr, "\n[DL-DUMP] DL#%d gs=%d addr=0x%06X (first 200 commands):\n", dl_n, cur_gs_check, data_addr);
-            for (int i = 0; i < 200; i++) {
+            // Count total commands first (up to 2000)
+            int total_cmds = 0;
+            for (int i = 0; i < 2000; i++) {
+                uint8_t cmd = (*(uint32_t*)(rdram + data_addr + i * 8) >> 24) & 0xFF;
+                total_cmds++;
+                if (cmd == 0xDF || cmd == 0xB8) break;
+            }
+            fprintf(stderr, "\n[DL-DUMP] DL#%d gs=%d addr=0x%06X (%d commands):\n", dl_n, cur_gs_check, data_addr, total_cmds);
+            // Only print first 40 and last 10 for large DLs
+            for (int i = 0; i < (total_cmds > 60 ? 40 : total_cmds); i++) {
                 uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
                 uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
                 uint8_t cmd = (w0 >> 24) & 0xFF;
@@ -326,6 +341,23 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                 else if (cmd == 0xB8) fprintf(stderr, "  ← G_ENDDL (F3DEX)");
                 fprintf(stderr, "\n");
             }
+            // Print tail for large DLs
+            if (total_cmds > 60) {
+                fprintf(stderr, "  ... (%d commands omitted) ...\n", total_cmds - 50);
+                for (int i = total_cmds - 10; i < total_cmds; i++) {
+                    uint32_t w0 = *(uint32_t*)(rdram + data_addr + i * 8);
+                    uint32_t w1 = *(uint32_t*)(rdram + data_addr + i * 8 + 4);
+                    uint8_t cmd = (w0 >> 24) & 0xFF;
+                    fprintf(stderr, "  [%3d] %08X %08X", i, w0, w1);
+                    if (cmd == 0xDF) fprintf(stderr, "  ← G_ENDDL");
+                    else if (cmd == 0xDE) fprintf(stderr, "  ← G_DL (branch to 0x%08X)", w1);
+                    else if (cmd == 0xFF) fprintf(stderr, "  ← G_SETCIMG");
+                    fprintf(stderr, "\n");
+                }
+            }
+            if (total_cmds >= 2000) {
+                fprintf(stderr, "  *** WARNING: DL has 2000+ commands! Likely infinite/circular ***\n");
+            }
         }
     }
 
@@ -344,38 +376,54 @@ void lod::renderer::RT64Context::update_screen() {
     // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
     // one of those addresses for RT64 to find and display the rendered frame.
     ultramodern::renderer::ViRegs* vi = ultramodern::renderer::get_vi_regs();
-    // Use game's VI_ORIGIN from osViSwapBuffer, but ensure NTSC registers are set.
-    // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
-    // one of those addresses + width*2 for RT64 to find the rendered frame.
     uint32_t game_origin = vi->VI_ORIGIN_REG & 0xFFFFFF;
 
-    // Hardcode NTSC timing registers (game may not set these correctly early on).
-    vi->VI_STATUS_REG    = 0x0000030A;
-    vi->VI_WIDTH_REG     = 320;
-    vi->VI_INTR_REG      = 2;
-    vi->VI_TIMING_REG    = 0x03E52239;
-    vi->VI_V_SYNC_REG    = 0x020D;
-    vi->VI_H_SYNC_REG    = 0x00000C15;
-    vi->VI_LEAP_REG      = 0x0C150C15;
-    vi->VI_H_START_REG   = 0x006C02EC;
-    vi->VI_V_START_REG   = 0x00250239;
-    vi->VI_V_BURST_REG   = 0x000E0204;
-    vi->VI_X_SCALE_REG   = 0x00000200;
-    vi->VI_Y_SCALE_REG   = 0x00000400;
+    // Let the game's osViSetMode set VI registers naturally.
+    // Only override if the game hasn't set them (zero = uninitialized).
+    if (vi->VI_STATUS_REG == 0) {
+        vi->VI_STATUS_REG    = 0x0000030A;
+    }
+    // Detect video width. The game calls osViSetMode which stores the mode ptr
+    // but the ultramodern runtime may not write VI_WIDTH_REG immediately.
+    // Read directly from the last SETCIMG command: if it uses a high address
+    // (>0x400000), the game is in high-res mode (640x480).
+    uint32_t width = vi->VI_WIDTH_REG;
+    if (width == 0 || width == 320) {
+        // Check if the last DL used a high-res framebuffer
+        if (last_displayed_cfb >= 0x400000) {
+            width = 640;
+        } else {
+            width = 320;
+        }
+        vi->VI_WIDTH_REG = width;
+    }
+    // Only set timing registers if uninitialized
+    if (vi->VI_V_SYNC_REG == 0) {
+        vi->VI_INTR_REG      = 2;
+        vi->VI_TIMING_REG    = 0x03E52239;
+        vi->VI_V_SYNC_REG    = 0x020D;
+        vi->VI_H_SYNC_REG    = 0x00000C15;
+        vi->VI_LEAP_REG      = 0x0C150C15;
+        vi->VI_H_START_REG   = 0x006C02EC;
+        vi->VI_V_START_REG   = 0x00250239;
+        vi->VI_V_BURST_REG   = 0x000E0204;
+        vi->VI_X_SCALE_REG   = 0x00000200;
+        vi->VI_Y_SCALE_REG   = 0x00000400;
+    }
 
     // Use the last SETCIMG from the DL as VI_ORIGIN (+ 1 row offset).
-    // This ensures RT64 finds the matching framebuffer pair.
-    // Fall back to game_origin if no SETCIMG was tracked.
+    // Row offset = width * 2 bytes (16bpp).
+    uint32_t row_offset = width * 2;
     if (last_displayed_cfb != 0) {
-        vi->VI_ORIGIN_REG = last_displayed_cfb + 640;
+        vi->VI_ORIGIN_REG = last_displayed_cfb + row_offset;
     } else if (game_origin > 0) {
         vi->VI_ORIGIN_REG = game_origin;
     } else {
-        vi->VI_ORIGIN_REG = 0x1DA800 + 640;
+        vi->VI_ORIGIN_REG = 0x1DA800 + row_offset;
     }
     if (us_n <= 5 || us_n % 200 == 0) {
-        fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X\n",
-                us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG);
+        fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X width=%d\n",
+                us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG, width);
     }
 
     app->updateScreen();
