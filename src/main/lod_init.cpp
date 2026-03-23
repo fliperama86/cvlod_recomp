@@ -173,17 +173,26 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x00800000 (8MB)\n");
     }
 
-    // === Null-pointer guard region ===
-    // Game code accesses null pointers with struct offsets (e.g., MEM_W(0x846, 0)).
-    // On real N64, address 0x00000846 reads as 0 from RDRAM. In the recomp,
-    // MEM_W(0x846, 0) → rdram + (0x846 - 0x80000000_sign_ext) = rdram + 0x80000846.
-    // But addresses like MEM_W(-0x10F5, 0) → rdram + 0x7FFFEF0B (below KSEG0 mirror).
-    // Map both sides of the KSEG0 boundary to catch all null-pointer patterns.
+    // === Null-pointer guard regions ===
+    // Game code dereferences null/garbage pointers with struct offsets.
+    // On real N64, these read 0 from RDRAM. In the recomp, the MEM_W macro
+    // maps them to various rdram offsets that may be PROT_NONE → SIGBUS.
+    //
+    // Key patterns:
+    //   MEM_W(+offset, 0)    → rdram + 0x80000000 + offset (KSEG0 mirror)
+    //   MEM_W(-offset, 0)    → rdram + 0x7FFFFFFF - offset (below KSEG0)
+    //   MEM_W(+offset, 0x40000000) → rdram + 0x40000000 + offset (KSEG2)
+    //
+    // Map the gap between KSEG1 end and KSEG0 start (rdram+0x40000000 to +0x80000000)
     {
-        // Below KSEG0 mirror: rdram+0x7FF00000 to rdram+0x80000000 (1MB)
-        mprotect(rdram + 0x7FF00000, 0x100000, PROT_READ | PROT_WRITE);
-        memset(rdram + 0x7FF00000, 0, 0x100000);
-        fprintf(stderr, "[mprotect] Null-pointer guard: rdram+0x7FF00000 (1 MB) OK\n");
+        int ret = mprotect(rdram + 0x40000000, 0x40000000, PROT_READ | PROT_WRITE);
+        fprintf(stderr, "[mprotect] KSEG2/null guard: rdram+0x40000000 (1 GB) %s\n",
+                ret == 0 ? "OK" : "FAILED");
+        if (ret == 0) {
+            // Zero only the edges where null-pointer accesses land (not all 1GB)
+            memset(rdram + 0x40000000, 0, 0x100000);  // first 1MB
+            memset(rdram + 0x7FF00000, 0, 0x100000);  // last 1MB before KSEG0
+        }
     }
 
     // === ROM KSEK0 region ===
