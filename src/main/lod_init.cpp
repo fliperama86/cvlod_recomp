@@ -20,38 +20,6 @@
 uint32_t ni_decompressed_addrs[1024] = {};
 int ni_decompressed_count = 0;
 
-// Called from game code (after BSS clear) to re-populate a single file_ptr_array entry.
-// Only populates entries that are currently 0 (zeroed by BSS clear).
-// Called periodically (from SI DMA handler) to maintain critical RDRAM state
-// that gets wiped by game BSS clears during gamestate transitions.
-extern "C" void lod_repopulate_file_ptr_array(uint8_t* rdram) {
-    constexpr uint32_t file_ptr_array_phys = 0x801C8830 - 0x80000000;
-    constexpr uint32_t bitmask_phys = 0x801C83EC - 0x80000000;
-
-    // Re-populate ALL file_ptr_array entries that were cleared
-    int repopulated = 0;
-    for (int i = 0; i < ni_decompressed_count && i < 1024; i++) {
-        if (ni_decompressed_addrs[i] != 0) {
-            uint32_t cur = *(uint32_t*)(rdram + file_ptr_array_phys + i * 4);
-            if (cur == 0) {
-                *(uint32_t*)(rdram + file_ptr_array_phys + i * 4) = ni_decompressed_addrs[i];
-                // Set bitmask bit
-                uint32_t bm_word = i / 32;
-                uint32_t bm_bit = 1 << (i % 32);
-                uint32_t bm_cur = *(uint32_t*)(rdram + bitmask_phys + bm_word * 4);
-                *(uint32_t*)(rdram + bitmask_phys + bm_word * 4) = bm_cur | bm_bit;
-                repopulated++;
-            }
-        }
-    }
-
-    static int repop_log = 0;
-    if (repopulated > 0 && repop_log < 5) {
-        repop_log++;
-        fprintf(stderr, "[lod_repop] Re-populated %d file_ptr_array entries\n", repopulated);
-    }
-}
-
 // Set rdram pointer for debug scanning in get_function()
 extern uint8_t* rdram_ptr_for_debug;
 
