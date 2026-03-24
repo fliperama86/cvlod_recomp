@@ -33,6 +33,7 @@ static constexpr int NI_PAIR_COUNT = 245;
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
+
 // 0x0E overlay pairs (cutscene/textbox) — classified by internal jal targets
 // These are compiled for vram 0x0E000000
 static const int pairs_0e[] = {
@@ -156,13 +157,12 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr) {
     if (vaddr != 0x0F000000 && vaddr != 0x0E000000) return;
 
-    // Update RT64's segment override so DL commands referencing 0x0E/0x0F
-    // resolve to the physical address where the game decompressed the NI data.
-    // On real N64, the game sets segment 0x0F via G_MOVEWORD to a KSEG0 address
-    // pointing to the decompressed data. Our G_MOVEWORD isn't firing for these
-    // segments, so we set them from the TLB mapping instead.
-    if (vaddr == 0x0F000000) g_tlb_segment_0f = even_paddr;
-    else                     g_tlb_segment_0e = even_paddr;
+    // Set RT64 segment override to the MEM_W region (0x8F/0x8E000000).
+    // osVirtualToPhysical passes 0x0F/0x0E addresses through raw, so the DL
+    // has 0x0F002230-style addresses. RT64 resolves segment 0x0F using this
+    // override → 0x8F000000 + offset — the same memory recompiled code writes to.
+    if (vaddr == 0x0F000000) g_tlb_segment_0f = 0x8F000000;
+    else                     g_tlb_segment_0e = 0x8E000000;
 
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {
@@ -189,3 +189,5 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
         }
     }
 }
+
+
