@@ -390,4 +390,38 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
             }
         }
     }
+
+    // Pre-seed Controller Pak status so the game's init function doesn't see
+    // a "change" on first check (which causes "Controller Pak has been changed" loop).
+    //
+    // Two locations must be consistent:
+    // 1. OSContStatus at 0x800EFB90 (4 bytes per controller: u16 type, u8 status, u8 err)
+    //    - The init function reads status byte (offset +2) before contpak_get_inserted_status
+    //      has a chance to populate it via PIF. Pre-seeding prevents a 0→1 transition.
+    // 2. Pak insertion array at 0x800F2260 (1 byte per controller: 0=inserted, 1=not)
+    {
+        // OSContStatus: controller 0 = connected with pak, controllers 1-3 = no response
+        uint32_t cs = 0x000EFB90; // OSContStatus physical base
+        // Controller 0: type=0x0005, status=0x01 (CONT_CARD_ON), err=0x00
+        rdram[(cs+0) ^ 3] = 0x00; // type high
+        rdram[(cs+1) ^ 3] = 0x05; // type low
+        rdram[(cs+2) ^ 3] = 0x01; // status: CONT_CARD_ON
+        rdram[(cs+3) ^ 3] = 0x00; // err: success
+        // Controllers 1-3: not connected
+        for (int i = 1; i < 4; i++) {
+            rdram[(cs+i*4+0) ^ 3] = 0x00;
+            rdram[(cs+i*4+1) ^ 3] = 0x00;
+            rdram[(cs+i*4+2) ^ 3] = 0x00;
+            rdram[(cs+i*4+3) ^ 3] = 0x08; // CONT_NO_RESPONSE_ERROR
+        }
+
+        // Pak insertion: controller 0 inserted, others not
+        uint32_t ps = 0x000F2260;
+        rdram[(ps+0) ^ 3] = 0; // controller 0: inserted
+        rdram[(ps+1) ^ 3] = 1; // controller 1: not inserted
+        rdram[(ps+2) ^ 3] = 1;
+        rdram[(ps+3) ^ 3] = 1;
+
+        fprintf(stderr, "[init] Pre-seeded OSContStatus and pak status\n");
+    }
 }
