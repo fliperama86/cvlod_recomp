@@ -34,6 +34,7 @@ static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
 
+
 // 0x0E overlay pairs (cutscene/textbox) — classified by internal jal targets
 // These are compiled for vram 0x0E000000
 static const int pairs_0e[] = {
@@ -159,8 +160,7 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
 
     // Set RT64 segment override to the MEM_W region (0x8F/0x8E000000).
     // osVirtualToPhysical passes 0x0F/0x0E addresses through raw, so the DL
-    // has 0x0F002230-style addresses. RT64 resolves segment 0x0F using this
-    // override → 0x8F000000 + offset — the same memory recompiled code writes to.
+    // has 0x0F-style addresses. RT64 resolves via this override.
     if (vaddr == 0x0F000000) g_tlb_segment_0f = 0x8F000000;
     else                     g_tlb_segment_0e = 0x8E000000;
 
@@ -189,5 +189,6 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
         }
     }
 }
+
 
 

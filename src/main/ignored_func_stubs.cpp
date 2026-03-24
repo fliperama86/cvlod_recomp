@@ -74,11 +74,13 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
 
     static int si_dma_count = 0; si_dma_count++;
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
-        // Also log gamestate for heartbeat during periods with no DLs
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;
         if (gsm_addr != 0) cur_gs = *(int32_t*)(rdram + (gsm_addr & 0x1FFFFFFF) + 0x24);
-        fprintf(stderr, "[SI_DMA] #%d dir=%d addr=0x%08X gs=%d\n", si_dma_count, direction, dram_addr, cur_gs);
+        fprintf(stderr, "[SI_DMA] #%d dir=%d addr=0x%08X gs=%d\n",
+                si_dma_count, direction, dram_addr, cur_gs);
+    }
+    {
     }
 
     // On WRITE: if the PIF buffer is empty (no controller commands), format it
