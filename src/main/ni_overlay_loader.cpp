@@ -147,10 +147,22 @@ static int match_overlay_fingerprint(uint8_t* rdram, uint32_t paddr) {
     return -1;
 }
 
+// RT64 segment overrides for TLB-mapped segments
+extern "C" uint32_t g_tlb_segment_0e;
+extern "C" uint32_t g_tlb_segment_0f;
+
 // Called from osMapTLB hook when vaddr is 0x0E000000 or 0x0F000000
 extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr) {
     if (vaddr != 0x0F000000 && vaddr != 0x0E000000) return;
+
+    // Update RT64's segment override so DL commands referencing 0x0E/0x0F
+    // resolve to the physical address where the game decompressed the NI data.
+    // On real N64, the game sets segment 0x0F via G_MOVEWORD to a KSEG0 address
+    // pointing to the decompressed data. Our G_MOVEWORD isn't firing for these
+    // segments, so we set them from the TLB mapping instead.
+    if (vaddr == 0x0F000000) g_tlb_segment_0f = even_paddr;
+    else                     g_tlb_segment_0e = even_paddr;
 
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {

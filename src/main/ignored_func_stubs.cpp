@@ -376,11 +376,7 @@ void func_8001D398(uint8_t* rdram, recomp_context* ctx) {
 // copy which goes through PIF and fails on our virtual pak. Redirect to our
 // implementation in pak.cpp which works with our save buffer directly.
 void func_800A4040(uint8_t* rdram, recomp_context* ctx) {
-    // The game's func_800A4040 has same signature as osPfsInitPak:
-    //   s32 osPfsInitPak(OSMesgQueue *queue, OSPfs *pfs, int channel)
-    //   $a0=queue, $a1=pfs, $a2=channel
-    // Forward $a1 and $a2 to our osPfsInitPak_recomp (which uses ctx->r5 and ctx->r6)
-    fprintf(stderr, "[PAK] func_800A4040 (game osPfsInitPak) → redirecting to our impl\n");
+    static int c = 0; if (++c <= 5) fprintf(stderr, "[PAK] func_800A4040 (game osPfsInitPak) → redirecting to our impl\n");
     osPfsInitPak_recomp(rdram, ctx);
 }
 // Override the game's built-in copies of osPfs SDK functions.
