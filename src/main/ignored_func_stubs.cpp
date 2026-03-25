@@ -77,11 +77,13 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;
         if (gsm_addr != 0) cur_gs = *(int32_t*)(rdram + (gsm_addr & 0x1FFFFFFF) + 0x24);
-        fprintf(stderr, "[SI_DMA] #%d dir=%d addr=0x%08X gs=%d\n",
-                si_dma_count, direction, dram_addr, cur_gs);
+        // Check animation function pointer and frame counter
+        uint32_t anim_ptr = *(uint32_t*)(rdram + 0x197100);
+        int16_t frame_ctr = *(int16_t*)(rdram + (0x1CAE22 ^ 2));
+        fprintf(stderr, "[SI_DMA] #%d gs=%d fptr@197100=0x%08X frame_ctr=%d\n",
+                si_dma_count, cur_gs, anim_ptr, frame_ctr);
     }
-    {
-    }
+
 
     // On WRITE: if the PIF buffer is empty (no controller commands), format it
     // ourselves with a standard button read command for controller 0.

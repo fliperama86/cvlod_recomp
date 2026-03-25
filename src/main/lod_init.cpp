@@ -98,24 +98,11 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                 main_data_rom, rdram_dst, main_data_size);
     }
 
-    // === Copy section 2 (common) DATA section (byte-swapped) ===
-    // Section 2 data is DMA'd by the game (DMA#1 copies code+data together),
-    // but the game might read from it before the DMA completes. Pre-populate.
-    {
-        constexpr uint32_t sec2_data_rom = 0x10D000;
-        constexpr uint32_t sec2_data_size = 0x5B8E0 - 0x4AEE0; // 0x10A00 = 68096 bytes
-        constexpr uint32_t rdram_dst = 0x8018C750 - 0x80000000; // 0x18C750
-        for (uint32_t i = 0; i < sec2_data_size; i += 4) {
-            if (sec2_data_rom + i + 3 < rom.size()) {
-                rdram[rdram_dst + i + 0] = rom[sec2_data_rom + i + 3];
-                rdram[rdram_dst + i + 1] = rom[sec2_data_rom + i + 2];
-                rdram[rdram_dst + i + 2] = rom[sec2_data_rom + i + 1];
-                rdram[rdram_dst + i + 3] = rom[sec2_data_rom + i + 0];
-            }
-        }
-        fprintf(stderr, "[init] Copied section 2 data (byte-swapped): ROM 0x%X → rdram+0x%X (%u bytes)\n",
-                sec2_data_rom, rdram_dst, sec2_data_size);
-    }
+    // Section 2 (common) DATA section is loaded by the game's own DMA
+    // (rom=0x100C2120, size=0x5B8E0 → covers TEXT+DATA).
+    // The game's DMA uses do_rom_read with MEM_B (byte-swapped), producing
+    // correctly aligned DATA at the game's expected addresses.
+    // No pre-copy needed — the game handles it.
 
     // === Full N64 address space mapping ===
     // The N64 has a 32-bit address space split into segments:
