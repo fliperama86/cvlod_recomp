@@ -247,5 +247,5 @@ static const NiOvlData ni_ovl_data[NI_OVL_COUNT] = {
     { 0x01451F10, 0x01220 }, // ni_ovl_241 vram=0x0E000000
     { 0x01453130, 0x00FF0 }, // ni_ovl_242 vram=0x0F000000
     { 0x01454120, 0x00EB0 }, // ni_ovl_243 vram=0x0F000000
-    { 0x01454FD0, 0x01510 }, // ni_ovl_244 vram=0x0E000000
+    { 0x01454FD0, 0x029C0 }, // ni_ovl_244 vram=0x0E000000
 };

@@ -16,6 +16,8 @@
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 
+extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
+
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
 int ni_decompressed_count = 0;
@@ -31,6 +33,25 @@ static constexpr uint32_t OVL_SYS_FULL_SIZE = 0x7AE0 + 0xD860 + 0x9430; // 0x217
 extern "C" void lod_restore_overlay_system_data(uint8_t* rdram) {
     if (overlay_system_cache.empty()) return;
     memcpy(rdram + OVL_SYS_RDRAM_DST, overlay_system_cache.data(), overlay_system_cache.size());
+}
+
+// Copy a regular overlay's full ROM data (code+data) to RDRAM with byte swapping.
+// Called from ignored_func_stubs.cpp when map overlays need loading.
+extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
+                                       uint32_t rdram_dst, uint32_t size) {
+    std::span<const uint8_t> rom = recomp::get_rom();
+    if (rom_offset + size > rom.size()) {
+        fprintf(stderr, "[lod_copy_overlay_data] ERROR: ROM offset 0x%X + size 0x%X > ROM size 0x%zX\n",
+                rom_offset, size, rom.size());
+        return;
+    }
+    // Byte-swap copy: reverse each 4-byte word (BE ROM → LE RDRAM)
+    for (uint32_t i = 0; i < size; i += 4) {
+        rdram[rdram_dst + i + 0] = rom[rom_offset + i + 3];
+        rdram[rdram_dst + i + 1] = rom[rom_offset + i + 2];
+        rdram[rdram_dst + i + 2] = rom[rom_offset + i + 1];
+        rdram[rdram_dst + i + 3] = rom[rom_offset + i + 0];
+    }
 }
 
 void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
@@ -72,8 +93,26 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     load_overlays(0xC2120, 0x80141870, 0x4AEE0);
     // Section 3: overlay_system (ROM 0x745230 → RAM 0x801CAEA0)
     load_overlays(0x745230, 0x801CAEA0, 0x69E0);
-    // Section 4: map_ovl_00 (ROM 0x76CD00 → RAM 0x802E3B70)
-    load_overlays(0x76CD00, 0x802E3B70, 0x779510 - 0x76CD00);
+    // Section 4+: map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
+    // The game starts at gs=4 (save screen) which uses map_ovl_34.
+    // Register its functions and copy its full code+data from ROM.
+    // Previous code only loaded map_ovl_00 — wrong overlay for the save screen.
+    load_overlay_by_id(41, 0x802E3B70);  // overlay ID 41 = map_ovl_34 (.index=38)
+    {
+        constexpr uint32_t map34_rom = 0x7EF5E0;
+        constexpr uint32_t map34_size = 0x16690; // full code+data (from game's overlay table)
+        constexpr uint32_t rdram_dst = 0x802E3B70 - 0x80000000;
+        for (uint32_t i = 0; i < map34_size; i += 4) {
+            if (map34_rom + i + 3 < rom.size()) {
+                rdram[rdram_dst + i + 0] = rom[map34_rom + i + 3];
+                rdram[rdram_dst + i + 1] = rom[map34_rom + i + 2];
+                rdram[rdram_dst + i + 2] = rom[map34_rom + i + 1];
+                rdram[rdram_dst + i + 3] = rom[map34_rom + i + 0];
+            }
+        }
+        fprintf(stderr, "[init] Loaded map_ovl_34: functions + data (ROM 0x%X, %u bytes) to 0x802E3B70\n",
+                map34_rom, map34_size);
+    }
 
     // === Copy main code DATA section (byte-swapped) ===
     // The main code DATA section contains critical tables (section descriptors,

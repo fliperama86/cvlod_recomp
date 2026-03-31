@@ -261,6 +261,9 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     {
         uint32_t exec_flags = *(uint32_t*)(rdram + 0x001CABC8);
         uint32_t ni_sys_ptr = *(uint32_t*)(rdram + 0x001CAC1C);
+        // Save-screen constructor gate + selector globals.
+        uint32_t save_gate_bits = *(uint32_t*)(rdram + 0x001CAA60);
+        uint32_t save_selector = *(uint32_t*)(rdram + 0x001C833C);
         // Read current gamestate from GSM
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;
@@ -268,14 +271,22 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
             uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
             cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
         }
-        static uint32_t prev_exec = 0, prev_ni = 0;
+        static uint32_t prev_exec = 0, prev_ni = 0, prev_save_gate = 0, prev_save_sel = 0;
         static int32_t prev_gs = -1;
-        bool changed = (exec_flags != prev_exec || ni_sys_ptr != prev_ni || cur_gs != prev_gs);
+        bool changed = (exec_flags != prev_exec ||
+                        ni_sys_ptr != prev_ni ||
+                        save_gate_bits != prev_save_gate ||
+                        save_selector != prev_save_sel ||
+                        cur_gs != prev_gs);
         if (dl_n <= 10 || dl_n % 100 == 0 || changed) {
-            fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X%s\n",
-                    dl_n, cur_gs, exec_flags, ni_sys_ptr,
+            fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X gate=0x%08X sel=0x%08X%s\n",
+                    dl_n, cur_gs, exec_flags, ni_sys_ptr, save_gate_bits, save_selector,
                     changed ? " ← CHANGED" : "");
-            prev_exec = exec_flags; prev_ni = ni_sys_ptr; prev_gs = cur_gs;
+            prev_exec = exec_flags;
+            prev_ni = ni_sys_ptr;
+            prev_save_gate = save_gate_bits;
+            prev_save_sel = save_selector;
+            prev_gs = cur_gs;
         }
     }
 

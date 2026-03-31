@@ -151,6 +151,14 @@ else
     fix_truncation_bugs
 fi
 
+# --- Step 6b: Repair NI overlay section metadata ---
+echo "==> Repairing NI overlay section metadata..."
+if [ $DRY_RUN -eq 1 ]; then
+    echo "    [dry-run] Would run: python3 tools/ni_ovl/repair_overlay_table.py --fix"
+else
+    python3 "$(dirname "$0")/ni_ovl/repair_overlay_table.py" --fix
+fi
+
 # --- Step 7: Fix cross-function gotos (labels in different functions) ---
 echo "==> Fixing cross-function gotos..."
 if [ $DRY_RUN -eq 1 ]; then

@@ -18,6 +18,15 @@
 
 extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
 extern "C" void unload_overlay_by_id(uint32_t id);
+extern "C" bool get_overlay_section_debug_info(
+    uint32_t id,
+    uint32_t* section_table_index,
+    uint32_t* rom_addr,
+    uint32_t* ram_addr,
+    uint32_t* size,
+    uint32_t* num_funcs,
+    uint32_t* max_func_end
+);
 
 // Full overlay data table (rom offsets + sizes in extended ROM)
 #include "ni_ovl_data.h"
@@ -95,6 +104,41 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     uint32_t vram = is_0e ? 0x0E000000 : 0x0F000000;
     int& loaded_pair = is_0e ? loaded_0e_pair : loaded_0f_pair;
 
+    uint32_t section_index = 0;
+    uint32_t section_rom = 0;
+    uint32_t section_ram = 0;
+    uint32_t section_size = 0;
+    uint32_t section_num_funcs = 0;
+    uint32_t section_max_func_end = 0;
+    bool section_ok = get_overlay_section_debug_info(
+        overlay_id,
+        &section_index,
+        &section_rom,
+        &section_ram,
+        &section_size,
+        &section_num_funcs,
+        &section_max_func_end
+    );
+
+    if (section_ok) {
+        const NiOvlData& expected = ni_ovl_data[pair_index];
+        bool mismatch =
+            (section_rom != expected.rom_offset) ||
+            (section_ram != vram) ||
+            (section_size < section_max_func_end);
+        if (mismatch) {
+            fprintf(stderr,
+                    "[ni_ovl] ERROR: pair %d overlay_id=%d section=%u metadata mismatch "
+                    "(rom=0x%08X exp=0x%08X ram=0x%08X exp=0x%08X size=0x%X max_end=0x%X funcs=%u)\n",
+                    pair_index, overlay_id, section_index,
+                    section_rom, expected.rom_offset,
+                    section_ram, vram,
+                    section_size, section_max_func_end, section_num_funcs);
+        }
+    } else {
+        fprintf(stderr, "[ni_ovl] ERROR: overlay_id=%d has no section metadata\n", overlay_id);
+    }
+
     if (pair_index == loaded_pair) return;
 
     if (loaded_pair >= 0) {
@@ -109,8 +153,10 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     static int load_count = 0;
     load_count++;
     if (load_count <= 30 || (load_count % 100) == 0) {
-        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (overlay_id=%d, data=0x%X bytes)\n",
-                load_count, pair_index, vram, overlay_id, ni_ovl_data[pair_index].full_size);
+        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (overlay_id=%d sec=%u rom=0x%08X size=0x%X max_end=0x%X data=0x%X)\n",
+                load_count, pair_index, vram, overlay_id,
+                section_index, section_rom, section_size, section_max_func_end,
+                ni_ovl_data[pair_index].full_size);
     }
 }
 
@@ -189,6 +235,5 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
         }
     }
 }
-
 
 
