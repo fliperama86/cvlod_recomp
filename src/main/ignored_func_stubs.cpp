@@ -25,7 +25,80 @@ extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
 extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
                                        uint32_t rdram_dst, uint32_t size);
 
+// ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
+// Built from game's overlay table at ROM 0xB39E8 + section_table .index values.
+// overlay_id = section .index + 3 (overlay_sections_by_index offset).
+static const struct { uint32_t rom_start; uint32_t full_size; uint32_t overlay_id; } map_ovl_table[] = {
+    { 0x0076CD00, 0x0C810,   7 }, { 0x00779510, 0x04CF0,   8 }, { 0x0077E200, 0x04F40,   9 },
+    { 0x00783140, 0x02EF0,  10 }, { 0x00786030, 0x03FF0,  11 }, { 0x0078A020, 0x092B0,  12 },
+    { 0x007932D0, 0x07E40,  13 }, { 0x0079B110, 0x07C60,  14 }, { 0x007A2D70, 0x03380,  15 },
+    { 0x007A60F0, 0x04FA0,  16 }, { 0x007AB090, 0x033A0,  17 }, { 0x007AE430, 0x03B30,  18 },
+    { 0x007B1F60, 0x02CD0,  19 }, { 0x007B4C30, 0x01DF0,  20 }, { 0x007B6A20, 0x02880,  21 },
+    { 0x007B92A0, 0x00F30,  22 }, { 0x007BA1D0, 0x04700,  23 }, { 0x007BE8D0, 0x043E0,  24 },
+    { 0x007C2CB0, 0x04050,  25 }, { 0x007C6D00, 0x01CA0,  26 }, { 0x007C89A0, 0x05440,  27 },
+    { 0x007CDDE0, 0x01AB0,  28 }, { 0x007CF890, 0x000D0,  29 }, { 0x007CF960, 0x02EA0,  30 },
+    { 0x007D2800, 0x01490,  31 }, { 0x007D3C90, 0x00790,  32 }, { 0x007D4420, 0x02700,  33 },
+    { 0x007D6B20, 0x01070,  34 }, { 0x007D7B90, 0x01C00,  35 }, { 0x007D9790, 0x070C0,  36 },
+    { 0x007E0850, 0x01DC0,  37 }, { 0x007E2610, 0x03040,  38 }, { 0x007E5650, 0x02340,  39 },
+    { 0x007E7990, 0x07C50,  40 }, { 0x007EF5E0, 0x16690,  41 }, { 0x00805C70, 0x04880,  42 },
+    { 0x0080A4F0, 0x0A900,  43 }, { 0x00814DF0, 0x06220,  44 }, { 0x0081B010, 0x03030,  45 },
+    { 0x0081E040, 0x0B1E0,  46 }, { 0x00829220, 0x01470,  47 }, { 0x0082A690, 0x03CA0,  48 },
+    { 0x0082E330, 0x079E0,  49 }, { 0x00835D10, 0x006A0,  50 }, { 0x008363B0, 0x00590,  51 },
+    { 0x00836940, 0x00EC0,  52 }, { 0x00837800, 0x009C0,  53 },
+};
+static constexpr int MAP_OVL_TABLE_SIZE = 47;
+
 extern "C" {
+
+// ── Map overlay loader override ─────────────────────────────────────
+// func_80012ED0 is the game's overlay DMA function. The game calls it to
+// load map overlays from ROM to VRAM 0x802E3B70. In the recomp, the DMA
+// doesn't populate RDRAM (the game's copy mechanism isn't intercepted).
+// Override: copy overlay data from ROM with byte-swap + register functions.
+//
+// Signature: func_80012ED0(queue, ctrl_struct, rom_start, vram_dest, size, flags)
+void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t ctrl = (uint32_t)ctx->r5;
+    uint32_t rom_start = (uint32_t)ctx->r6;
+    uint32_t vram_dest = (uint32_t)ctx->r7;
+    uint32_t size = MEM_W(0x10, ctx->r29);  // 5th arg on caller's stack
+
+    if (vram_dest == 0x802E3B70) {
+        // Map overlay load — find entry in our table
+        uint32_t rdram_dst = vram_dest - 0x80000000;
+        for (int i = 0; i < MAP_OVL_TABLE_SIZE; i++) {
+            if (map_ovl_table[i].rom_start == rom_start) {
+                uint32_t full_size = map_ovl_table[i].full_size;
+                lod_copy_overlay_data(rdram, rom_start, rdram_dst, full_size);
+                load_overlay_by_id(map_ovl_table[i].overlay_id, vram_dest);
+
+                static int load_n = 0; load_n++;
+                if (load_n <= 20 || (load_n % 100) == 0)
+                    fprintf(stderr, "[MAP_OVL] #%d loaded ovl_id=%d rom=0x%X size=0x%X (game requested 0x%X)\n",
+                            load_n, map_ovl_table[i].overlay_id, rom_start, full_size, size);
+                ctx->r2 = 0;
+                return;
+            }
+        }
+        fprintf(stderr, "[MAP_OVL] WARNING: unknown overlay rom=0x%X size=0x%X\n", rom_start, size);
+    }
+
+    // Non-map-overlay call: do the DMA via lod_copy_overlay_data if
+    // the destination is in valid RDRAM range, otherwise skip.
+    if (rom_start != 0 && size > 0 && size < 0x100000) {
+        uint32_t rdram_dst = vram_dest & 0x1FFFFFFF;
+        if (rdram_dst + size <= 0x800000) {
+            lod_copy_overlay_data(rdram, rom_start, rdram_dst, size);
+            // Store end address in ctrl struct if provided (matches original behavior)
+            if (ctrl != 0) {
+                uint32_t ctrl_phys = ctrl & 0x1FFFFFFF;
+                if (ctrl_phys + 4 <= 0x800000)
+                    MEM_W(0x0, ctrl) = vram_dest + size;
+            }
+        }
+    }
+    ctx->r2 = 0;
+}
 
 // ── OS thread/interrupt stubs (ignored by N64Recomp, handled by ultramodern) ──
 

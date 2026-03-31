@@ -93,26 +93,14 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     load_overlays(0xC2120, 0x80141870, 0x4AEE0);
     // Section 3: overlay_system (ROM 0x745230 → RAM 0x801CAEA0)
     load_overlays(0x745230, 0x801CAEA0, 0x69E0);
-    // Section 4+: map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
-    // The game starts at gs=4 (save screen) which uses map_ovl_34.
-    // Register its functions and copy its full code+data from ROM.
-    // Previous code only loaded map_ovl_00 — wrong overlay for the save screen.
-    load_overlay_by_id(41, 0x802E3B70);  // overlay ID 41 = map_ovl_34 (.index=38)
-    {
-        constexpr uint32_t map34_rom = 0x7EF5E0;
-        constexpr uint32_t map34_size = 0x16690; // full code+data (from game's overlay table)
-        constexpr uint32_t rdram_dst = 0x802E3B70 - 0x80000000;
-        for (uint32_t i = 0; i < map34_size; i += 4) {
-            if (map34_rom + i + 3 < rom.size()) {
-                rdram[rdram_dst + i + 0] = rom[map34_rom + i + 3];
-                rdram[rdram_dst + i + 1] = rom[map34_rom + i + 2];
-                rdram[rdram_dst + i + 2] = rom[map34_rom + i + 1];
-                rdram[rdram_dst + i + 3] = rom[map34_rom + i + 0];
-            }
-        }
-        fprintf(stderr, "[init] Loaded map_ovl_34: functions + data (ROM 0x%X, %u bytes) to 0x802E3B70\n",
-                map34_rom, map34_size);
-    }
+    // Map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
+    // The game's initial overlay load (before NI system is active) uses a boot
+    // path we don't intercept. Load the first needed overlay (gs=4 save screen)
+    // here. Subsequent overlay swaps are handled by the func_80012ED0 override
+    // in ignored_func_stubs.cpp.
+    load_overlay_by_id(41, 0x802E3B70);  // overlay ID 41 = map_ovl_34
+    lod_copy_overlay_data(rdram, 0x7EF5E0, 0x802E3B70 - 0x80000000, 0x16690);
+    fprintf(stderr, "[init] Loaded map_ovl_34: functions + data (0x16690 bytes) to 0x802E3B70\n");
 
     // === Copy main code DATA section (byte-swapped) ===
     // The main code DATA section contains critical tables (section descriptors,
