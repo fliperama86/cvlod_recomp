@@ -515,6 +515,43 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     // Map overlay loading is now done in lod_on_init (before game threads start).
     // See lod_init.cpp for map_ovl_34 loading.
 
+    // Boot screen skip: force gamestate transitions past screens that
+    // require Controller Pak or are irrelevant for PC port.
+    // GameStateMgr at 0x8031AC78: +0x24 = current_game_state, +0x28 = exitingGameState
+    if (direction == 0) {
+        uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+        if (gsm_addr != 0) {
+            uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+            int32_t cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
+            static int skip_delay = 0;
+            // gs=4 (save screen): skip to gs=1 (Konami logo, needed for graphics init)
+            // gs=12 (expansion pak): skip to gs=6 (title screen)
+            // gs=5 (intro cutscene): skip to gs=6 (title screen)
+            int32_t target_gs = -1;
+            if (cur_gs == 4) target_gs = 1;
+            else if (cur_gs == 12) target_gs = 6;
+            else if (cur_gs == 5) target_gs = 6;
+
+            if (target_gs >= 0) {
+                skip_delay++;
+                if (skip_delay == 60) { // ~1 second delay
+                    // Force gamestate transition: set current=-1 (exit flag)
+                    // and exitingGameState=target (next state).
+                    *(int32_t*)(rdram + gsm_phys + 0x24) = -1;
+                    *(int32_t*)(rdram + gsm_phys + 0x28) = target_gs;
+                    fprintf(stderr, "[SKIP] gs=%d → gs=%d (SI_DMA #%d)\n",
+                            cur_gs, target_gs, si_dma_count);
+                    // NOTE: don't swap overlays here — race condition with game
+                    // thread executing overlay code. The func_80012ED0 override
+                    // handles overlay swaps when the game's own loader fires.
+                    skip_delay = 0;
+                }
+            } else {
+                skip_delay = 0;
+            }
+        }
+    }
+
     // Watchpoint: monitor save object state byte at 0x8031AFA4+0x09
     if (direction == 0) {
         static uint8_t prev_state = 255;

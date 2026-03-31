@@ -94,13 +94,15 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Section 3: overlay_system (ROM 0x745230 → RAM 0x801CAEA0)
     load_overlays(0x745230, 0x801CAEA0, 0x69E0);
     // Map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
-    // The game's initial overlay load (before NI system is active) uses a boot
-    // path we don't intercept. Load the first needed overlay (gs=4 save screen)
-    // here. Subsequent overlay swaps are handled by the func_80012ED0 override
-    // in ignored_func_stubs.cpp.
-    load_overlay_by_id(41, 0x802E3B70);  // overlay ID 41 = map_ovl_34
+    // Register map_ovl_00 functions as default (used by gs=1 Konami logo and others).
+    // Copy map_ovl_34 DATA for gs=4 save screen (jump tables, constants).
+    // Function registration stays as map_ovl_00 — safe for gs=1 after skip.
+    // The func_80012ED0 override handles proper overlay swaps when the game's
+    // own overlay loader fires during gamestate transitions.
+    load_overlays(0x76CD00, 0x802E3B70, 0x779510 - 0x76CD00);
+    // Copy map_ovl_34 data to RDRAM (for save screen state machine tables)
     lod_copy_overlay_data(rdram, 0x7EF5E0, 0x802E3B70 - 0x80000000, 0x16690);
-    fprintf(stderr, "[init] Loaded map_ovl_34: functions + data (0x16690 bytes) to 0x802E3B70\n");
+    fprintf(stderr, "[init] Registered map_ovl_00 functions, copied map_ovl_34 data to 0x802E3B70\n");
 
     // === Copy main code DATA section (byte-swapped) ===
     // The main code DATA section contains critical tables (section descriptors,
