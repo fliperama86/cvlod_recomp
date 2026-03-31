@@ -207,6 +207,7 @@ set_property(TARGET LodRecomp PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SO
 # ── Tests ────────────────────────────────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/sanity ${CMAKE_BINARY_DIR}/tests/sanity)
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/dl_harness ${CMAKE_BINARY_DIR}/tests/dl_harness)
+add_subdirectory(${CMAKE_SOURCE_DIR}/tests/pak ${CMAKE_BINARY_DIR}/tests/pak)
 
 # ── DXC shader compilation (required by rt64) ───────────────────────
 set(DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")
