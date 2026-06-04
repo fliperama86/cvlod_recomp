@@ -19,6 +19,10 @@
 #define LOD_ENABLE_SAVE_AUTO_INPUT 0
 #endif
 
+#ifndef LOD_ENABLE_BOOT_INPUT_SCRIPT
+#define LOD_ENABLE_BOOT_INPUT_SCRIPT 0
+#endif
+
 #ifndef LOD_ENABLE_SAVE_HANDLER_TRACE
 #define LOD_ENABLE_SAVE_HANDLER_TRACE 0
 #endif
@@ -29,6 +33,10 @@
 
 #ifndef LOD_ENABLE_SAVE_STATE45_TRACE
 #define LOD_ENABLE_SAVE_STATE45_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_BGSTATE_TRACE
+#define LOD_ENABLE_BGSTATE_TRACE 0
 #endif
 
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
@@ -73,7 +81,8 @@ extern "C" void pak_write(uint16_t addr, const uint8_t* in, int count);
 extern "C" uint8_t pak_data_crc(const uint8_t* data, int size);
 
 // Overlay management — defined in librecomp
-extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
+extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
+extern "C" void unload_overlays(int32_t ram_addr, uint32_t size);
 // Copy overlay data from ROM to RDRAM (byte-swapped) — defined in lod_init.cpp
 extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
                                        uint32_t rdram_dst, uint32_t size);
@@ -90,29 +99,89 @@ static void lod_install_save_exit_trace_wrappers(const char* reason);
 #if LOD_ENABLE_SAVE_STATE45_TRACE
 static void lod_install_save_state45_trace_wrappers(const char* reason);
 #endif
+#if LOD_ENABLE_BGSTATE_TRACE
+static void lod_install_bgstate_trace_wrappers(const char* reason);
+#endif
 
-// ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
-// Built from game's overlay table at ROM 0xB39E8 + section_table .index values.
-// overlay_id = section .index + 3 (overlay_sections_by_index offset).
-static const struct { uint32_t rom_start; uint32_t full_size; uint32_t overlay_id; } map_ovl_table[] = {
-    { 0x0076CD00, 0x0C810,   7 }, { 0x00779510, 0x04CF0,   8 }, { 0x0077E200, 0x04F40,   9 },
-    { 0x00783140, 0x02EF0,  10 }, { 0x00786030, 0x03FF0,  11 }, { 0x0078A020, 0x092B0,  12 },
-    { 0x007932D0, 0x07E40,  13 }, { 0x0079B110, 0x07C60,  14 }, { 0x007A2D70, 0x03380,  15 },
-    { 0x007A60F0, 0x04FA0,  16 }, { 0x007AB090, 0x033A0,  17 }, { 0x007AE430, 0x03B30,  18 },
-    { 0x007B1F60, 0x02CD0,  19 }, { 0x007B4C30, 0x01DF0,  20 }, { 0x007B6A20, 0x02880,  21 },
-    { 0x007B92A0, 0x00F30,  22 }, { 0x007BA1D0, 0x04700,  23 }, { 0x007BE8D0, 0x043E0,  24 },
-    { 0x007C2CB0, 0x04050,  25 }, { 0x007C6D00, 0x01CA0,  26 }, { 0x007C89A0, 0x05440,  27 },
-    { 0x007CDDE0, 0x01AB0,  28 }, { 0x007CF890, 0x000D0,  29 }, { 0x007CF960, 0x02EA0,  30 },
-    { 0x007D2800, 0x01490,  31 }, { 0x007D3C90, 0x00790,  32 }, { 0x007D4420, 0x02700,  33 },
-    { 0x007D6B20, 0x01070,  34 }, { 0x007D7B90, 0x01C00,  35 }, { 0x007D9790, 0x070C0,  36 },
-    { 0x007E0850, 0x01DC0,  37 }, { 0x007E2610, 0x03040,  38 }, { 0x007E5650, 0x02340,  39 },
-    { 0x007E7990, 0x07C50,  40 }, { 0x007EF5E0, 0x16690,  41 }, { 0x00805C70, 0x04880,  42 },
-    { 0x0080A4F0, 0x0A900,  43 }, { 0x00814DF0, 0x06220,  44 }, { 0x0081B010, 0x03030,  45 },
-    { 0x0081E040, 0x0B1E0,  46 }, { 0x00829220, 0x01470,  47 }, { 0x0082A690, 0x03CA0,  48 },
-    { 0x0082E330, 0x079E0,  49 }, { 0x00835D10, 0x006A0,  50 }, { 0x008363B0, 0x00590,  51 },
-    { 0x00836940, 0x00EC0,  52 }, { 0x00837800, 0x009C0,  53 },
+// ── Map overlay table: ROM start → full DMA size ────────────────────
+// Built from the game's overlay table at ROM 0xB39E8. Do not hard-code
+// recomp overlay IDs here: adding/removing sections changes generated IDs.
+static const struct { uint32_t rom_start; uint32_t full_size; } map_ovl_table[] = {
+    { 0x0076CD00, 0x0C810 }, { 0x00779510, 0x04CF0 }, { 0x0077E200, 0x04F40 },
+    { 0x00783140, 0x02EF0 }, { 0x00786030, 0x03FF0 }, { 0x0078A020, 0x092B0 },
+    { 0x007932D0, 0x07E40 }, { 0x0079B110, 0x07C60 }, { 0x007A2D70, 0x03380 },
+    { 0x007A60F0, 0x04FA0 }, { 0x007AB090, 0x033A0 }, { 0x007AE430, 0x03B30 },
+    { 0x007B1F60, 0x02CD0 }, { 0x007B4C30, 0x01DF0 }, { 0x007B6A20, 0x02880 },
+    { 0x007B92A0, 0x00F30 }, { 0x007BA1D0, 0x04700 }, { 0x007BE8D0, 0x043E0 },
+    { 0x007C2CB0, 0x04050 }, { 0x007C6D00, 0x01CA0 }, { 0x007C89A0, 0x05440 },
+    { 0x007CDDE0, 0x01AB0 }, { 0x007CF890, 0x000D0 }, { 0x007CF960, 0x02EA0 },
+    { 0x007D2800, 0x01490 }, { 0x007D3C90, 0x00790 }, { 0x007D4420, 0x02700 },
+    { 0x007D6B20, 0x01070 }, { 0x007D7B90, 0x01C00 }, { 0x007D9790, 0x070C0 },
+    { 0x007E0850, 0x01DC0 }, { 0x007E2610, 0x03040 }, { 0x007E5650, 0x02340 },
+    { 0x007E7990, 0x07C50 }, { 0x007EF5E0, 0x16690 }, { 0x00805C70, 0x04880 },
+    { 0x0080A4F0, 0x0A900 }, { 0x00814DF0, 0x06220 }, { 0x0081B010, 0x03030 },
+    { 0x0081E040, 0x0B1E0 }, { 0x00829220, 0x01470 }, { 0x0082A690, 0x03CA0 },
+    { 0x0082E330, 0x079E0 }, { 0x00835D10, 0x006A0 }, { 0x008363B0, 0x00590 },
+    { 0x00836940, 0x00EC0 }, { 0x00837800, 0x009C0 },
 };
 static constexpr int MAP_OVL_TABLE_SIZE = 47;
+static constexpr uint32_t LOD_MAP_OVL_RAM = 0x802E3B70;
+static constexpr uint32_t LOD_MAP_OVL_UNLOAD_SIZE = 0x00200000;
+static constexpr uint32_t LOD_OVLSYS_RAM = 0x801CAEA0;
+static constexpr uint32_t LOD_OVLSYS_UNLOAD_SIZE = 0x00020000;
+
+static bool lod_decode_rdram_phys_addr(uint32_t addr, uint32_t size, uint32_t* phys_out) {
+    if (size > 0x800000) {
+        return false;
+    }
+
+    uint32_t phys = 0;
+    if (addr < 0x00800000) {
+        // Some DMA helpers pass physical RDRAM offsets directly.
+        phys = addr;
+    } else if (addr >= 0x80000000 && addr < 0x80800000) {
+        // KSEG0 cached RDRAM.
+        phys = addr - 0x80000000;
+    } else if (addr >= 0xA0000000 && addr < 0xA0800000) {
+        // KSEG1 uncached RDRAM.
+        phys = addr - 0xA0000000;
+    } else {
+        return false;
+    }
+
+    if (phys > 0x800000 - size) {
+        return false;
+    }
+
+    *phys_out = phys;
+    return true;
+}
+
+static bool lod_is_overlay_system_dma(uint32_t rom_start, uint32_t vram_dest) {
+    if (vram_dest != LOD_OVLSYS_RAM) {
+        return false;
+    }
+
+    switch (rom_start) {
+        case 0x00745230: // overlay_system variant 0
+        case 0x0074CD10: // overlay_system variant 1
+        case 0x0075A570: // overlay_system variant 2
+        case 0x007639A0: // overlay_system variant 3
+            return true;
+        default:
+            return false;
+    }
+}
+
+#if LOD_ENABLE_BGSTATE_TRACE
+static bool lod_range_overlaps(uint32_t start, uint32_t size, uint32_t range_start, uint32_t range_end) {
+    if (size == 0) {
+        return false;
+    }
+    uint64_t end = (uint64_t)start + size;
+    return (uint64_t)start < range_end && end > range_start;
+}
+#endif
 
 extern "C" {
 
@@ -136,7 +205,24 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
             if (map_ovl_table[i].rom_start == rom_start) {
                 uint32_t full_size = map_ovl_table[i].full_size;
                 lod_copy_overlay_data(rdram, rom_start, rdram_dst, full_size);
-                load_overlay_by_id(map_ovl_table[i].overlay_id, vram_dest);
+                unload_overlays((int32_t)vram_dest, LOD_MAP_OVL_UNLOAD_SIZE);
+                load_overlays(rom_start, (int32_t)vram_dest, full_size);
+                // Store end address in ctrl struct if provided (matches original DMA behavior).
+                // ni_system_handler passes sys+0x2B24 here; leaving it at zero prevents
+                // the overlay-system object (0x1AB) from being created after map load.
+                if (ctrl != 0) {
+                    uint32_t ctrl_phys = 0;
+                    if (lod_decode_rdram_phys_addr(ctrl, 4, &ctrl_phys)) {
+                        *(uint32_t*)(rdram + ctrl_phys) = vram_dest + size;
+                    } else {
+                        static int bad_map_ctrl_count = 0;
+                        if (++bad_map_ctrl_count <= 8) {
+                            fprintf(stderr,
+                                    "[MAP_OVL] WARNING: skipped map DMA ctrl write ctrl=0x%08X rom=0x%08X dst=0x%08X size=0x%X\n",
+                                    ctrl, rom_start, vram_dest, size);
+                        }
+                    }
+                }
 #if LOD_ENABLE_SAVE_HANDLER_TRACE
                 if (rom_start == 0x007EF5E0) {
                     lod_install_save_trace_wrappers("map_ovl_34-load");
@@ -147,11 +233,14 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                     lod_install_save_state45_trace_wrappers("map_ovl_34-load");
                 }
 #endif
+#if LOD_ENABLE_BGSTATE_TRACE
+                lod_install_bgstate_trace_wrappers("map-overlay-load");
+#endif
 
                 static int load_n = 0; load_n++;
                 if (load_n <= 20 || (load_n % 100) == 0)
-                    fprintf(stderr, "[MAP_OVL] #%d loaded ovl_id=%d rom=0x%X size=0x%X (game requested 0x%X)\n",
-                            load_n, map_ovl_table[i].overlay_id, rom_start, full_size, size);
+                    fprintf(stderr, "[MAP_OVL] #%d loaded rom=0x%X size=0x%X (game requested 0x%X)\n",
+                            load_n, rom_start, full_size, size);
                 ctx->r2 = 0;
                 return;
             }
@@ -161,15 +250,76 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
 
     // Non-map-overlay call: do the DMA via lod_copy_overlay_data if
     // the destination is in valid RDRAM range, otherwise skip.
+    //
+    // Important: do not feed uint32_t addresses back through MEM_W here.
+    // MEM_* expects sign-extended N64 KSEG addresses; after a uint32_t cast,
+    // a valid 0x80xxxxxx pointer is treated as +0x100xxxxxx and can write
+    // outside mapped host memory. Normalize to a physical RDRAM offset first.
     if (rom_start != 0 && size > 0 && size < 0x100000) {
-        uint32_t rdram_dst = vram_dest & 0x1FFFFFFF;
-        if (rdram_dst + size <= 0x800000) {
+        uint32_t rdram_dst = 0;
+        if (lod_decode_rdram_phys_addr(vram_dest, size, &rdram_dst)) {
+#if LOD_ENABLE_BGSTATE_TRACE
+            bool touches_ovlsys_ram = lod_range_overlaps(vram_dest, size, 0x801CAEA0, 0x801ED010);
+            bool touches_ovlsys_rom = lod_range_overlaps(rom_start, size, 0x00745230, 0x0076CD00);
+            uint32_t ovlsys_top0_before = *(uint32_t*)(rdram + 0x001D1880);
+            uint32_t ovlsys_sub0_before = *(uint32_t*)(rdram + 0x001D1ACC);
+            if (touches_ovlsys_ram || touches_ovlsys_rom) {
+                static int ovlsys_dma_trace_count = 0;
+                if (++ovlsys_dma_trace_count <= 40) {
+                    fprintf(stderr,
+                        "[OVLSYS-DMA] before #%d ctrl=0x%08X rom=0x%08X dst=0x%08X phys=0x%06X size=0x%X "
+                        "touch_ram=%d touch_rom=%d table0=0x%08X sub0=0x%08X\n",
+                        ovlsys_dma_trace_count, ctrl, rom_start, vram_dest, rdram_dst, size,
+                        touches_ovlsys_ram ? 1 : 0, touches_ovlsys_rom ? 1 : 0,
+                        ovlsys_top0_before, ovlsys_sub0_before);
+                }
+            }
+#endif
             lod_copy_overlay_data(rdram, rom_start, rdram_dst, size);
+            if (lod_is_overlay_system_dma(rom_start, vram_dest)) {
+                unload_overlays((int32_t)LOD_OVLSYS_RAM, LOD_OVLSYS_UNLOAD_SIZE);
+                load_overlays(rom_start, (int32_t)vram_dest, size);
+                static int ovlsys_load_count = 0;
+                if (++ovlsys_load_count <= 16 || (ovlsys_load_count % 100) == 0) {
+                    fprintf(stderr,
+                        "[OVLSYS-DMA] registered variant #%d rom=0x%08X dst=0x%08X size=0x%X\n",
+                        ovlsys_load_count, rom_start, vram_dest, size);
+                }
+            }
+#if LOD_ENABLE_BGSTATE_TRACE
+            if (touches_ovlsys_ram || touches_ovlsys_rom) {
+                static int ovlsys_dma_after_trace_count = 0;
+                if (++ovlsys_dma_after_trace_count <= 40) {
+                    fprintf(stderr,
+                        "[OVLSYS-DMA] after  #%d ctrl=0x%08X rom=0x%08X dst=0x%08X phys=0x%06X size=0x%X "
+                        "table0=0x%08X->0x%08X sub0=0x%08X->0x%08X\n",
+                        ovlsys_dma_after_trace_count, ctrl, rom_start, vram_dest, rdram_dst, size,
+                        ovlsys_top0_before, *(uint32_t*)(rdram + 0x001D1880),
+                        ovlsys_sub0_before, *(uint32_t*)(rdram + 0x001D1ACC));
+                }
+            }
+            lod_install_bgstate_trace_wrappers("non-map-dma");
+#endif
             // Store end address in ctrl struct if provided (matches original behavior)
             if (ctrl != 0) {
-                uint32_t ctrl_phys = ctrl & 0x1FFFFFFF;
-                if (ctrl_phys + 4 <= 0x800000)
-                    MEM_W(0x0, ctrl) = vram_dest + size;
+                uint32_t ctrl_phys = 0;
+                if (lod_decode_rdram_phys_addr(ctrl, 4, &ctrl_phys)) {
+                    *(uint32_t*)(rdram + ctrl_phys) = vram_dest + size;
+                } else {
+                    static int bad_ctrl_count = 0;
+                    if (++bad_ctrl_count <= 8) {
+                        fprintf(stderr,
+                            "[MAP_OVL] WARNING: skipped non-map DMA ctrl write ctrl=0x%08X rom=0x%08X dst=0x%08X size=0x%X\n",
+                            ctrl, rom_start, vram_dest, size);
+                    }
+                }
+            }
+        } else {
+            static int bad_dst_count = 0;
+            if (++bad_dst_count <= 8) {
+                fprintf(stderr,
+                    "[MAP_OVL] WARNING: skipped non-map DMA copy with invalid dst=0x%08X rom=0x%08X size=0x%X\n",
+                    vram_dest, rom_start, size);
             }
         }
     }
@@ -184,7 +334,30 @@ void __osDispatchThread_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osViSwapContext_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osSpDeviceBusy_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osSetCompare_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __ll_rshift_recomp(uint8_t* rdram, recomp_context* ctx) {}
+void __ll_rshift_recomp(uint8_t* /*rdram*/, recomp_context* ctx) {
+    // IDO/libultra helper for signed 64-bit right shifts. The N64 o32 calling
+    // convention passes 64-bit values as register pairs: a0/a1 for the value,
+    // a2/a3 for the shift count. Return is v0/v1 (high/low).
+    //
+    // This is not an OS stub: asset/decompression state code calls it while
+    // deciding whether an async load has finished. Leaving it empty preserves
+    // stale v0/v1 and can strand the boot save-screen scheduler on a null
+    // callback.
+    uint64_t value_u64 = (uint64_t)(uint32_t)ctx->r4 << 32 |
+                         (uint64_t)(uint32_t)ctx->r5;
+    int64_t value = (int64_t)value_u64;
+    uint32_t shift = (uint32_t)ctx->r7;
+    int64_t result = 0;
+
+    if (shift >= 64) {
+        result = value < 0 ? -1 : 0;
+    } else {
+        result = value >> shift;
+    }
+
+    ctx->r2 = (int32_t)(result >> 32);
+    ctx->r3 = (int32_t)(result & 0xFFFFFFFF);
+}
 void __osSiGetAccess_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osSiRelAccess_recomp(uint8_t* rdram, recomp_context* ctx) {}
 
@@ -450,6 +623,684 @@ static int32_t lod_current_gamestate(uint8_t* rdram) {
 
     return *(int32_t*)(rdram + gsm_phys + 0x24);
 }
+
+static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys);
+
+#if LOD_ENABLE_BGSTATE_TRACE
+static recomp_func_t* lod_orig_bgstate_driver = nullptr;     // 0x80145AF0
+static recomp_func_t* lod_orig_bgstate_bootstrap = nullptr;  // 0x80145B60
+static recomp_func_t* lod_orig_bgstate_init = nullptr;       // 0x80145BD0
+static recomp_func_t* lod_orig_bgstate_load = nullptr;       // 0x80145DA8
+static recomp_func_t* lod_orig_bgstate_update_a = nullptr;   // 0x80145FD4
+static recomp_func_t* lod_orig_bgstate_update_b = nullptr;   // 0x801460D4
+static recomp_func_t* lod_orig_bgstate_create = nullptr;     // 0x8014615C
+static recomp_func_t* lod_orig_bgstate_activate = nullptr;   // 0x80146240
+static recomp_func_t* lod_orig_scene5_obj7_driver = nullptr; // 0x8001A5BC
+static recomp_func_t* lod_orig_scene5_aux_driver = nullptr;  // 0x8001AA48
+static recomp_func_t* lod_orig_scene5_sys_dispatch = nullptr;// 0x8001AB28
+static recomp_func_t* lod_orig_scene5_obj8_driver = nullptr; // 0x8001B4C0
+static recomp_func_t* lod_orig_scene5_obj8_load = nullptr;   // 0x8001B530
+static recomp_func_t* lod_orig_overlay_system_create = nullptr; // 0x8001BA78
+static recomp_func_t* lod_orig_sys_obj009_driver = nullptr;  // 0x8001B718
+static recomp_func_t* lod_orig_sys_obj00a_driver = nullptr;  // 0x8001BC5C
+static recomp_func_t* lod_orig_sys_obj0a2_driver = nullptr;  // 0x80037730
+static recomp_func_t* lod_orig_sys_obj106_driver = nullptr;  // 0x80058890
+static recomp_func_t* lod_orig_sys_obj185_driver = nullptr;  // 0x80086120
+static recomp_func_t* lod_orig_sys_obj089_driver = nullptr;  // 0x8017E00C
+static recomp_func_t* lod_orig_sys_obj016_driver = nullptr;  // 0x80189050
+static recomp_func_t* lod_orig_sys_obj093_driver = nullptr;  // 0x801CAEA0
+static recomp_func_t* lod_orig_ovlsys_script_outer = nullptr; // 0x801CB180
+static recomp_func_t* lod_orig_ovlsys_script_alloc = nullptr;  // 0x801CB404
+static recomp_func_t* lod_orig_ovlsys_script_wait_a = nullptr; // 0x801CB4CC
+static recomp_func_t* lod_orig_ovlsys_script_wait_b = nullptr; // 0x801CB550
+static recomp_func_t* lod_orig_ovlsys_ni_init = nullptr;       // 0x801CB5CC
+static recomp_func_t* lod_orig_ovlsys_script_done = nullptr;   // 0x801CBC78
+
+static uint32_t lod_bgstate_u32(uint8_t* rdram, uint32_t phys) {
+    if (!lod_rdram_range_ok(phys, 4)) {
+        return 0;
+    }
+    return lod_rdram_u32(rdram, phys);
+}
+
+static int16_t lod_bgstate_s16(uint8_t* rdram, uint32_t phys) {
+    if (!lod_rdram_range_ok(phys, 2)) {
+        return 0;
+    }
+    return lod_rdram_s16(rdram, phys);
+}
+
+static uint8_t lod_bgstate_u8(uint8_t* rdram, uint32_t phys) {
+    if (!lod_rdram_range_ok(phys, 1)) {
+        return 0;
+    }
+    return lod_rdram_u8(rdram, phys);
+}
+
+static void lod_bgstate_trace_snapshot(uint8_t* rdram, const char* label,
+                                       uint32_t vram, recomp_context* ctx,
+                                       const char* phase, int count) {
+    constexpr uint32_t SYS_PHYS = 0x1C82C0;      // 0x801C82C0
+    constexpr uint32_t BG_WORK_PHYS = 0x19D180;  // 0x8019D180
+    constexpr uint32_t DISPATCH_TABLE_PHYS = 0x18D3B0; // 0x8018D3B0
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj & 0x1FFFFFFF;
+    bool obj_ok = obj != 0 && lod_rdram_range_ok(obj_phys, 0x74);
+    uint8_t state = obj_ok ? lod_bgstate_u8(rdram, obj_phys + 0x09) : 0xFF;
+    int16_t func_id = obj_ok ? lod_bgstate_s16(rdram, obj_phys + 0x0E) : 0;
+    uint8_t dispatch_state = obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 0xFF;
+    uint32_t dispatch_target = 0;
+    if (dispatch_state < 64) {
+        dispatch_target = lod_bgstate_u32(rdram, DISPATCH_TABLE_PHYS + dispatch_state * 4);
+    }
+
+    uint32_t sys2908 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2908);
+    uint32_t sys2924 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2924);
+    uint32_t sys295c = lod_bgstate_u32(rdram, SYS_PHYS + 0x295C);
+    uint32_t sys2960 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2960);
+    uint32_t sys2968 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2968);
+    uint32_t sys2b10 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B10);
+    uint32_t sys2b24 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B24);
+    uint32_t sys2b28 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B28);
+    uint32_t sys2b2c = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B2C);
+    uint32_t sys2bd0 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2BD0);
+    int16_t scene = lod_bgstate_s16(rdram, SYS_PHYS + 0x28D0);
+    int16_t scene2 = lod_bgstate_s16(rdram, SYS_PHYS + 0x28D2);
+
+    uint32_t bg00 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x00);
+    uint32_t bg04 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x04);
+    uint32_t bg08 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x08);
+    uint32_t bg0c = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x0C);
+    uint32_t bg10 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x10);
+    uint32_t bg14 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x14);
+    uint32_t bg18 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x18);
+    uint32_t bg1c = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x1C);
+    uint32_t bg20 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x20);
+    uint32_t bg24 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x24);
+
+    fprintf(stderr,
+        "[BGSTATE] %s %-10s #%d vram=0x%08X gs=%d scene=%d/%d a0=0x%08X "
+        "obj_ok=%d state09=%u func_id=%d dispatch=%u target=0x%08X ra=0x%08X "
+        "sys2908=0x%08X sys2924=0x%08X sys295c=0x%08X sys2960=0x%08X "
+        "sys2968=0x%08X sys2B10=0x%08X sys2B24=0x%08X sys2B28=0x%08X "
+        "sys2B2C=0x%08X sys2BD0=0x%08X "
+        "bg[00..24]=%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X\n",
+        phase, label, count, vram, lod_current_gamestate(rdram), scene, scene2, obj,
+        obj_ok ? 1 : 0, state, func_id, dispatch_state, dispatch_target,
+        (uint32_t)ctx->r31, sys2908, sys2924, sys295c, sys2960, sys2968,
+        sys2b10, sys2b24, sys2b28, sys2b2c, sys2bd0, bg00, bg04, bg08, bg0c,
+        bg10, bg14, bg18, bg1c, bg20, bg24);
+}
+
+static void lod_trace_bgstate_common(uint8_t* rdram, recomp_context* ctx,
+                                     const char* label, uint32_t vram,
+                                     recomp_func_t* original, int* count) {
+    (*count)++;
+    int32_t gs = lod_current_gamestate(rdram);
+    bool verbose = *count <= 80 || (*count % 500) == 0 ||
+                   (gs == 5 && (*count <= 120 || (*count % 30) == 0));
+    if (verbose) {
+        lod_bgstate_trace_snapshot(rdram, label, vram, ctx, "enter", *count);
+    }
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+    if (verbose) {
+        lod_bgstate_trace_snapshot(rdram, label, vram, ctx, "exit ", *count);
+    }
+}
+
+static void lod_trace_overlay_script_snapshot(uint8_t* rdram, recomp_context* ctx,
+                                              const char* label, uint32_t vram,
+                                              const char* phase, int count) {
+    constexpr uint32_t SYS_PHYS = 0x1C82C0;      // 0x801C82C0
+    constexpr uint32_t TOP_TABLE_PHYS = 0x1D1880; // 0x801D1880
+    constexpr uint32_t SUB_TABLE_PHYS = 0x1D1ACC; // 0x801D1ACC
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj & 0x1FFFFFFF;
+    bool obj_ok = obj != 0 && lod_rdram_range_ok(obj_phys, 0x80);
+
+    uint16_t obj_id = obj_ok ? ((uint16_t)lod_bgstate_s16(rdram, obj_phys + 0x00) & 0x07FF) : 0;
+    uint16_t flags = obj_ok ? (uint16_t)lod_bgstate_s16(rdram, obj_phys + 0x02) : 0;
+    uint8_t state09 = obj_ok ? lod_bgstate_u8(rdram, obj_phys + 0x09) : 0xFF;
+    int16_t script_idx = obj_ok ? lod_bgstate_s16(rdram, obj_phys + 0x0E) : 0;
+    uint32_t slot24 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x24) : 0;
+    uint32_t slot34 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x34) : 0;
+
+    auto read_pair = [&](int idx, uint8_t* count_out, uint8_t* cmd_out) {
+        *count_out = 0;
+        *cmd_out = 0;
+        if (!obj_ok || idx < 0) {
+            return;
+        }
+        uint32_t pair_phys = obj_phys + 0x08 + (uint32_t)idx * 2;
+        if (!lod_rdram_range_ok(pair_phys, 2)) {
+            return;
+        }
+        *count_out = lod_bgstate_u8(rdram, pair_phys + 0);
+        *cmd_out = lod_bgstate_u8(rdram, pair_phys + 1);
+    };
+
+    uint8_t cur_count = 0, cur_cmd = 0, next_count = 0, next_cmd = 0;
+    uint8_t next2_count = 0, next2_cmd = 0;
+    read_pair(script_idx, &cur_count, &cur_cmd);
+    read_pair(script_idx + 1, &next_count, &next_cmd);
+    read_pair(script_idx + 2, &next2_count, &next2_cmd);
+
+    uint32_t top_target = next_cmd < 16 ? lod_bgstate_u32(rdram, TOP_TABLE_PHYS + next_cmd * 4) : 0;
+    uint32_t sub_target = next_cmd < 16 ? lod_bgstate_u32(rdram, SUB_TABLE_PHYS + next_cmd * 4) : 0;
+    uint32_t sub_cur_target = cur_cmd < 16 ? lod_bgstate_u32(rdram, SUB_TABLE_PHYS + cur_cmd * 4) : 0;
+
+    uint32_t sys2908 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2908);
+    uint32_t sys295c = lod_bgstate_u32(rdram, SYS_PHYS + 0x295C);
+    uint32_t sys2960 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2960);
+    uint32_t sys2964 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2964);
+    uint32_t sys2b10 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B10);
+    uint32_t sys2b24 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B24);
+    uint32_t ovlsys_18b4 = lod_bgstate_u32(rdram, 0x1D18B4); // 0x801D18B4
+    uint32_t ovlsys_ada0 = lod_bgstate_u32(rdram, 0x1CADA0); // 0x801CADA0
+    uint32_t ovlsys_ae88 = lod_bgstate_u32(rdram, 0x1DAE88); // 0x801DAE88
+
+    uint8_t script_bytes[24] = {};
+    if (obj_ok && lod_rdram_range_ok(obj_phys + 0x08, sizeof(script_bytes))) {
+        for (size_t i = 0; i < sizeof(script_bytes); i++) {
+            script_bytes[i] = lod_bgstate_u8(rdram, obj_phys + 0x08 + (uint32_t)i);
+        }
+    }
+
+    fprintf(stderr,
+        "[OVLSYS-SCRIPT] %s %-10s #%d vram=0x%08X gs=%d a0=0x%08X "
+        "obj_ok=%d id=0x%03X flags=0x%04X state09=%u script_idx=%d "
+        "cur=%02X/%02X sub_cur=0x%08X next=%02X/%02X top=0x%08X sub=0x%08X next2=%02X/%02X "
+        "slot24=0x%08X slot34=0x%08X "
+        "sys2908=0x%08X sys295C=0x%08X sys2960=0x%08X sys2964=0x%08X "
+        "sys2B10=0x%08X sys2B24=0x%08X ovl18B4=0x%08X ovlADA0=0x%08X ovlAE88=0x%08X "
+        "bytes08=%02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X "
+        "%02X%02X %02X%02X %02X%02X %02X%02X %02X%02X %02X%02X "
+        "v0=0x%08X ra=0x%08X\n",
+        phase, label, count, vram, lod_current_gamestate(rdram), obj,
+        obj_ok ? 1 : 0, obj_id, flags, state09, script_idx,
+        cur_count, cur_cmd, sub_cur_target, next_count, next_cmd, top_target, sub_target,
+        next2_count, next2_cmd, slot24, slot34, sys2908, sys295c, sys2960, sys2964,
+        sys2b10, sys2b24, ovlsys_18b4, ovlsys_ada0, ovlsys_ae88,
+        script_bytes[0], script_bytes[1], script_bytes[2], script_bytes[3],
+        script_bytes[4], script_bytes[5], script_bytes[6], script_bytes[7],
+        script_bytes[8], script_bytes[9], script_bytes[10], script_bytes[11],
+        script_bytes[12], script_bytes[13], script_bytes[14], script_bytes[15],
+        script_bytes[16], script_bytes[17], script_bytes[18], script_bytes[19],
+        script_bytes[20], script_bytes[21], script_bytes[22], script_bytes[23],
+        (uint32_t)ctx->r2, (uint32_t)ctx->r31);
+}
+
+static void lod_trace_overlay_script_common(uint8_t* rdram, recomp_context* ctx,
+                                            const char* label, uint32_t vram,
+                                            recomp_func_t* original, int* count) {
+    (*count)++;
+    int32_t gs = lod_current_gamestate(rdram);
+    bool verbose = (*count <= 80) || (gs == 5 && (*count <= 200 || (*count % 120) == 0));
+    if (verbose) {
+        lod_trace_overlay_script_snapshot(rdram, ctx, label, vram, "enter", *count);
+    }
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+    if (verbose) {
+        lod_trace_overlay_script_snapshot(rdram, ctx, label, vram, "exit ", *count);
+    }
+}
+
+static uint32_t lod_dispatch_table_for_obj_id(uint16_t obj_id) {
+    switch (obj_id) {
+        case 0x007: return 0x0B37C4;
+        case 0x008: return 0x0B3824;
+        case 0x009: return 0x0B3834;
+        case 0x00A: return 0x0B3848;
+        case 0x016: return 0x197130;
+        case 0x089: return 0x196110;
+        case 0x0A2: return 0x0B4B70;
+        case 0x106: return 0x0B5C90;
+        case 0x185: return 0x0B7790;
+        case 0x1AB: return 0x18D3B0;
+        default: return 0;
+    }
+}
+
+static void lod_trace_obj_ref(uint8_t* rdram, uint32_t obj_addr,
+                              uint16_t* id_out, uint8_t* state_out,
+                              int16_t* func_id_out, uint8_t* dispatch_out,
+                              uint32_t* scheduler_out, uint32_t* target_out) {
+    constexpr uint32_t OBJ_FUNC_TABLE_PHYS = 0x0AD640; // 0x800AD640
+    uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    if (obj_addr == 0 || !lod_rdram_range_ok(obj_phys, 0x74)) {
+        *id_out = 0;
+        *state_out = 0xFF;
+        *func_id_out = 0;
+        *dispatch_out = 0xFF;
+        *scheduler_out = 0;
+        *target_out = 0;
+        return;
+    }
+
+    *id_out = (uint16_t)lod_bgstate_s16(rdram, obj_phys + 0x00) & 0x07FF;
+    *state_out = lod_bgstate_u8(rdram, obj_phys + 0x09);
+    *func_id_out = lod_bgstate_s16(rdram, obj_phys + 0x0E);
+    *dispatch_out = lod_object_dispatch_state(rdram, obj_phys);
+    *scheduler_out = lod_bgstate_u32(rdram, OBJ_FUNC_TABLE_PHYS + *id_out * 4);
+    *target_out = 0;
+    uint32_t dispatch_table = lod_dispatch_table_for_obj_id(*id_out);
+    if (dispatch_table != 0 && *dispatch_out < 64) {
+        *target_out = lod_bgstate_u32(rdram, dispatch_table + *dispatch_out * 4);
+    }
+}
+
+static void lod_trace_schedule_common(uint8_t* rdram, recomp_context* ctx,
+                                      const char* label, uint32_t vram,
+                                      uint32_t dispatch_table_phys,
+                                      recomp_func_t* original, int* count) {
+    (*count)++;
+
+    constexpr uint32_t SYS_PHYS = 0x1C82C0;      // 0x801C82C0
+    constexpr uint32_t BG_WORK_PHYS = 0x19D180;  // 0x8019D180
+    constexpr uint32_t OBJ_FUNC_TABLE_PHYS = 0x0AD640; // 0x800AD640
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj & 0x1FFFFFFF;
+    bool obj_ok = obj != 0 && lod_rdram_range_ok(obj_phys, 0x74);
+    uint16_t obj_id = obj_ok ? ((uint16_t)lod_bgstate_s16(rdram, obj_phys + 0x00) & 0x07FF) : 0;
+    uint16_t obj_flags = obj_ok ? (uint16_t)lod_bgstate_s16(rdram, obj_phys + 0x02) : 0;
+    uint8_t state = obj_ok ? lod_bgstate_u8(rdram, obj_phys + 0x09) : 0xFF;
+    int16_t func_id = obj_ok ? lod_bgstate_s16(rdram, obj_phys + 0x0E) : 0;
+    uint8_t dispatch_state = obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 0xFF;
+    uint32_t dispatch_target = 0;
+    if (dispatch_table_phys != 0 && dispatch_state < 64) {
+        dispatch_target = lod_bgstate_u32(rdram, dispatch_table_phys + dispatch_state * 4);
+    }
+    uint32_t obj_func_target = lod_bgstate_u32(rdram, OBJ_FUNC_TABLE_PHYS + obj_id * 4);
+
+    uint32_t child = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x1C) : 0;
+    uint32_t slot34 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t slot38 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t slot3c = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x3C) : 0;
+    uint32_t slot40 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x40) : 0;
+    uint32_t slot44 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x44) : 0;
+    uint32_t slot48 = obj_ok ? lod_bgstate_u32(rdram, obj_phys + 0x48) : 0;
+
+    uint32_t sys2908 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2908);
+    uint32_t sys290c = lod_bgstate_u32(rdram, SYS_PHYS + 0x290C);
+    uint32_t sys2914 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2914);
+    uint32_t sys291c = lod_bgstate_u32(rdram, SYS_PHYS + 0x291C);
+    uint32_t sys2924 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2924);
+    uint32_t sys292c = lod_bgstate_u32(rdram, SYS_PHYS + 0x292C);
+    uint32_t sys2934 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2934);
+    uint32_t sys293c = lod_bgstate_u32(rdram, SYS_PHYS + 0x293C);
+    uint32_t sys2944 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2944);
+    uint32_t sys294c = lod_bgstate_u32(rdram, SYS_PHYS + 0x294C);
+    uint32_t sys295c = lod_bgstate_u32(rdram, SYS_PHYS + 0x295C);
+    uint32_t sys2960 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2960);
+    uint32_t sys2adc = lod_bgstate_u32(rdram, SYS_PHYS + 0x2ADC);
+    uint32_t sys2b10 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B10);
+    uint32_t sys2b20 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B20);
+    uint32_t sys2b24 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B24);
+    uint32_t sys2b70 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B70);
+    uint32_t sys2bd0 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2BD0);
+    int32_t gs = lod_current_gamestate(rdram);
+    uint32_t bg14 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x14);
+    uint32_t bg18 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x18);
+
+    uint16_t s290c_id, s2914_id, s291c_id, s2924_id, s292c_id;
+    uint16_t s2934_id, s293c_id, s2944_id, s294c_id, s2b70_id;
+    uint8_t s290c_state, s2914_state, s291c_state, s2924_state, s292c_state;
+    uint8_t s2934_state, s293c_state, s2944_state, s294c_state, s2b70_state;
+    int16_t s290c_func, s2914_func, s291c_func, s2924_func, s292c_func;
+    int16_t s2934_func, s293c_func, s2944_func, s294c_func, s2b70_func;
+    uint8_t s290c_disp, s2914_disp, s291c_disp, s2924_disp, s292c_disp;
+    uint8_t s2934_disp, s293c_disp, s2944_disp, s294c_disp, s2b70_disp;
+    uint32_t s290c_sched, s2914_sched, s291c_sched, s2924_sched, s292c_sched;
+    uint32_t s2934_sched, s293c_sched, s2944_sched, s294c_sched, s2b70_sched;
+    uint32_t s290c_target, s2914_target, s291c_target, s2924_target, s292c_target;
+    uint32_t s2934_target, s293c_target, s2944_target, s294c_target, s2b70_target;
+    lod_trace_obj_ref(rdram, sys290c, &s290c_id, &s290c_state, &s290c_func, &s290c_disp, &s290c_sched, &s290c_target);
+    lod_trace_obj_ref(rdram, sys2914, &s2914_id, &s2914_state, &s2914_func, &s2914_disp, &s2914_sched, &s2914_target);
+    lod_trace_obj_ref(rdram, sys291c, &s291c_id, &s291c_state, &s291c_func, &s291c_disp, &s291c_sched, &s291c_target);
+    lod_trace_obj_ref(rdram, sys2924, &s2924_id, &s2924_state, &s2924_func, &s2924_disp, &s2924_sched, &s2924_target);
+    lod_trace_obj_ref(rdram, sys292c, &s292c_id, &s292c_state, &s292c_func, &s292c_disp, &s292c_sched, &s292c_target);
+    lod_trace_obj_ref(rdram, sys2934, &s2934_id, &s2934_state, &s2934_func, &s2934_disp, &s2934_sched, &s2934_target);
+    lod_trace_obj_ref(rdram, sys293c, &s293c_id, &s293c_state, &s293c_func, &s293c_disp, &s293c_sched, &s293c_target);
+    lod_trace_obj_ref(rdram, sys2944, &s2944_id, &s2944_state, &s2944_func, &s2944_disp, &s2944_sched, &s2944_target);
+    lod_trace_obj_ref(rdram, sys294c, &s294c_id, &s294c_state, &s294c_func, &s294c_disp, &s294c_sched, &s294c_target);
+    lod_trace_obj_ref(rdram, sys2b70, &s2b70_id, &s2b70_state, &s2b70_func, &s2b70_disp, &s2b70_sched, &s2b70_target);
+
+    bool interesting_obj =
+        obj_id == 0x002 || obj_id == 0x003 || obj_id == 0x004 ||
+        obj_id == 0x006 || obj_id == 0x009 || obj_id == 0x00A ||
+        obj_id == 0x016 || obj_id == 0x089 || obj_id == 0x093 ||
+        obj_id == 0x0A2 || obj_id == 0x106 || obj_id == 0x185 ||
+        obj_id == 0x007 || obj_id == 0x008 || obj_id == 0x00E ||
+        obj_id == 0x088 || obj_id == 0x08A || obj_id == 0x1AB ||
+        obj_id == 0x1AC || obj_id == 0x1AD || obj_id == 0x1AE ||
+        obj_id == 0x1B1 || obj_id == 0x1B2 || obj_id == 0x1D0;
+    bool verbose = (*count <= 80) ||
+                   (gs == 5 && (interesting_obj || *count <= 160 || (*count % 120) == 0)) ||
+                   (*count % 1000) == 0;
+
+    if (verbose) {
+        fprintf(stderr,
+            "[G5-OBJ] enter %-14s #%d vram=0x%08X gs=%d a0=0x%08X obj_ok=%d "
+            "id=0x%03X flags=0x%04X state09=%u func_id=%d dispatch=%u "
+            "obj_func=0x%08X target=0x%08X child=0x%08X "
+            "slots34..48=%08X,%08X,%08X,%08X,%08X,%08X "
+            "sys2908=0x%08X sys290C=0x%08X sys2914=0x%08X sys2924=0x%08X "
+            "sys295C=0x%08X sys2960=0x%08X sys2ADC=0x%08X sys2B10=0x%08X "
+            "sys2B20=0x%08X sys2B24=0x%08X sys2BD0=0x%08X bg14=0x%08X bg18=0x%08X "
+            "sysObjs{290C=%03X/%u/%d/%u 2914=%03X/%u/%d/%u 291C=%03X/%u/%d/%u "
+            "2924=%03X/%u/%d/%u 292C=%03X/%u/%d/%u 2934=%03X/%u/%d/%u "
+            "293C=%03X/%u/%d/%u 2944=%03X/%u/%d/%u 294C=%03X/%u/%d/%u 2B70=%03X/%u/%d/%u} "
+            "ra=0x%08X\n",
+            label, *count, vram, gs, obj, obj_ok ? 1 : 0,
+            obj_id, obj_flags, state, func_id, dispatch_state, obj_func_target,
+            dispatch_target, child, slot34, slot38, slot3c, slot40, slot44, slot48,
+            sys2908, sys290c, sys2914, sys2924, sys295c, sys2960, sys2adc, sys2b10,
+            sys2b20, sys2b24, sys2bd0, bg14, bg18,
+            s290c_id, s290c_state, s290c_func, s290c_disp,
+            s2914_id, s2914_state, s2914_func, s2914_disp,
+            s291c_id, s291c_state, s291c_func, s291c_disp,
+            s2924_id, s2924_state, s2924_func, s2924_disp,
+            s292c_id, s292c_state, s292c_func, s292c_disp,
+            s2934_id, s2934_state, s2934_func, s2934_disp,
+            s293c_id, s293c_state, s293c_func, s293c_disp,
+            s2944_id, s2944_state, s2944_func, s2944_disp,
+            s294c_id, s294c_state, s294c_func, s294c_disp,
+            s2b70_id, s2b70_state, s2b70_func, s2b70_disp,
+            (uint32_t)ctx->r31);
+
+        if (gs == 5 && (strcmp(label, "sys_dispatch") == 0 || *count <= 40 || (*count % 120) == 0)) {
+            fprintf(stderr,
+                "[G5-SYSOBJS] #%d "
+                "290C=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "2914=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "291C=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "2924=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "292C=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "2934=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "293C=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "2944=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "294C=%03X/%u/%d/%u sched=0x%08X target=0x%08X "
+                "2B70=%03X/%u/%d/%u sched=0x%08X target=0x%08X\n",
+                *count,
+                s290c_id, s290c_state, s290c_func, s290c_disp, s290c_sched, s290c_target,
+                s2914_id, s2914_state, s2914_func, s2914_disp, s2914_sched, s2914_target,
+                s291c_id, s291c_state, s291c_func, s291c_disp, s291c_sched, s291c_target,
+                s2924_id, s2924_state, s2924_func, s2924_disp, s2924_sched, s2924_target,
+                s292c_id, s292c_state, s292c_func, s292c_disp, s292c_sched, s292c_target,
+                s2934_id, s2934_state, s2934_func, s2934_disp, s2934_sched, s2934_target,
+                s293c_id, s293c_state, s293c_func, s293c_disp, s293c_sched, s293c_target,
+                s2944_id, s2944_state, s2944_func, s2944_disp, s2944_sched, s2944_target,
+                s294c_id, s294c_state, s294c_func, s294c_disp, s294c_sched, s294c_target,
+                s2b70_id, s2b70_state, s2b70_func, s2b70_disp, s2b70_sched, s2b70_target);
+        }
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (verbose) {
+        uint8_t after_dispatch = obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 0xFF;
+        uint32_t after_sys2b10 = lod_bgstate_u32(rdram, SYS_PHYS + 0x2B10);
+        uint32_t after_bg14 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x14);
+        uint32_t after_bg18 = lod_bgstate_u32(rdram, BG_WORK_PHYS + 0x18);
+        fprintf(stderr,
+            "[G5-OBJ] exit  %-14s #%d gs=%d a0=0x%08X dispatch=%u->%u "
+            "v0=0x%08X sys2B10=0x%08X->0x%08X bg14=0x%08X->0x%08X bg18=0x%08X->0x%08X ra=0x%08X\n",
+            label, *count, lod_current_gamestate(rdram), obj, dispatch_state, after_dispatch,
+            (uint32_t)ctx->r2, sys2b10, after_sys2b10, bg14, after_bg14, bg18, after_bg18,
+            (uint32_t)ctx->r31);
+    }
+}
+
+static void lod_trace_bgstate_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "bg_driver", 0x80145AF0, 0x18D3B0,
+                              lod_orig_bgstate_driver, &count);
+}
+
+static void lod_trace_bgstate_bootstrap(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "bg_bootstrap", 0x80145B60, 0x18D3B0,
+                              lod_orig_bgstate_bootstrap, &count);
+}
+
+static void lod_trace_bgstate_init(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "init", 0x80145BD0, lod_orig_bgstate_init, &count);
+}
+
+static void lod_trace_bgstate_load(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "load", 0x80145DA8, lod_orig_bgstate_load, &count);
+}
+
+static void lod_trace_bgstate_update_a(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "update_a", 0x80145FD4, lod_orig_bgstate_update_a, &count);
+}
+
+static void lod_trace_bgstate_update_b(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "update_b", 0x801460D4, lod_orig_bgstate_update_b, &count);
+}
+
+static void lod_trace_bgstate_create(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "create", 0x8014615C, lod_orig_bgstate_create, &count);
+}
+
+static void lod_trace_bgstate_activate(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_bgstate_common(rdram, ctx, "activate", 0x80146240, lod_orig_bgstate_activate, &count);
+}
+
+static void lod_trace_scene5_obj7_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "scene5_obj7", 0x8001A5BC, 0x0B37C4,
+                              lod_orig_scene5_obj7_driver, &count);
+}
+
+static void lod_trace_scene5_aux_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "scene5_aux", 0x8001AA48, 0x0B37DC,
+                              lod_orig_scene5_aux_driver, &count);
+}
+
+static void lod_trace_scene5_sys_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_dispatch", 0x8001AB28, 0,
+                              lod_orig_scene5_sys_dispatch, &count);
+}
+
+static void lod_trace_scene5_obj8_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "scene5_obj8", 0x8001B4C0, 0x0B3824,
+                              lod_orig_scene5_obj8_driver, &count);
+}
+
+static void lod_trace_scene5_obj8_load(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "scene5_load", 0x8001B530, 0x0B3824,
+                              lod_orig_scene5_obj8_load, &count);
+}
+
+static void lod_trace_overlay_system_create(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "ovl_sys_create", 0x8001BA78, 0,
+                              lod_orig_overlay_system_create, &count);
+}
+
+static void lod_trace_sys_obj009_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj009", 0x8001B718, 0x0B3834,
+                              lod_orig_sys_obj009_driver, &count);
+}
+
+static void lod_trace_sys_obj00a_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj00A", 0x8001BC5C, 0x0B3848,
+                              lod_orig_sys_obj00a_driver, &count);
+}
+
+static void lod_trace_sys_obj0a2_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj0A2", 0x80037730, 0x0B4B70,
+                              lod_orig_sys_obj0a2_driver, &count);
+}
+
+static void lod_trace_sys_obj106_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj106", 0x80058890, 0x0B5C90,
+                              lod_orig_sys_obj106_driver, &count);
+}
+
+static void lod_trace_sys_obj185_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj185", 0x80086120, 0x0B7790,
+                              lod_orig_sys_obj185_driver, &count);
+}
+
+static void lod_trace_sys_obj089_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj089", 0x8017E00C, 0x196110,
+                              lod_orig_sys_obj089_driver, &count);
+}
+
+static void lod_trace_sys_obj016_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj016", 0x80189050, 0x197130,
+                              lod_orig_sys_obj016_driver, &count);
+}
+
+static void lod_trace_sys_obj093_driver(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    count++;
+    int32_t gs = lod_current_gamestate(rdram);
+    bool verbose = count <= 80 || (gs == 5 && (count <= 200 || (count % 120) == 0));
+    if (verbose) {
+        lod_trace_overlay_script_snapshot(rdram, ctx, "sys_obj093", 0x801CAEA0, "enter", count);
+    }
+    count--;
+    lod_trace_schedule_common(rdram, ctx, "sys_obj093", 0x801CAEA0, 0,
+                              lod_orig_sys_obj093_driver, &count);
+    if (verbose) {
+        lod_trace_overlay_script_snapshot(rdram, ctx, "sys_obj093", 0x801CAEA0, "exit ", count);
+    }
+}
+
+static void lod_trace_ovlsys_script_outer(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "script0", 0x801CB180,
+                                    lod_orig_ovlsys_script_outer, &count);
+}
+
+static void lod_trace_ovlsys_script_alloc(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "alloc", 0x801CB404,
+                                    lod_orig_ovlsys_script_alloc, &count);
+}
+
+static void lod_trace_ovlsys_script_wait_a(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "wait_a", 0x801CB4CC,
+                                    lod_orig_ovlsys_script_wait_a, &count);
+}
+
+static void lod_trace_ovlsys_script_wait_b(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "wait_b", 0x801CB550,
+                                    lod_orig_ovlsys_script_wait_b, &count);
+}
+
+static void lod_trace_ovlsys_ni_init(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "ni_init", 0x801CB5CC,
+                                    lod_orig_ovlsys_ni_init, &count);
+}
+
+static void lod_trace_ovlsys_script_done(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_overlay_script_common(rdram, ctx, "done", 0x801CBC78,
+                                    lod_orig_ovlsys_script_done, &count);
+}
+
+static void lod_install_bgstate_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                              recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_bgstate_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_bgstate_trace_wrapper(0x80145AF0, lod_trace_bgstate_driver, &lod_orig_bgstate_driver);
+    lod_install_bgstate_trace_wrapper(0x80145B60, lod_trace_bgstate_bootstrap, &lod_orig_bgstate_bootstrap);
+    lod_install_bgstate_trace_wrapper(0x80145BD0, lod_trace_bgstate_init, &lod_orig_bgstate_init);
+    lod_install_bgstate_trace_wrapper(0x80145DA8, lod_trace_bgstate_load, &lod_orig_bgstate_load);
+    lod_install_bgstate_trace_wrapper(0x80145FD4, lod_trace_bgstate_update_a, &lod_orig_bgstate_update_a);
+    lod_install_bgstate_trace_wrapper(0x801460D4, lod_trace_bgstate_update_b, &lod_orig_bgstate_update_b);
+    lod_install_bgstate_trace_wrapper(0x8014615C, lod_trace_bgstate_create, &lod_orig_bgstate_create);
+    lod_install_bgstate_trace_wrapper(0x80146240, lod_trace_bgstate_activate, &lod_orig_bgstate_activate);
+    lod_install_bgstate_trace_wrapper(0x8001A5BC, lod_trace_scene5_obj7_driver, &lod_orig_scene5_obj7_driver);
+    lod_install_bgstate_trace_wrapper(0x8001AA48, lod_trace_scene5_aux_driver, &lod_orig_scene5_aux_driver);
+    lod_install_bgstate_trace_wrapper(0x8001AB28, lod_trace_scene5_sys_dispatch, &lod_orig_scene5_sys_dispatch);
+    lod_install_bgstate_trace_wrapper(0x8001B4C0, lod_trace_scene5_obj8_driver, &lod_orig_scene5_obj8_driver);
+    lod_install_bgstate_trace_wrapper(0x8001B530, lod_trace_scene5_obj8_load, &lod_orig_scene5_obj8_load);
+    lod_install_bgstate_trace_wrapper(0x8001BA78, lod_trace_overlay_system_create, &lod_orig_overlay_system_create);
+    lod_install_bgstate_trace_wrapper(0x8001B718, lod_trace_sys_obj009_driver, &lod_orig_sys_obj009_driver);
+    lod_install_bgstate_trace_wrapper(0x8001BC5C, lod_trace_sys_obj00a_driver, &lod_orig_sys_obj00a_driver);
+    lod_install_bgstate_trace_wrapper(0x80037730, lod_trace_sys_obj0a2_driver, &lod_orig_sys_obj0a2_driver);
+    lod_install_bgstate_trace_wrapper(0x80058890, lod_trace_sys_obj106_driver, &lod_orig_sys_obj106_driver);
+    lod_install_bgstate_trace_wrapper(0x80086120, lod_trace_sys_obj185_driver, &lod_orig_sys_obj185_driver);
+    lod_install_bgstate_trace_wrapper(0x8017E00C, lod_trace_sys_obj089_driver, &lod_orig_sys_obj089_driver);
+    lod_install_bgstate_trace_wrapper(0x80189050, lod_trace_sys_obj016_driver, &lod_orig_sys_obj016_driver);
+    lod_install_bgstate_trace_wrapper(0x801CAEA0, lod_trace_sys_obj093_driver, &lod_orig_sys_obj093_driver);
+    lod_install_bgstate_trace_wrapper(0x801CB180, lod_trace_ovlsys_script_outer, &lod_orig_ovlsys_script_outer);
+    lod_install_bgstate_trace_wrapper(0x801CB404, lod_trace_ovlsys_script_alloc, &lod_orig_ovlsys_script_alloc);
+    lod_install_bgstate_trace_wrapper(0x801CB4CC, lod_trace_ovlsys_script_wait_a, &lod_orig_ovlsys_script_wait_a);
+    lod_install_bgstate_trace_wrapper(0x801CB550, lod_trace_ovlsys_script_wait_b, &lod_orig_ovlsys_script_wait_b);
+    lod_install_bgstate_trace_wrapper(0x801CB5CC, lod_trace_ovlsys_ni_init, &lod_orig_ovlsys_ni_init);
+    lod_install_bgstate_trace_wrapper(0x801CBC78, lod_trace_ovlsys_script_done, &lod_orig_ovlsys_script_done);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+            "[BGSTATE] installed trace wrappers #%d reason=%s originals "
+            "driver=%p bootstrap=%p init=%p load=%p update_a=%p update_b=%p create=%p activate=%p "
+            "obj7=%p aux=%p sysdisp=%p obj8=%p load=%p ovlcreate=%p\n",
+            install_count, reason,
+            (void*)lod_orig_bgstate_driver,
+            (void*)lod_orig_bgstate_bootstrap,
+            (void*)lod_orig_bgstate_init,
+            (void*)lod_orig_bgstate_load,
+            (void*)lod_orig_bgstate_update_a,
+            (void*)lod_orig_bgstate_update_b,
+            (void*)lod_orig_bgstate_create,
+            (void*)lod_orig_bgstate_activate,
+            (void*)lod_orig_scene5_obj7_driver,
+            (void*)lod_orig_scene5_aux_driver,
+            (void*)lod_orig_scene5_sys_dispatch,
+            (void*)lod_orig_scene5_obj8_driver,
+            (void*)lod_orig_scene5_obj8_load,
+            (void*)lod_orig_overlay_system_create);
+    }
+}
+
+extern "C" void lod_install_bgstate_trace_wrappers_early() {
+    lod_install_bgstate_trace_wrappers("lod-on-init");
+}
+#endif
 
 static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys) {
     if (!lod_rdram_range_ok(obj_phys, 0x10)) {
@@ -1253,6 +2104,11 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         save_state45_trace_wrappers_installed = true;
     }
 #endif
+#if LOD_ENABLE_BGSTATE_TRACE
+    if (si_dma_count <= 20 || (si_dma_count % 60) == 0) {
+        lod_install_bgstate_trace_wrappers("si-refresh");
+    }
+#endif
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;
@@ -1364,6 +2220,52 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 if (auto_frame == 300) {
                     buttons |= 0x8000;
                     fprintf(stderr, "[AUTO] Frame %d: A again\n", auto_frame);
+                }
+#endif
+
+#if LOD_ENABLE_BOOT_INPUT_SCRIPT
+                // Debug-only boot automation. This is not a gamestate skip:
+                // it exercises the same controller/PIF path as real input.
+                static int32_t boot_script_last_gs = INT32_MIN;
+                static int boot_script_gs_frame = 0;
+                int32_t boot_script_gs = lod_current_gamestate(rdram);
+                if (boot_script_gs != boot_script_last_gs) {
+                    boot_script_last_gs = boot_script_gs;
+                    boot_script_gs_frame = 0;
+                    fprintf(stderr, "[AUTO] Enter gs=%d input script\n", boot_script_gs);
+                }
+                boot_script_gs_frame++;
+
+                if (boot_script_gs == 12) {
+                    // Expansion Pak acknowledgement screen. Pulse both A and
+                    // Start so either accepted prompt advances, then release.
+                    bool pulse = (boot_script_gs_frame >= 30 && boot_script_gs_frame < 36) ||
+                                 (boot_script_gs_frame >= 90 && boot_script_gs_frame < 96) ||
+                                 (boot_script_gs_frame >= 150 && boot_script_gs_frame < 156);
+                    if (pulse) {
+                        buttons |= 0x9000; // A + Start
+                        if (boot_script_gs_frame == 30 ||
+                            boot_script_gs_frame == 90 ||
+                            boot_script_gs_frame == 150) {
+                            fprintf(stderr, "[AUTO] gs=12 frame %d: A+Start\n", boot_script_gs_frame);
+                        }
+                    }
+                } else if (boot_script_gs == 5) {
+                    // Intro/cutscene/title-attract candidate. Pulse Start/A at
+                    // intervals to test whether this path is merely skippable.
+                    bool pulse = (boot_script_gs_frame >= 60 && boot_script_gs_frame < 66) ||
+                                 (boot_script_gs_frame >= 180 && boot_script_gs_frame < 186) ||
+                                 (boot_script_gs_frame >= 360 && boot_script_gs_frame < 366) ||
+                                 (boot_script_gs_frame >= 720 && boot_script_gs_frame < 726);
+                    if (pulse) {
+                        buttons |= 0x9000; // A + Start
+                        if (boot_script_gs_frame == 60 ||
+                            boot_script_gs_frame == 180 ||
+                            boot_script_gs_frame == 360 ||
+                            boot_script_gs_frame == 720) {
+                            fprintf(stderr, "[AUTO] gs=5 frame %d: A+Start\n", boot_script_gs_frame);
+                        }
+                    }
                 }
 #endif
 

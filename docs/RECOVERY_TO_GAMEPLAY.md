@@ -15,8 +15,8 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
 ## Current Baseline (2026-06-04)
 
 - Branch: `main`.
-- Last pushed baseline before this update: `13c0a12` (`Trace NI pair 120 save reset caller`).
-- Build status: default `cmake --build build --target LodRecomp` succeeds on macOS.
+- Last pushed baseline before this working checkpoint: `13c0a12` (`Trace NI pair 120 save reset caller`).
+- Build status: clean default-off diagnostic configuration builds successfully on macOS.
 - Launch discipline:
   - codesign before every macOS launch;
   - bounded `timeout` runs only;
@@ -24,15 +24,19 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
 - Default runtime flags:
   - no boot gamestate skip;
   - no auto-input;
+  - all tracing/snapshot flags default off;
   - pair-120 internal-label dispatch fix is default-on;
   - stale direct `func_8009F400`/`osPfsFindFile` shim is default-off.
-- Validated default behavior:
-  - With an existing virtual Controller Pak save note, default launch reaches `gs=12` cleanly from the natural boot/save flow.
-  - With a truly empty virtual Controller Pak and no input, default launch formats the Pak and remains in `gs=4` waiting for selection/input; this is expected menu behavior, not a crash.
-  - With a truly empty virtual Controller Pak plus debug auto-input (`Down`, `A`, `A`), the game creates/uses the note and reaches `gs=12` cleanly.
-  - User visual confirmation: `gs=12` is the Expansion Pak screen.
-  - A longer default existing-save run naturally advanced `gs=12 → -5 → 5`, then crashed in the next flow after loading NI pair `104`.
-  - Current crash signature: `Signal 11` at `0x4001cad9c`, no `Failed to find function`, no stale process; last function lookups include NI pair `104` entries `0x0F000000` and `0x0F000130`, then main-code handlers around `0x8001B4C0/0x8001B530`.
+- Overlay-loading baseline:
+  - map overlays no longer hard-code generated recomp overlay IDs; they register by ROM range via `load_overlays(rom, vram, size)`;
+  - NI overlays no longer hard-code generated recomp overlay IDs; they register by ROM range from `ni_ovl_data`;
+  - the four `overlay_system` variants are modeled as separate sections (`0x745230`, `0x74CD10`, `0x75A570`, `0x7639A0`) and dynamically registered when the game DMAs them to `0x801CAEA0`;
+  - the old concatenated `overlay_system` copy/restore hack is removed. A compatibility export `lod_restore_overlay_system_data` remains as a no-op only because the current runtime references it.
+- Validated behavior:
+  - Clean default-off smoke (`/tmp/lod_clean_default_smoke.log`, 12s) builds, launches, follows save/Pak reads, reaches `gs=12`, times out cleanly, and leaves no stale process.
+  - Diagnostic scripted-input run (`/tmp/lod_ni_range_fix_trace_run.log`, 20s) progresses `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`, registers `overlay_system` variants and map overlays, and leaves no stale process.
+  - User visual confirmation: the game reached the start/title screen after the NI range-loader fix.
+  - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
 
 ## Goal
 
@@ -40,40 +44,58 @@ Reach actual controllable gameplay through the game's natural state flow, not by
 
 ## Current Active Work Item
 
-### G5-001 — Fix Transition After Expansion Pak Screen
+### G6-001 — Drive Title/Start Screen to Controllable Gameplay
 
 Objective:
 
-- Fix the natural transition after the Expansion Pak screen so the game continues through intro/title toward gameplay.
-- Preserve the now-working save/Pak path and avoid a forced gamestate skip.
+- Continue from the now-reached title/start screen into actual controllable gameplay.
+- Exercise controller input through the game's natural menu flow; do not permanently force gamestates.
+- Keep overlay registration range-based and avoid generated overlay-ID assumptions.
 
 Current evidence:
 
-- `gs=4` is no longer the primary blocker:
-  - it is the save/Controller Pak screen;
-  - the game can leave it naturally when a valid note exists;
-  - on an empty Pak it waits until the user chooses the create/use path;
-  - debug auto-input can exercise that path and reach `gs=12`.
-- `gs=12` is the Expansion Pak screen (confirmed visually by the user).
-- In a default existing-save 45s run, `gs=12` advanced naturally to `gs=-5` and then `gs=5`.
-- `gs=5` currently crashes after NI overlay pair `104` loads at `0x0F000000`.
-- Crash sample `/tmp/lod_default_existing_45s_gs12.log`:
-  - exit code `139`;
-  - `[CRASH] Signal 11 at address 0x4001cad9c`;
-  - no missing-function lookup;
-  - no stale `LodRecomp` process;
-  - last lookups include `0x0F000000`, `0x0F000130`, `0x8001B4C0`, and `0x8001B530`.
-- Static inspection identified and renamed `0x0F000000` in NI pair `104` to
-  `ni_ovl_104_schedule_dispatch`; it dispatches table `0x0F0026F8`.
+- `gs=4` save/Controller Pak flow is no longer the blocker.
+- `gs=12` Expansion Pak screen is no longer the blocker.
+- `gs=5`/NI pair-104 crash is no longer the blocker after range-based NI overlay registration.
+- A diagnostic scripted-input run reached `gs=6`; the user visually confirmed seeing the start/title screen.
+- Clean default-off smoke reaches `gs=12`; progressing past `gs=12` still requires either real/manual input or debug-only scripted input.
 
 Next action:
 
-1. Add a default-off trace around the `gs=5` transition and NI pair `104` entry (`ni_ovl_104_schedule_dispatch`, `0x0F000130`) to capture object pointers/arguments before the crash.
-2. Inspect and name the main-code functions in the crash path (`0x8001B4C0`, `0x8001B530`, and nearby `0x8001A5BC/0x8001AA48/0x8001AB28`) once their role is established.
-3. Determine whether the crash is an NI pair-104 logic bug, bad object/scene data, stale overlay function mapping, or a renderer/display-list side effect.
-4. Keep the default runtime path natural: no permanent skip from `gs=12` or `gs=5`.
+1. Extend or replace the debug-only input script to interact with `gs=6` title/start/menu flow, not to skip states.
+2. Use the internal CFB snapshot path for verification when OS-level screenshots are black/unreliable.
+3. Identify and name any title/menu functions/gamestates encountered on the path to gameplay.
+4. When a playable scene is reached, run bounded stability checks: controller input, renderer output, RSS, no stale process.
+5. After gameplay is reachable, start burning down old default-on PFS/audio overrides one at a time.
 
 ## Resolved Work Item
+
+### G5-001 — Overlay-System and NI Overlay Registration
+
+Status: resolved for the current baseline; keep regression tests.
+
+What changed:
+
+- Added the missing `overlay_system_1`, `overlay_system_2`, and `overlay_system_3` sections to `castlevania2.syms.toml` and regenerated through `./tools/regen_recomp.sh`.
+- Changed map overlay registration from hard-coded generated overlay IDs to ROM-range based `load_overlays`.
+- Changed NI overlay registration from hard-coded `NI_OVERLAY_ID_START + pair` to ROM-range based `load_overlays`.
+- Kept RDRAM byte copying separate from recomp function registration.
+- Implemented `__ll_rshift_recomp` as a real signed 64-bit right-shift helper instead of an empty OS-style stub.
+- Removed the old/disproven concatenated `overlay_system` copy experiment.
+
+Key facts:
+
+- The game has four mutually exclusive `overlay_system` variants loaded to the same VRAM base `0x801CAEA0`. Treating later variants as data hidden behind variant 0 caused invalid dispatch pointers such as `0xA20B0074`.
+- Adding the missing `overlay_system` sections shifted generated section/overlay IDs. Any code using manually derived IDs became stale immediately.
+- The `gs=4` regression after adding the new sections was caused by the NI loader registering the wrong section while copying pair-105 data. Runtime symptom: repeated `get_function(0x00000000)` and no PAK path.
+- Range-based NI registration fixed that mismatch and restored the PAK path, then allowed progress into title/start.
+- A/B test of the old concatenated init copy did not restore behavior and caused `Signal 10`; it is not a safe baseline path.
+
+Regression checks to keep:
+
+- Clean default-off existing-save smoke should reach `gs=12` without `get_function(0x00000000)` before the PAK path.
+- Scripted-input diagnostic run should reach `gs=6` / title-start screen without generated overlay-ID hard-coding.
+- `RecompiledFuncs/recomp_overlays.inl` may shift section indices after regen; map/NI loaders must remain range-based.
 
 ### G4-001 — Save/Controller Pak Screen Exit
 
@@ -126,15 +148,16 @@ Success evidence:
 
 ### Milestone 3 — Reach Title/Intro Flow
 
-Status: active.
+Status: achieved for the current baseline.
 
-Success condition:
+Success evidence:
 
-- The game survives `gs=5` after the Expansion Pak screen and reaches the next title/intro state through normal scheduling.
+- Diagnostic scripted-input run survived `gs=5`, advanced to `gs=6`, and loaded the title/start map overlay.
+- User visually confirmed seeing the game start/title screen.
 
 ### Milestone 4 — Reach Controllable Gameplay
 
-Status: pending.
+Status: active.
 
 Success condition:
 
@@ -185,14 +208,18 @@ Record durable experiments here. Keep entries concise and technical.
 | G12-001A | default flags, existing virtual Pak save | 45s | User visually confirmed `gs=12` as Expansion Pak screen; run advanced `gs=12 → -5 → 5`, loaded NI pair `104`, then crashed with `Signal 11` at `0x4001cad9c`; no missing-function lookup; no stale process | `gs=12` is not the blocker; the next blocker is `gs=5` / NI pair-104 transition |
 | G12-001B | default flags after docs/symbol updates | 12s | Built, codesigned, reached `gs=12`, timed out cleanly before the known `gs=5` crash window; no missing-function lookup/crash/stale process | Short smoke confirms the committed baseline reaches Expansion Pak screen cleanly |
 
+| OVLSYS-001 | Added `overlay_system_1/2/3`, range-registered overlay-system DMA, no concat copy | 20s | Build succeeded, but NI loader still hard-coded stale generated IDs; run stuck in `gs=4` with repeated `get_function(0x00000000)` after pair 105 | Missing overlay-system variants were necessary but exposed the next generated-ID bug |
+| OVLSYS-002 | `LOD_ENABLE_OVLSYS_CONCAT_INIT_COPY=1` A/B diagnostic | 20s | Did not restore PAK path and later hit `Signal 10` | Old concatenated overlay-system copy is unsafe and was removed |
+| NI-001 | Range-based NI overlay registration, diagnostic save/title traces and scripted input | 20s | Restored PAK path; progressed `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`; user saw start/title screen | Hard-coded NI overlay IDs were the `gs=4` regression and `gs=5` crash cause after section additions |
+| CLEAN-004 | all debug/input/trace flags off | 12s | Built, codesigned, reached `gs=12`, timed out cleanly; no stale process | Clean baseline is buildable and reaches Expansion Pak screen without diagnostics |
+
 ## Open Questions
 
-- What exact flow is `gs=5` in LoD after the Expansion Pak screen: intro cutscene, title intro, or another boot screen?
-- Why does NI pair `104` crash after `gs=5` starts?
-- Are `0x0F000000` / `0x0F000130` in pair `104` being called with bad object arguments, or is the crash later in main-code handlers?
-- What are the roles of `0x8001B4C0`, `0x8001B530`, `0x8001A5BC`, `0x8001AA48`, and `0x8001AB28` in this transition?
-- Are remaining default-on PFS/Pak overrides still required after the direct `func_8009F400` shim retirement?
-- Are NI pairs `101 / 105 / 120` expected around the save/boot UI after the pair-120 fix, or do they indicate another overlay mismatch later?
+- What exact controller sequence is needed from `gs=6` title/start screen to enter actual gameplay?
+- Which gamestates follow `gs=6` on the route to a playable scene, and which map/NI overlays do they load?
+- Does the title/menu path need additional internal CFB snapshots or renderer fixes beyond the existing snapshot hook?
+- Are remaining default-on PFS/Pak/audio overrides still required once gameplay is reachable?
+- Is the NI pair `53`/`104` alternation in `gs=5` expected intro/title behavior or a sign of a loop that should be broken by normal input?
 
 ## Dependency / CV64 Posture
 
@@ -237,9 +264,11 @@ pgrep -la LodRecomp
 - Auto-input as a permanent fix.
 - Registering internal-label functions globally in reusable overlay VRAM ranges.
 - Reintroducing dirty submodule-only runtime changes.
+- Hard-coding generated recomp overlay IDs for map, NI, or shared-VRAM overlays. Use ROM-range registration instead.
+- Reintroducing concatenated `overlay_system` copies/restores as a baseline fix.
 - Running N64Recomp directly instead of `./tools/regen_recomp.sh`.
 - Long unbounded runs during leak-prone experiments.
 
 ## Current Next Step
 
-Work item `G5-001`: add a default-off trace for the `gs=5` transition and NI pair `104`, then reproduce the crash with object/argument context. Do not reintroduce a gamestate skip; the natural path now reaches the next blocker.
+Work item `G6-001`: drive the confirmed `gs=6` title/start screen into actual controllable gameplay through normal input. Extend the debug-only controller script only as an interaction aid, pair it with internal CFB snapshots when OS screenshots are black, and keep the route bounded/no-skip so any new blocker is real.

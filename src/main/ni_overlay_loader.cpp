@@ -23,22 +23,25 @@
 #define LOD_ENABLE_SAVE_PAIR120_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_GS5_NI_TRACE
+#define LOD_ENABLE_GS5_NI_TRACE 0
+#endif
+
 #ifndef LOD_FIX_NI_PAIR120_RESULT_LABELS
 #define LOD_FIX_NI_PAIR120_RESULT_LABELS 1
 #endif
 
-extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
-extern "C" void unload_overlay_by_id(uint32_t id);
+extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
+extern "C" void unload_overlays(int32_t ram_addr, uint32_t size);
 
 // Full overlay data table (rom offsets + sizes in extended ROM)
 #include "ni_ovl_data.h"
 
-// NI pairs: text_ni_index 0x1C5 (453) → pair 0 → overlay index 48 (first NI in overlays.txt)
-// overlay_id = 48 + pair_index
+// NI pairs: text_ni_index 0x1C5 (453) → pair 0.
 // pair_index = (ni_text_index - 0x1C5) / 2
 static constexpr int NI_TEXT_INDEX_START = 0x1C5;
-static constexpr int NI_OVERLAY_ID_START = 54;
 static constexpr int NI_PAIR_COUNT = 245;
+static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 
 // Track separately for 0x0E and 0x0F (they're independent)
 static int loaded_0f_pair = -1;
@@ -314,6 +317,191 @@ static void lod_install_ni_pair120_trace_wrapper(const char* reason) {
 }
 #endif
 
+#if LOD_ENABLE_GS5_NI_TRACE
+static recomp_func_t* lod_orig_gs5_0f_dispatch = nullptr;
+static recomp_func_t* lod_orig_gs5_0e_dispatch = nullptr;
+static int lod_trace_0f_pair = -1;
+static int lod_trace_0e_pair = -1;
+
+static bool lod_gs5_trace_rdram_ok(uint32_t phys, uint32_t size) {
+    return phys < 0x00800000 && size <= 0x00800000 && phys <= 0x00800000 - size;
+}
+
+static uint8_t lod_gs5_trace_u8(uint8_t* rdram, uint32_t phys) {
+    if (!lod_gs5_trace_rdram_ok(phys, 1)) {
+        return 0;
+    }
+    return rdram[phys ^ 3];
+}
+
+static int16_t lod_gs5_trace_s16(uint8_t* rdram, uint32_t phys) {
+    if (!lod_gs5_trace_rdram_ok(phys, 2)) {
+        return 0;
+    }
+    return *(int16_t*)(rdram + (phys ^ 2));
+}
+
+static uint32_t lod_gs5_trace_u32(uint8_t* rdram, uint32_t phys) {
+    if (!lod_gs5_trace_rdram_ok(phys, 4)) {
+        return 0;
+    }
+    return *(uint32_t*)(rdram + phys);
+}
+
+static int32_t lod_gs5_trace_current_gamestate(uint8_t* rdram) {
+    uint32_t gsm_addr = lod_gs5_trace_u32(rdram, 0x0C1520);
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_addr == 0 || !lod_gs5_trace_rdram_ok(gsm_phys + 0x24, 4)) {
+        return -1;
+    }
+    return (int32_t)lod_gs5_trace_u32(rdram, gsm_phys + 0x24);
+}
+
+static uint32_t lod_gs5_trace_dispatch_table_offset(int pair) {
+    switch (pair) {
+        case 53:  return 0x2120;
+        case 104: return 0x26F8;
+        case 149: return 0x1944;
+        default:  return 0;
+    }
+}
+
+static const char* lod_gs5_trace_pair_label(int pair) {
+    switch (pair) {
+        case 53:  return "pair53";
+        case 104: return "pair104";
+        case 149: return "pair149";
+        default:  return "pair?";
+    }
+}
+
+static uint32_t lod_gs5_trace_table_target(uint8_t* rdram, int pair, uint32_t vram, uint8_t index) {
+    uint32_t table = lod_gs5_trace_dispatch_table_offset(pair);
+    if (table == 0 || index >= 64) {
+        return 0;
+    }
+    return (uint32_t)MEM_W(table + index * 4, (gpr)(int32_t)vram);
+}
+
+static void lod_trace_gs5_ni_dispatch_common(uint8_t* rdram, recomp_context* ctx,
+                                             int pair, uint32_t vram,
+                                             recomp_func_t* original,
+                                             const char* region_label) {
+    static int trace_count = 0;
+    trace_count++;
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj & 0x1FFFFFFF;
+    bool obj_ok = lod_gs5_trace_rdram_ok(obj_phys, 0x74);
+    int32_t gs = lod_gs5_trace_current_gamestate(rdram);
+    int16_t before_func = obj_ok ? lod_gs5_trace_s16(rdram, obj_phys + 0x0E) : 0;
+    int before_level = before_func + 1;
+    uint32_t before_slot = (before_level >= 0 && before_level < 3) ? obj_phys + 0x08 + before_level * 2 : 0;
+    uint8_t before_timer = before_slot ? lod_gs5_trace_u8(rdram, before_slot + 0) : 0xFF;
+    uint8_t before_state = before_slot ? lod_gs5_trace_u8(rdram, before_slot + 1) : 0xFF;
+    uint32_t before_target = lod_gs5_trace_table_target(rdram, pair, vram, before_state);
+    uint32_t obj24 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x24) : 0;
+    uint32_t obj34 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t obj38 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t obj40 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x40) : 0;
+    uint32_t obj44 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x44) : 0;
+    uint32_t obj48 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x48) : 0;
+    int16_t obj4c = obj_ok ? lod_gs5_trace_s16(rdram, obj_phys + 0x4C) : 0;
+    uint32_t obj50 = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x50) : 0;
+    uint32_t obj5c = obj_ok ? lod_gs5_trace_u32(rdram, obj_phys + 0x5C) : 0;
+    uint32_t sys_2968 = lod_gs5_trace_u32(rdram, 0x1CAC28);
+    uint32_t sys_2b10 = lod_gs5_trace_u32(rdram, 0x1CADD0);
+    uint32_t sys_2bd0 = lod_gs5_trace_u32(rdram, 0x1CAE90);
+    uint32_t sys_input = lod_gs5_trace_u32(rdram, 0x1C87F8);
+    uint32_t data0 = 0;
+    uint32_t data0_24 = 0;
+    uint32_t data0_34 = 0;
+    uint32_t obj34_phys = obj34 & 0x1FFFFFFF;
+    if (lod_gs5_trace_rdram_ok(obj34_phys, 0x10)) {
+        data0 = lod_gs5_trace_u32(rdram, obj34_phys + 0x00);
+        uint32_t data0_phys = data0 & 0x1FFFFFFF;
+        if (lod_gs5_trace_rdram_ok(data0_phys, 0x38)) {
+            data0_24 = lod_gs5_trace_u32(rdram, data0_phys + 0x24);
+            data0_34 = lod_gs5_trace_u32(rdram, data0_phys + 0x34);
+        }
+    }
+
+    bool should_log = (gs == 5 && (trace_count <= 80 || (trace_count % 500) == 0)) ||
+                      trace_count <= 16;
+    if (should_log) {
+        fprintf(stderr,
+            "[GS5-NI] enter #%d %s/%s gs=%d obj=0x%08X ok=%d func=%d level=%d timer=%u state=%u target=0x%08X "
+            "obj24=0x%08X obj34=0x%08X obj38=0x%08X obj40=0x%08X obj44=0x%08X obj48=0x%08X obj4C=%d obj50=0x%08X obj5C=0x%08X "
+            "sys2968=0x%08X sys2B10=0x%08X sys2BD0=0x%08X input=0x%08X data0=0x%08X data0+24=0x%08X data0+34=0x%08X "
+            "ra=0x%08X sp=0x%08X\n",
+            trace_count, region_label, lod_gs5_trace_pair_label(pair), gs, obj, obj_ok,
+            before_func, before_level, before_timer, before_state, before_target,
+            obj24, obj34, obj38, obj40, obj44, obj48, obj4c, obj50, obj5c,
+            sys_2968, sys_2b10, sys_2bd0, sys_input, data0, data0_24, data0_34,
+            (uint32_t)ctx->r31, (uint32_t)ctx->r29);
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (should_log) {
+        int16_t after_func = obj_ok ? lod_gs5_trace_s16(rdram, obj_phys + 0x0E) : 0;
+        int after_level = after_func + 1;
+        uint32_t after_slot = (after_level >= 0 && after_level < 3) ? obj_phys + 0x08 + after_level * 2 : 0;
+        uint8_t after_timer = after_slot ? lod_gs5_trace_u8(rdram, after_slot + 0) : 0xFF;
+        uint8_t after_state = after_slot ? lod_gs5_trace_u8(rdram, after_slot + 1) : 0xFF;
+        fprintf(stderr,
+            "[GS5-NI] exit  #%d %s/%s gs=%d obj=0x%08X func=%d->%d level=%d->%d timer=%u->%u state=%u->%u v0=0x%08X ra=0x%08X\n",
+            trace_count, region_label, lod_gs5_trace_pair_label(pair),
+            lod_gs5_trace_current_gamestate(rdram), obj,
+            before_func, after_func, before_level, after_level,
+            before_timer, after_timer, before_state, after_state,
+            (uint32_t)ctx->r2, (uint32_t)ctx->r31);
+    }
+}
+
+static void lod_trace_gs5_0f_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    lod_trace_gs5_ni_dispatch_common(rdram, ctx, lod_trace_0f_pair, 0x0F000000,
+                                     lod_orig_gs5_0f_dispatch, "0F");
+}
+
+static void lod_trace_gs5_0e_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    lod_trace_gs5_ni_dispatch_common(rdram, ctx, lod_trace_0e_pair, 0x0E000000,
+                                     lod_orig_gs5_0e_dispatch, "0E");
+}
+
+static void lod_install_gs5_ni_trace_wrapper(int pair_index, uint32_t vram) {
+    if (pair_index != 53 && pair_index != 104 && pair_index != 149) {
+        return;
+    }
+
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (vram == 0x0F000000) {
+        if (current != lod_trace_gs5_0f_dispatch) {
+            lod_orig_gs5_0f_dispatch = current;
+        }
+        lod_trace_0f_pair = pair_index;
+        recomp::overlays::add_loaded_function((int32_t)vram, lod_trace_gs5_0f_dispatch);
+    } else {
+        if (current != lod_trace_gs5_0e_dispatch) {
+            lod_orig_gs5_0e_dispatch = current;
+        }
+        lod_trace_0e_pair = pair_index;
+        recomp::overlays::add_loaded_function((int32_t)vram, lod_trace_gs5_0e_dispatch);
+    }
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 32 || (install_count % 500) == 0) {
+        fprintf(stderr,
+            "[GS5-NI] installed trace #%d %s pair=%d vram=0x%08X original=%p\n",
+            install_count, vram == 0x0F000000 ? "0F" : "0E",
+            pair_index, vram, (void*)current);
+    }
+}
+#endif
+
 
 
 // 0x0E overlay pairs (cutscene/textbox) — classified by internal jal targets
@@ -371,7 +559,6 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
 }
 
 static void load_ni_overlay(uint8_t* rdram, int pair_index) {
-    int overlay_id = NI_OVERLAY_ID_START + pair_index;
     bool is_0e = is_0e_pair(pair_index);
     uint32_t vram = is_0e ? 0x0E000000 : 0x0F000000;
     int& loaded_pair = is_0e ? loaded_0e_pair : loaded_0f_pair;
@@ -379,10 +566,11 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     if (pair_index == loaded_pair) return;
 
     if (loaded_pair >= 0) {
-        unload_overlay_by_id(NI_OVERLAY_ID_START + loaded_pair);
+        unload_overlays((int32_t)vram, NI_OVERLAY_UNLOAD_SIZE);
     }
 
-    load_overlay_by_id(overlay_id, vram);
+    const NiOvlData& data = ni_ovl_data[pair_index];
+    load_overlays(data.rom_offset, (int32_t)vram, data.full_size);
     // Copy full overlay data (text+data) from extended ROM to segment region
     copy_overlay_data_to_segment(rdram, pair_index, vram);
     loaded_pair = pair_index;
@@ -397,13 +585,15 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
         lod_install_ni_pair120_trace_wrapper("pair120-load");
     }
 #endif
+#if LOD_ENABLE_GS5_NI_TRACE
+    lod_install_gs5_ni_trace_wrapper(pair_index, vram);
+#endif
 
     static int load_count = 0;
     load_count++;
     if (load_count <= 30 || (load_count % 100) == 0) {
-        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (overlay_id=%d rom=0x%08X data=0x%X)\n",
-                load_count, pair_index, vram, overlay_id,
-                ni_ovl_data[pair_index].rom_offset, ni_ovl_data[pair_index].full_size);
+        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (rom=0x%08X data=0x%X)\n",
+                load_count, pair_index, vram, data.rom_offset, data.full_size);
     }
 }
 

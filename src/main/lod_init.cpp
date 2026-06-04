@@ -16,7 +16,9 @@
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 
-extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
+#if LOD_ENABLE_BGSTATE_TRACE
+extern "C" void lod_install_bgstate_trace_wrappers_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -25,15 +27,15 @@ int ni_decompressed_count = 0;
 // Set rdram pointer for debug scanning in get_function()
 extern uint8_t* rdram_ptr_for_debug;
 
-// Cached overlay_system byte-swapped data for restoration after DMA overwrites
-static std::vector<uint8_t> overlay_system_cache;
-static constexpr uint32_t OVL_SYS_RDRAM_DST = 0x801CAEA0 - 0x80000000;
-static constexpr uint32_t OVL_SYS_FULL_SIZE = 0x7AE0 + 0xD860 + 0x9430; // 0x21770
 
-extern "C" void lod_restore_overlay_system_data(uint8_t* rdram) {
-    if (overlay_system_cache.empty()) return;
-    memcpy(rdram + OVL_SYS_RDRAM_DST, overlay_system_cache.data(), overlay_system_cache.size());
-}
+
+// Compatibility export for an older librecomp PI hook. The previous bring-up
+// implementation restored a cached concatenation of overlay_system bytes after
+// DMA, but that hid the real issue: overlay_system is four mutually exclusive
+// variants loaded to the same RAM base. Keep the symbol so the runtime links,
+// but do not restore stale bytes. Variant registration is handled by
+// func_80012ED0 in ignored_func_stubs.cpp.
+extern "C" void lod_restore_overlay_system_data(uint8_t* /*rdram*/) {}
 
 // Copy a regular overlay's full ROM data (code+data) to RDRAM with byte swapping.
 // Called from ignored_func_stubs.cpp when map overlays need loading.
@@ -91,8 +93,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Load sections at their correct effective addresses (from recomp_overlays.inl):
     // Section 2: common (ROM 0xC2120 → RAM 0x80141870)
     load_overlays(0xC2120, 0x80141870, 0x4AEE0);
-    // Section 3: overlay_system (ROM 0x745230 → RAM 0x801CAEA0)
-    load_overlays(0x745230, 0x801CAEA0, 0x69E0);
+    // Section 3: initial overlay_system variant 0 (ROM 0x745230 → RAM 0x801CAEA0).
+    // Register code through the recomp section; copy the full variant-0 DMA span
+    // below so its tail jump tables/data are present in RDRAM.
+    load_overlays(0x745230, 0x801CAEA0, 0x7AE0);
     // Map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
     // LoD starts naturally in gs=4, whose save/Controller Pak screen uses
     // map_ovl_34. Keep startup code registration and RDRAM contents aligned;
@@ -190,41 +194,15 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 
-    // === Copy full overlay_system section (TEXT+DATA+RODATA, byte-swapped) ===
-    // The game's section table defines the overlay_system as:
-    //   TEXT:   ROM 0x745230, size 0x7AE0 (note: larger than recompiler's 0x69E0)
-    //   DATA:   ROM 0x74CD10, size 0xD860
-    //   RODATA: ROM 0x75A570, size 0x9430
-    // Total in RAM: 0x7AE0+0xD860+0x9430 = 0x21770 bytes at 0x801CAEA0-0x801ED010
-    //
-    // The recompiler only identified 0x69E0 bytes of TEXT. The extra 0x1100 bytes
-    // (offset 0x69E0-0x7AE0) contain jump tables and data-in-text that the game
-    // accesses via computed addresses (e.g., function pointer table at 0x801D1880).
-    //
-    // We must copy the FULL section because:
-    // 1. The game's overlay loader may DMA different sub-sections at runtime
-    // 2. The jump tables in TEXT tail are critical for overlay dispatch
-    // 3. DATA+RODATA contain initialized globals used by overlay_system code
-    {
-        constexpr uint32_t overlay_system_rom = 0x745230;
-        constexpr uint32_t overlay_system_full_size = 0x7AE0 + 0xD860 + 0x9430; // 0x21770
-        constexpr uint32_t rdram_dst = 0x801CAEA0 - 0x80000000; // 0x1CAEA0
-        for (uint32_t i = 0; i < overlay_system_full_size; i += 4) {
-            if (overlay_system_rom + i + 3 < rom.size()) {
-                rdram[rdram_dst + i + 0] = rom[overlay_system_rom + i + 3];
-                rdram[rdram_dst + i + 1] = rom[overlay_system_rom + i + 2];
-                rdram[rdram_dst + i + 2] = rom[overlay_system_rom + i + 1];
-                rdram[rdram_dst + i + 3] = rom[overlay_system_rom + i + 0];
-            }
-        }
-        fprintf(stderr, "[init] Copied overlay_system full section (byte-swapped): ROM 0x%X → rdram+0x%X (0x%X bytes)\n",
-                overlay_system_rom, rdram_dst, overlay_system_full_size);
-        // Cache for restoration after DMA overwrites
-        overlay_system_cache.assign(rdram + rdram_dst, rdram + rdram_dst + overlay_system_full_size);
-        fprintf(stderr, "[init] Cached overlay_system data (%zu bytes) for DMA restoration\n",
-                overlay_system_cache.size());
-    }
-
+    // === Copy initial overlay_system variant-0 data tail (byte-swapped) ===
+    // The four overlay_system variants are mutually exclusive overlays loaded to
+    // the same RAM base (0x801CAEA0). Do not concatenate ROM 0x745230..0x76CD00
+    // into RDRAM: that old bring-up hack treated later variants as DATA/RODATA
+    // and hid the real missing-section problem. At boot we only need variant 0's
+    // full DMA span so its dispatch/jump tables after the recompiled code range
+    // are present; later game DMAs are handled by func_80012ED0.
+    lod_copy_overlay_data(rdram, 0x745230, 0x801CAEA0 - 0x80000000, 0x7AE0);
+    fprintf(stderr, "[init] Copied initial overlay_system variant 0: ROM 0x745230 -> rdram+0x1CAEA0 (0x7AE0 bytes)\n");
     // === Refresh initial map_ovl_34 data/code bytes (byte-swapped) ===
     {
         constexpr uint32_t sec4_rom  = 0x7EF5E0;
@@ -438,4 +416,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
 
         fprintf(stderr, "[init] Pre-seeded OSContStatus and pak status\n");
     }
+
+#if LOD_ENABLE_BGSTATE_TRACE
+    // Install after section/common overlays are loaded but before game code runs,
+    // so startup scene/background state callbacks are captured.
+    lod_install_bgstate_trace_wrappers_early();
+#endif
 }

@@ -1,6 +1,7 @@
 #include <memory>
 #include <cstring>
 #include <cstdio>
+#include <cstdint>
 #include <fstream>
 
 #ifndef HLSL_CPU
@@ -251,11 +252,95 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
 lod::renderer::RT64Context::~RT64Context() = default;
 
 static uint32_t last_displayed_cfb = 0x00200000;
+static int g_dl_n = 0;
+
+#ifndef LOD_ENABLE_CFB_SNAPSHOT
+#define LOD_ENABLE_CFB_SNAPSHOT 0
+#endif
+
+#if LOD_ENABLE_CFB_SNAPSHOT
+static int32_t lod_render_current_gamestate(uint8_t* rdram) {
+    uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+    if (gsm_addr == 0) {
+        return 0;
+    }
+
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_phys + 0x2C > 0x800000) {
+        return 0;
+    }
+
+    return *(int32_t*)(rdram + gsm_phys + 0x24);
+}
+
+static uint16_t lod_rdram_be16(uint8_t* rdram, uint32_t phys) {
+    return ((uint16_t)rdram[(phys + 0) ^ 3] << 8) |
+           ((uint16_t)rdram[(phys + 1) ^ 3] << 0);
+}
+
+static void lod_dump_cfb_ppm(uint8_t* rdram, int32_t gs, int dl_n, int us_n, uint32_t cfb, uint32_t width) {
+    if (width == 0) {
+        width = 320;
+    }
+
+    uint32_t height = (width >= 640) ? 480 : 240;
+    uint64_t bytes = (uint64_t)width * (uint64_t)height * 2ULL;
+    if (cfb == 0 || cfb >= 0x800000 || bytes > 0x800000ULL || cfb + bytes > 0x800000ULL) {
+        fprintf(stderr,
+            "[CFB] skip snapshot gs=%d dl=%d us=%d cfb=0x%06X width=%u height=%u bytes=0x%llX\n",
+            gs, dl_n, us_n, cfb, width, height, (unsigned long long)bytes);
+        return;
+    }
+
+    char path[256];
+    std::snprintf(path, sizeof(path), "/tmp/lod_cfb_gs%d_us%d_dl%d_cfb%06X.ppm", gs, us_n, dl_n, cfb);
+    FILE* f = std::fopen(path, "wb");
+    if (f == nullptr) {
+        fprintf(stderr, "[CFB] failed to open %s\n", path);
+        return;
+    }
+
+    std::fprintf(f, "P6\n%u %u\n255\n", width, height);
+
+    uint64_t nonzero = 0;
+    uint64_t sum_r = 0;
+    uint64_t sum_g = 0;
+    uint64_t sum_b = 0;
+    for (uint32_t y = 0; y < height; y++) {
+        for (uint32_t x = 0; x < width; x++) {
+            uint32_t phys = cfb + ((y * width + x) * 2);
+            uint16_t px = lod_rdram_be16(rdram, phys);
+            uint8_t r = (uint8_t)((((px >> 11) & 0x1F) * 255) / 31);
+            uint8_t g = (uint8_t)((((px >> 6) & 0x1F) * 255) / 31);
+            uint8_t b = (uint8_t)((((px >> 1) & 0x1F) * 255) / 31);
+            uint8_t rgb[3] = { r, g, b };
+            if (px != 0) {
+                nonzero++;
+            }
+            sum_r += r;
+            sum_g += g;
+            sum_b += b;
+            std::fwrite(rgb, 1, sizeof(rgb), f);
+        }
+    }
+
+    std::fclose(f);
+
+    uint64_t pixels = (uint64_t)width * (uint64_t)height;
+    fprintf(stderr,
+        "[CFB] wrote %s gs=%d dl=%d us=%d cfb=0x%06X %ux%u nonzero=%llu/%llu mean_rgb=(%llu,%llu,%llu)\n",
+        path, gs, dl_n, us_n, cfb, width, height,
+        (unsigned long long)nonzero, (unsigned long long)pixels,
+        (unsigned long long)(sum_r / pixels),
+        (unsigned long long)(sum_g / pixels),
+        (unsigned long long)(sum_b / pixels));
+}
+#endif
 
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
     uint8_t* rdram = app->core.RDRAM;
-    static int dl_n = 0; dl_n++;
+    g_dl_n++;
 
     // === Game state diagnostic (read-only) ===
     {
@@ -278,9 +363,9 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
                         save_gate_bits != prev_save_gate ||
                         save_selector != prev_save_sel ||
                         cur_gs != prev_gs);
-        if (dl_n <= 10 || dl_n % 100 == 0 || changed) {
+        if (g_dl_n <= 10 || g_dl_n % 100 == 0 || changed) {
             fprintf(stderr, "[STATE] DL#%d gs=%d exec=0x%08X ni=0x%08X gate=0x%08X sel=0x%08X%s\n",
-                    dl_n, cur_gs, exec_flags, ni_sys_ptr, save_gate_bits, save_selector,
+                    g_dl_n, cur_gs, exec_flags, ni_sys_ptr, save_gate_bits, save_selector,
                     changed ? " ← CHANGED" : "");
             prev_exec = exec_flags;
             prev_ni = ni_sys_ptr;
@@ -368,6 +453,30 @@ void lod::renderer::RT64Context::update_screen() {
         fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X width=%d\n",
                 us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG, width);
     }
+
+#if LOD_ENABLE_CFB_SNAPSHOT
+    {
+        int32_t gs = lod_render_current_gamestate(app->core.RDRAM);
+        static int32_t prev_snapshot_gs = INT32_MIN;
+        static int gs_frame = 0;
+        if (gs != prev_snapshot_gs) {
+            prev_snapshot_gs = gs;
+            gs_frame = 0;
+        }
+        gs_frame++;
+
+        bool interesting_gs = (gs == 1 || gs == 12 || gs == 5);
+        bool one_shot = interesting_gs && (gs_frame == 1);
+        bool gs5_probe = (gs == 5) &&
+                         (gs_frame == 30 || gs_frame == 120 || gs_frame == 300 ||
+                          gs_frame == 600 || gs_frame == 1200 || gs_frame == 2400);
+        bool gs12_probe = (gs == 12) && (gs_frame == 30 || gs_frame == 120);
+
+        if (one_shot || gs5_probe || gs12_probe) {
+            lod_dump_cfb_ppm(app->core.RDRAM, gs, g_dl_n, us_n, last_displayed_cfb, width);
+        }
+    }
+#endif
 
     app->updateScreen();
 }
