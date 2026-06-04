@@ -47,6 +47,12 @@ static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
+static uint32_t ni_overlay_cpu_mirror(uint32_t vram) {
+    if (vram == 0x0F000000) return 0x8F000000;
+    if (vram == 0x0E000000) return 0x8E000000;
+    return 0;
+}
+
 extern "C" uint32_t ni_overlay_loaded_span(uint32_t vram) {
     int loaded_pair = -1;
     if (vram == 0x0F000000) {
@@ -565,10 +571,20 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 
     if (loaded_pair >= 0) {
         unload_overlays((int32_t)vram, NI_OVERLAY_UNLOAD_SIZE);
+        if (uint32_t mirror_vram = ni_overlay_cpu_mirror(vram)) {
+            unload_overlays((int32_t)mirror_vram, NI_OVERLAY_UNLOAD_SIZE);
+        }
     }
 
     const NiOvlData& data = ni_ovl_data[pair_index];
     load_overlays(data.rom_offset, (int32_t)vram, data.full_size);
+    if (uint32_t mirror_vram = ni_overlay_cpu_mirror(vram)) {
+        // Some computed dispatches use the MEM_W/CPU segment mirror
+        // (0x8Fxxxxxx or 0x8Exxxxxx) after osMapTLB populates the segment
+        // region. Register mirror aliases for the currently loaded NI section
+        // so those targets resolve without changing the runtime lookup code.
+        load_overlays(data.rom_offset, (int32_t)mirror_vram, data.full_size);
+    }
     // Copy full overlay data (text+data) from extended ROM to the executable
     // segment region. This is intentionally after load_overlays as well as
     // before the early-return path so remaps keep the segment bytes fresh.
