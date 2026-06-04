@@ -2156,7 +2156,7 @@ functions = [
     { name = "func_8009F048", vram = 0x8009F048, size = 0xB0 },
     { name = "func_8009F100", vram = 0x8009F100, size = 0xEC },
     { name = "func_8009F1EC", vram = 0x8009F1EC, size = 0x208 },
-    { name = "func_8009F400", vram = 0x8009F400, size = 0x1C4 },
+    { name = "pfs_find_file", vram = 0x8009F400, size = 0x1C4 },
     { name = "func_8009F5D0", vram = 0x8009F5D0, size = 0x1D4 },
     { name = "func_8009F7A4", vram = 0x8009F7A4, size = 0x3AC },
     { name = "func_8009FB50", vram = 0x8009FB50, size = 0x12C },
@@ -11642,7 +11642,7 @@ vram = 0x0F000000
 size = 0x2680
 
 functions = [
-    { name = "ni_ovl_104_func_0F000000", vram = 0x0F000000, size = 0x70 },
+    { name = "ni_ovl_104_schedule_dispatch", vram = 0x0F000000, size = 0x70 },
     { name = "ni_ovl_104_func_0F000070", vram = 0x0F000070, size = 0xC0 },
     { name = "ni_ovl_104_func_0F000130", vram = 0x0F000130, size = 0x4B8 },
     { name = "ni_ovl_104_func_0F0005E8", vram = 0x0F0005E8, size = 0x2BC },

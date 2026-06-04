@@ -1,237 +1,217 @@
 # Recovery to Gameplay Tracker
 
-This is the live, durable tracker for getting Castlevania: Legacy of Darkness recompilation from the current boot/save-screen state into actual controllable gameplay.
+Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot/save/intro screens into actual controllable gameplay.
 
-`SCRATCHBOOK.md` is retired. Keep this document focused and update it as recovery work changes the baseline, hypotheses, experiments, milestones, validation status, or next actions.
+`SCRATCHBOOK.md` is retired. Keep durable recovery state here: baseline, validated experiments, hypotheses, dependencies, and the next concrete action.
 
 ## Maintenance Rules
 
-- Update this file during recovery work so progress is not lost between sessions.
-- Do not append per-turn chatter; record durable technical state only.
-- When an experiment is run, record:
-  - build/runtime flags used
-  - bounded-run duration
-  - observed state changes or regressions
-  - conclusion and next action
-- When a function is identified, also update `FUNCTION_MAP.md`, `castlevania2.syms.toml`, and `symbol_addrs.txt` as appropriate.
+- Update this file whenever recovery work changes the baseline, a hypothesis, or the next action.
+- Record every meaningful experiment with build flags, runtime bound, result, and conclusion.
+- Keep risky experiments behind compile-time flags; default-off unless the fix is a validated compatibility shim.
+- Do not use forced gamestate skips as permanent fixes.
+- When a function is identified, update `FUNCTION_MAP.md`, `castlevania2.syms.toml`, and `symbol_addrs.txt` as appropriate.
 
-## Current Baseline
+## Current Baseline (2026-06-04)
 
-- Tracker established at: `c5952c1` (`Replace scratchbook with recovery tracker`).
-- Last pre-alignment pushed trace commit: `b1ce215` (`Trace save-screen dispatch state`).
-- Build status: `cmake --build build` succeeds on macOS with SDK include-order sanitation in `CMakeLists.txt`.
-- Launch status: bounded `20s` launch reaches the game without an internal crash; timeout/SIGTERM stops it cleanly.
-- Startup overlay status:
-  - LoD starts naturally in `gs=4`.
-  - Initial map overlay registration and RDRAM bytes are now aligned to `map_ovl_34`
-    (`ROM 0x7EF5E0 → RAM 0x802E3B70`, size `0x16690`).
-  - This replaces the previous mixed startup state where `map_ovl_00` code was registered while
-    `map_ovl_34` data/jump tables were copied.
-- Runtime state observed after alignment:
-  - Gamestate remains `gs=4`.
-  - Save object state advances `255 → 1 → 2 → 3` and then polls state `3`.
-  - No `Failed to find function` occurs in validated 20s samples.
-  - Input callback is active; debug auto-input can move the save-screen state machine but does not yet reach gameplay.
-- Clean baseline policy:
-  - No local dirty submodule changes.
-  - No editor/debug leftovers.
-  - No runtime/gameplay skip enabled by default.
-  - Auto-input and handler function-map wrappers are compile-time gated and default off.
+- Branch: `main`.
+- Last pushed baseline before this update: `13c0a12` (`Trace NI pair 120 save reset caller`).
+- Build status: default `cmake --build build --target LodRecomp` succeeds on macOS.
+- Launch discipline:
+  - codesign before every macOS launch;
+  - bounded `timeout` runs only;
+  - verify no stale `LodRecomp` process after each run.
+- Default runtime flags:
+  - no boot gamestate skip;
+  - no auto-input;
+  - pair-120 internal-label dispatch fix is default-on;
+  - stale direct `func_8009F400`/`osPfsFindFile` shim is default-off.
+- Validated default behavior:
+  - With an existing virtual Controller Pak save note, default launch reaches `gs=12` cleanly from the natural boot/save flow.
+  - With a truly empty virtual Controller Pak and no input, default launch formats the Pak and remains in `gs=4` waiting for selection/input; this is expected menu behavior, not a crash.
+  - With a truly empty virtual Controller Pak plus debug auto-input (`Down`, `A`, `A`), the game creates/uses the note and reaches `gs=12` cleanly.
+  - User visual confirmation: `gs=12` is the Expansion Pak screen.
+  - A longer default existing-save run naturally advanced `gs=12 → -5 → 5`, then crashed in the next flow after loading NI pair `104`.
+  - Current crash signature: `Signal 11` at `0x4001cad9c`, no `Failed to find function`, no stale process; last function lookups include NI pair `104` entries `0x0F000000` and `0x0F000130`, then main-code handlers around `0x8001B4C0/0x8001B530`.
 
 ## Goal
 
-Reach actual controllable gameplay through the game's natural state flow, not by permanently skipping or forcing gamestates.
+Reach actual controllable gameplay through the game's natural state flow, not by permanently skipping screens or forcing gamestates.
 
-## Active Work Item
+## Current Active Work Item
 
-### G4-001 — Determine What `gs=4` Is Waiting For
+### G5-001 — Fix Transition After Expansion Pak Screen
 
 Objective:
 
-- Decide whether the current `gs=4` stall is caused by user/menu input, Controller Pak/PFS state, missing gamestate write, or missing object/state dispatch.
+- Fix the natural transition after the Expansion Pak screen so the game continues through intro/title toward gameplay.
+- Preserve the now-working save/Pak path and avoid a forced gamestate skip.
 
 Current evidence:
 
-- The fixed parent object at `0x8031AFA4` reaches dispatch state `3`.
-- Startup overlay code/data mismatch was a real precondition bug:
-  - previous startup registered `map_ovl_00` code at `0x802E3B70` but copied `map_ovl_34` data there;
-  - save-screen tables can point at functions such as `0x802EBAF0`, beyond the registered `map_ovl_00` section;
-  - aligning startup to `map_ovl_34` removes that missing-function risk.
-- The save-screen dispatch model has two adjacent tables:
-  - outer table `0x802F7170`, used by `save_screen_outer_dispatch`
-  - inner table `0x802F71A8`, used by `save_screen_schedule_dispatch`
-- Parent dispatch state `3` maps through the outer table to
-  `0x802ECF4C`, now named `save_screen_outer_state3_update`.
-- Inner table state `3` maps to `0x802ED804`, now named `save_screen_state3_update`,
-  but that is not the fixed parent object's direct state-3 handler.
-- `save_screen_outer_state3_update` expects valid object `+0x24` and `+0x34` pointers.
-  The fixed parent object currently has both as zero when it reaches outer state `3`.
-- Input callback is active.
-- Temporary auto-input (`Down`, `A`, `A`) is consumed by the screen:
-  - state advances `3 → 4 → 5 → 0`, then loops back through initialization;
-  - PFS lookup/status paths run (`contpak_get_inserted_status`, `osPfsFindFile`);
-  - gamestate still stays `gs=4`.
-- ROM scan found a main-code save/PFS state schedule table at ROM `0xB43C0`.
-  It contains `0x8001AF54`, which calls `gamestate_change(3)` and then advances the
-  object's current schedule level via `object_curLevel_goToNextFuncAndClearTimer`.
-- Temporary exit tracing (`LOD_ENABLE_SAVE_EXIT_TRACE=1`) proved the current tested
-  save-screen loop advances through `object_curLevel_goToNextFuncAndClearTimer`
-  (`0x80001CE8`) on objects around `0x8031AFA4`, but did not reach `0x8001AF54`
-  or the adjacent main-code table handlers in the auto-input path.
-- Read-only analysis of map_ovl_34 state `4/5` identified the active loop fields:
-  - inner state 4 (`save_screen_inner_state4_init` / `0x802ED630`) initializes object-data motion fields and sets `data+0x46 = 0x78`;
-  - inner state 5 (`save_screen_inner_state5_update` / `0x802ED6C4`) uses `data+0x48/+0x50` and either advances the schedule or clears `data+0x46`;
-  - outer state 4 (`save_screen_outer_state4_bridge` / `0x802EDBD8`) bridges into the inner table, then forces current level to state `9` via `object_curLevel_goToFunc` when `data+0x46 <= 0`, input flag `0x40` is set, or global `0x802F6FE4 == 1`.
-- Temporary state-4/5 helper tracing (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`, 25s) timed out cleanly and showed:
-  - 62 `object_curLevel_goToFunc` calls and 80 `object_curLevel_goToNextFuncAndClearTimer` calls on save-screen objects;
-  - fixed parent `0x8031AFA4` advances `3 → 4 → 5`, then resets `5 → 0` via `object_curLevel_goToFunc(a2=0)`, so the tested path loops before selecting an exit state;
-  - child `0x8031B08C` is active during the same loop with data pointer `0x802A9770` and transitions through targets `2/3/4/1`;
-  - direct wrappers for `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, and `save_screen_inner_state5_update` did not fire in that sample.
-- A follow-up trace added default-off wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch`, but those also did not fire; current runtime `add_loaded_function` wrapping is effective for main-code helpers but not for these map_ovl_34 handler entries in the tested path.
-- The object schedule helper family and identified save-screen state-4/5 handlers are now named coherently in `castlevania2.syms.toml`/`symbol_addrs.txt`.
-- PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
-- The runtime continues cycling NI overlays `105 / 120 / 101`.
-- Runtime host-caller tracing (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`, 25s) identified the parent reset caller:
-  - fixed parent `0x8031AFA4` reaches state `5`, then `object_curLevel_goToFunc(a2=0)` is called from `ni_ovl_120_result_schedule_dispatch+0x19C`;
-  - this is NI overlay pair `120` (`ROM 0x013560E0`, loaded at `0x0F000000`), not a map_ovl_34 generated callsite;
-  - static inspection shows `ni_ovl_120_result_schedule_dispatch` indexes a callback table at `0x0F0016BC` with `obj+0x48`, stores the callback result in `obj+0x38`, resets current schedule to `0` when the result is nonzero, and otherwise sets `obj+0x44=1` then advances via `object_curLevel_goToNextFuncAndClearTimer`;
-  - table dump from `resources/castlevania2_ni_extended.z64` begins `[0]=0x0F00086C`, `[1]=0x0F000884`, `[2]=0x0F0008D4`, `[3]=0x0F0008E4`, `[4]=0x0F0008F4`, `[5]=0x0F00091C`, `[6]=0x0F000958`, `[7]=0x0F000964`, `[8]=0x0F000974`, `[9]=0x0F000984`, `[10]=0x0F000070`, `[11]=0x0F0000BC`.
-- `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
-
-Latest bounded traces (`G4-001`, 20s):
-
-- Default sanitized build succeeds.
-- Final sanitized default sample timed out cleanly (`exit=124`) with no stale `LodRecomp` process.
-- Init logs confirm aligned startup overlay:
-  - `Registered and copied map_ovl_34 for initial gs=4 at 0x802E3B70`
-  - `Refreshed initial map_ovl_34 bytes: ROM 0x7EF5E0 → rdram+0x2E3B70 (91792 bytes)`
-- No `Failed to find function`, no `[CRASH]`, no auto-input, no handler-wrapper install in the default sample.
-- Temporary auto-input sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`) timed out cleanly and proved baked controller input reaches the game.
-- Temporary exit-trace sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) timed out cleanly in the first sample:
-  - wrappers installed for `0x80001C20`, `0x80001CE8`, `0x8001ACB0`, `0x8001AF54`,
-    `0x8001AF90`, `0x8001AFF0`, and `0x8001B0B4`;
-  - 40 traced `object_curLevel_goToNextFuncAndClearTimer` calls occurred for save-screen objects;
-  - no `0x8001AF54` exit-candidate hit and no adjacent main-code table-handler hit occurred;
-  - auto-input fired all three baked inputs and the screen looped `3 → 4 → 5 → 1 → 2 → 3`;
-  - no `Failed to find function` and no internal crash before the timeout signal.
-- Temporary state-4/5 helper trace sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) timed out cleanly:
-  - wrappers installed and produced 143 `[SAVE45]` lines;
-  - helper trace proves the parent reset is `0x8031AFA4: state 5 → 0` through `object_curLevel_goToFunc(a2=0)`;
-  - helper trace also proves no direct `outer_state4_bridge`, `inner_state4_init`, or `inner_state5_update` wrapper calls occurred before timeout;
-  - no missing function and no internal crash before timeout/SIGTERM.
-- Follow-up state-4/5 dispatch-wrapper sample, with the same flags after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch`, also timed out cleanly but still recorded zero overlay-dispatch wrapper hits; schedule-helper traces were unchanged.
-- A generated map_ovl_34 callsite trace experiment (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_CALLSITE_TRACE=1`, 25s) built and timed out cleanly but produced zero `[SAVE45-CALL]` lines, even when combined with `LOD_ENABLE_SAVE_STATE45_TRACE=1`; the reset caller is therefore not one of the patched map_ovl_34 helper callsites.
-- Host-caller trace extension to `LOD_ENABLE_SAVE_STATE45_TRACE` resolved helper callers through `dladdr`; parent `0x8031AFA4` reset lines now show `object_curLevel_goToFunc(a2=0)` from `ni_ovl_120_result_schedule_dispatch+0x19C` with no missing-function crash.
-- Exact object-field trace at the helper call showed two parent resets in the 25s sample:
-  - reset #23: `obj38=0x00040000`, `obj48=0x00000007`;
-  - reset #29: `obj38=0x01000000`, `obj48=0x00000000`;
-  - these are post-callback fields visible when the schedule helper is entered, so they are not enough to prove the original pre-callback table index/result. The next trace should instrument inside `ni_ovl_120_result_schedule_dispatch` before and after the table callback.
-- A second loosened trace sample reproduced the same lack of main-code table/exit hits before an intermittent `SIGBUS` after the first baked `DPad-Down`; treat this as non-baseline until reproduced without temporary trace.
-- Symbol-regeneration/tooling sample after naming the object schedule helper family built and timed out cleanly (`exit=124`) with default flags. This also proved the stale direct generated-code guard in `func_800048A0/48C4` is not needed for the default 20s save-screen path.
-- One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
-- Parent object at `0x8031AFA4`:
-  - `state09=3`, `func_id=-1`, `dispatch_state=3`
-  - outer handler `0x802ECF4C` / inner handler `0x802ED804`
-  - `fig0=0`, `alloc0=0`, `alloc15=0`
-  - `disp_flags=0`, `map6FE4=0`, input/status flags `0x801CAB18=0`
-  - `pfs_status=1`, `contpak_uninserted[0]=0`
-- Nearby object window at parent state-3 entry:
-  - `0x8031B08C`: child of parent, `dispatch_state=1`, outer handler `0x802EC550`,
-    `fig0=0x802ECCE8`, `alloc0=0x802A9770`, `alloc1=0x802A3B88`
-  - `0x8031B100`: child of `0x8031B018`, `dispatch_state=2`, outer handler
-    `save_screen_schedule_dispatch`, `fig0=0x802ECC30`, `alloc0=0`, `alloc1=0x80324920`
+- `gs=4` is no longer the primary blocker:
+  - it is the save/Controller Pak screen;
+  - the game can leave it naturally when a valid note exists;
+  - on an empty Pak it waits until the user chooses the create/use path;
+  - debug auto-input can exercise that path and reach `gs=12`.
+- `gs=12` is the Expansion Pak screen (confirmed visually by the user).
+- In a default existing-save 45s run, `gs=12` advanced naturally to `gs=-5` and then `gs=5`.
+- `gs=5` currently crashes after NI overlay pair `104` loads at `0x0F000000`.
+- Crash sample `/tmp/lod_default_existing_45s_gs12.log`:
+  - exit code `139`;
+  - `[CRASH] Signal 11 at address 0x4001cad9c`;
+  - no missing-function lookup;
+  - no stale `LodRecomp` process;
+  - last lookups include `0x0F000000`, `0x0F000130`, `0x8001B4C0`, and `0x8001B530`.
+- Static inspection identified and renamed `0x0F000000` in NI pair `104` to
+  `ni_ovl_104_schedule_dispatch`; it dispatches table `0x0F0026F8`.
 
 Next action:
 
-1. Instrument `ni_ovl_120_result_schedule_dispatch` itself (entry, pre-callback `obj+0x48`, callback target, callback `v0`, and post-write `obj+0x38`) so the exact reset-producing table case is captured before object fields are mutated.
-2. Decode the active callback's inputs/result: why does it return nonzero for the tested save-screen selection, and what condition would make it return zero and advance instead?
-3. Determine why the tested loop does not reach the main-code `0x8001AF54` `gamestate_change(3)` table target. Current evidence says this is either a different branch/owner table or a later PFS/menu result not reached by the baked inputs.
-4. Determine whether fixed parent `0x8031AFA4` is a real state owner or a container/sentinel; child `0x8031B08C` currently looks like an active object with valid data.
-5. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the save-screen object chain.
-6. Only after the owner/precondition issue is explained, decide whether PFS/input status is blocking the transition or merely a symptom.
+1. Add a default-off trace around the `gs=5` transition and NI pair `104` entry (`ni_ovl_104_schedule_dispatch`, `0x0F000130`) to capture object pointers/arguments before the crash.
+2. Inspect and name the main-code functions in the crash path (`0x8001B4C0`, `0x8001B530`, and nearby `0x8001A5BC/0x8001AA48/0x8001AB28`) once their role is established.
+3. Determine whether the crash is an NI pair-104 logic bug, bad object/scene data, stale overlay function mapping, or a renderer/display-list side effect.
+4. Keep the default runtime path natural: no permanent skip from `gs=12` or `gs=5`.
+
+## Resolved Work Item
+
+### G4-001 — Save/Controller Pak Screen Exit
+
+Status: functionally resolved for the current baseline; keep regression tests.
+
+What changed:
+
+- Retired stale direct `func_8009F400` (`osPfsFindFile`) shim by making `LOD_OVERRIDE_FUNC_8009F400=0` the default.
+- Added a scoped compatibility fix for NI overlay pair 120's result dispatcher (`LOD_FIX_NI_PAIR120_RESULT_LABELS=1` default).
+- Kept both changes reversible with compile-time flags for A/B testing.
+
+Key facts:
+
+- The previous `gs=4` loop was not solved by a gamestate skip.
+- The direct `func_8009F400` shim could return stale NOT FOUND after the game created a Controller Pak note. Letting the recompiled/native PFS path run lets the note be found/used.
+- `ni_ovl_120_result_schedule_dispatch` indexes callback table `0x0F0016BC` by `obj+0x48`, stores the callback result to `obj+0x38`, resets current schedule to `0` on nonzero, and advances on zero.
+- The pair-120 table intentionally mixes function starts and internal labels:
+  - `[0]=0x0F00086C`, `[1]=0x0F000884`, `[2]=0x0F0008D4`, `[3]=0x0F0008E4`, `[4]=0x0F0008F4`, `[5]=0x0F00091C`, `[6]=0x0F000958`, `[7]=0x0F000964`, `[8]=0x0F000974`, `[9]=0x0F000984`, `[10]=0x0F000070`, `[11]=0x0F0000BC`.
+- Entries `0`, `2`, `3`, `6`, `7`, and `8` are internal labels, not function starts. N64Recomp range fallback resolves them to the containing function start, which changes callback return values and can perturb the save/Pak schedule.
+- The fix handles only the pair-120 dispatcher at `0x0F000484`; it does **not** globally register internal-label addresses in the reusable `0x0F...` overlay range, avoiding cross-overlay contamination when pair `101`, `105`, etc. reuse the same VRAM.
+
+Regression checks to keep:
+
+- Existing-save default 20s run should reach `gs=12` without missing functions or crashes.
+- True-empty-Pak default no-input run should format the Pak and stay in `gs=4` without crash.
+- True-empty-Pak auto-input run should reach `gs=12` without using the direct `func_8009F400` shim.
+- Compile-only check for `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0` with `LOD_OVERRIDE_FUNC_8001D398=1` must remain buildable.
 
 ## Milestones
 
-### Milestone 1 — Explain the `gs=4` Stall
+### Milestone 1 — Explain and Exit `gs=4` Naturally
 
-Determine why the save/Controller Pak screen does not naturally transition onward.
+Status: achieved for the current baseline.
 
-Known facts:
+Success evidence:
 
-- LoD intentionally starts at `gs=4` on real hardware/emulator.
-- `gs=4` is the save/Controller Pak management screen.
-- Current recomp reaches this screen path and advances the fixed parent object to outer
-  dispatch state `3`.
-- Current recomp continues cycling NI overlays `105 / 120 / 101` without transitioning.
-- The outer/inner save-screen dispatch tables are now decoded and documented in
-  `FUNCTION_MAP.md`.
+- Existing-save path reaches `gs=12` with default flags.
+- Fresh-Pak + scripted create path reaches `gs=12` with default PFS semantics plus debug input only.
+- No permanent forced gamestate skip is involved.
 
-Questions to answer:
+### Milestone 2 — Identify and Drive `gs=12`
 
-- Is `gs=4` waiting for user input/menu selection?
-- Is it blocked by a Controller Pak/PFS result?
-- Is it failing to write the next gamestate?
-- Is an object/state-machine dispatch path missing?
+Status: achieved.
 
-Next recommended experiment:
+Success evidence:
 
-- Add a focused default-off trace or static annotation for NI overlay pair `120`, centered on:
-  - `ni_ovl_120_result_schedule_dispatch` (`0x0F000484`) and its callback table at `0x0F0016BC`;
-  - the pre-callback `obj+0x48` value and callback target when parent `0x8031AFA4` is about to reset;
-  - the callback `v0` result and post-write `obj+0x38`, because nonzero causes the observed reset while zero advances;
-  - child `0x8031B08C` data `0x802A9770` and its target `2/3/4/1` loop;
-  - global PFS/menu decision fields read while state `5` is reset;
-  - whether the main-code `0x8001AF54` table is an alternate branch or an intended exit that the current selection never reaches.
+- `gs=12` is confirmed as the Expansion Pak screen.
+- Default existing-save run advances through it naturally to `gs=5`.
+- No forced `gs=12` skip is needed in the baseline.
 
-### Milestone 2 — Burn Down or Justify Remaining Overrides
+### Milestone 3 — Reach Title/Intro Flow
 
-Each override should be either removed or documented as a required compatibility shim.
-
-Test one at a time:
-
-1. `LOD_OVERRIDE_FUNC_8009E480=0` — audio-chain no-op.
-2. `LOD_OVERRIDE_FUNC_8001D398=0` — Controller Pak inserted recheck.
-3. `LOD_OVERRIDE_FUNC_8001C93C=0` — Pak validation gate.
-4. `LOD_OVERRIDE_FUNC_8009F400=0` — PFS find-file override.
-5. `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0` — Pak inserted-status wrapper.
-
-Rules:
-
-- Change only one variable per run.
-- Keep experiments bounded.
-- Record whether the result is build failure, crash, regression, or no behavioral change.
-- If keeping an override, document the specific runtime contract it compensates for.
-
-### Milestone 3 — Validate Controller Pak Path
-
-Use `docs/controller-pak-approaches.md` for detailed PFS notes.
-
-Questions:
-
-- Does the game expect an existing CASTLEVANIA2 note, a newly created note, or a “continue without saving” path?
-- Which PFS result should lead from `gs=4` to the next gamestate?
-- Are current PIF/PFS return codes faithful enough for this screen?
-
-### Milestone 4 — Transition Past Save Screen Naturally
-
-Expected original flow reference:
-
-1. `gs=4` — save/Controller Pak screen.
-2. Next intro/title/game states, eventually into actual gameplay.
+Status: active.
 
 Success condition:
 
-- The game leaves `gs=4` without default-on forced gamestate skip.
+- The game survives `gs=5` after the Expansion Pak screen and reaches the next title/intro state through normal scheduling.
 
-### Milestone 5 — Reach Controllable Gameplay
+### Milestone 4 — Reach Controllable Gameplay
+
+Status: pending.
 
 Success condition:
 
-- Player reaches an in-game controllable scene.
-- Input works.
+- A playable scene is reached.
+- Controller input works.
 - Renderer remains stable.
 - RSS remains bounded.
 - No stale process remains after bounded run.
+
+### Milestone 5 — Burn Down Remaining Overrides
+
+Status: ongoing.
+
+Each override should be removed or documented as a required compatibility shim.
+
+## Override / Probe Matrix
+
+| Flag | Default | Current disposition | Next test |
+|------|---------|---------------------|-----------|
+| `LOD_OVERRIDE_FUNC_8009E480` | on | Unknown; audio-chain no-op may mask a real issue | Build/run with `=0` after `gs=12` input path is understood |
+| `LOD_OVERRIDE_FUNC_8001D398` | on | Runtime necessity unknown; build-gate combo with inserted-status disabled is fixed | Build/run with `=0` |
+| `LOD_OVERRIDE_FUNC_8001C93C` | on | Unknown; Pak validation gate | Build/run with `=0` |
+| `LOD_OVERRIDE_FUNC_8009F400` | **off** | Retired stale direct PFS find shim; keep only for A/B regression checks | Confirm no future path depends on it; eventually remove |
+| `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS` | on | Compile combo passed with this disabled while `FUNC_8001D398` stayed enabled | Build/run with `=0` |
+| `LOD_FIX_NI_PAIR120_RESULT_LABELS` | **on** | Validated scoped compatibility fix for pair-120 internal-label callback table | Keep on; use `=0` only for A/B regression |
+| `LOD_ENABLE_SAVE_PAIR120_TRACE` | off | Debug-only trace for pair-120 dispatcher/table callback details | Enable only when investigating pair-120 regressions |
+| `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only scripted input for `gs=4` save/Pak path | Replace or generalize for `gs=12` scripted input tests |
+| `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe | Use only for targeted handler-entry confirmation |
+| `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use only if `gs=4` regresses |
+| `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only state-4/5 schedule-helper trace | Use only if `gs=4` regresses |
+| `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; never a permanent fix | Use only for downstream comparison, never as baseline |
+
+## Experiment Log
+
+Record durable experiments here. Keep entries concise and technical.
+
+| ID | Flags / build | Runtime bound | Result | Conclusion |
+|----|---------------|---------------|--------|------------|
+| BASE-001 | default baseline at `18a56c5` | 20s | Built, launched, reached `gs=4`; save object `255 → 1 → 2 → 3`; NI loop `105 / 120 / 101`; no internal crash | Clean baseline was viable; primary blocker was natural transition out of `gs=4` |
+| BUILD-001 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0`, `LOD_OVERRIDE_FUNC_8001D398=1` compile-only check | n/a | `ignored_func_stubs.cpp` compiled successfully | Review-reported dependent override-gate compile failure is fixed |
+| G4-001A..L | historical traces through map_ovl_34 dispatch, object schedule helpers, and NI pair 120 | 20-25s | Identified parent reset caller as `ni_ovl_120_result_schedule_dispatch`; decoded table at `0x0F0016BC`; proved tested loop was not the main-code `0x8001AF54` path | Active blocker narrowed to PFS find semantics + pair-120 internal-label callbacks |
+| G4-001M | `LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`, `LOD_ENABLE_SAVE_PAIR120_TRACE=1`, `LOD_FIX_NI_PAIR120_RESULT_LABELS=1`, `LOD_OVERRIDE_FUNC_8009F400=0` | 35s | Native/recompiled PFS path found/used the note after writes; pair-120 label fix allowed advance; reached `gs=12`; no missing function/crash | Direct `func_8009F400` shim was stale/harmful; scoped pair-120 fix is the right compatibility layer |
+| G4-001N | default flags, existing virtual Pak save | 20s | Reached `gs=12`; no auto-input; no `Failed to find function`; no `[CRASH]`; no stale process | Default existing-save baseline now leaves `gs=4` naturally |
+| G4-001O | default flags, truly empty virtual Pak, no input | 25s | Formatted empty Controller Pak; stayed in `gs=4`; no missing function/crash; no stale process | Empty-Pak default waits for menu input, as expected |
+| G4-001P | `LOD_ENABLE_SAVE_AUTO_INPUT=1`, truly empty virtual Pak | 35s | Formatted Pak, injected `Down`, `A`, `A`, transitioned `gs=4 → -1 → 1 → -12 → 12`; no missing function/crash | Fresh-save create/use path reaches `gs=12` with native PFS and debug input only |
+| BUILD-002 | syntax-only: `LOD_ENABLE_SAVE_PAIR120_TRACE=1` with fix on and with fix off | n/a | `ni_overlay_loader.cpp` compiled in both combinations | Trace/fix gates remain buildable |
+| BUILD-003 | syntax-only: `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0`, `LOD_OVERRIDE_FUNC_8001D398=1`, `LOD_OVERRIDE_FUNC_8009F400=1` | n/a | `ignored_func_stubs.cpp` compiled with warnings only from third-party headers | Dependent override gates remain buildable |
+| G12-001A | default flags, existing virtual Pak save | 45s | User visually confirmed `gs=12` as Expansion Pak screen; run advanced `gs=12 → -5 → 5`, loaded NI pair `104`, then crashed with `Signal 11` at `0x4001cad9c`; no missing-function lookup; no stale process | `gs=12` is not the blocker; the next blocker is `gs=5` / NI pair-104 transition |
+| G12-001B | default flags after docs/symbol updates | 12s | Built, codesigned, reached `gs=12`, timed out cleanly before the known `gs=5` crash window; no missing-function lookup/crash/stale process | Short smoke confirms the committed baseline reaches Expansion Pak screen cleanly |
+
+## Open Questions
+
+- What exact flow is `gs=5` in LoD after the Expansion Pak screen: intro cutscene, title intro, or another boot screen?
+- Why does NI pair `104` crash after `gs=5` starts?
+- Are `0x0F000000` / `0x0F000130` in pair `104` being called with bad object arguments, or is the crash later in main-code handlers?
+- What are the roles of `0x8001B4C0`, `0x8001B530`, `0x8001A5BC`, `0x8001AA48`, and `0x8001AB28` in this transition?
+- Are remaining default-on PFS/Pak overrides still required after the direct `func_8009F400` shim retirement?
+- Are NI pairs `101 / 105 / 120` expected around the save/boot UI after the pair-120 fix, or do they indicate another overlay mismatch later?
+
+## Dependency / CV64 Posture
+
+Do not wholesale update dependencies while the boot-to-gameplay path is still being characterized. Prefer small, justified cherry-picks only if directly relevant to:
+
+- Controller Pak/PIF behavior;
+- overlay loading/function lookup;
+- scheduler/message queue correctness;
+- renderer crash/leak fixes encountered on the active path.
+
+Checked 2026-06-04 with `git fetch --all --prune --tags`:
+
+| Repo | Local state | Upstream delta | Notes |
+|------|-------------|----------------|-------|
+| `lib/N64ModernRuntime` | detached `366e149` | origin/main has 4 commits not in local; local is 9 commits off origin/main history | Potentially relevant changes include argument stack handling and lookup API changes; do not update blindly |
+| `lib/rt64` | detached `20d75f5` | origin/main has 8 commits not in local; local is 6 commits off origin/main history | Mostly renderer/library updates; consider only if renderer blocks gameplay path |
+| `lib/RmlUi` | detached `7a06f27d` | origin/master much newer | UI library update not relevant to current boot blocker |
+| `lib/lunasvg` | detached `4166d0c` | origin/master much newer | SVG library update not relevant to current boot blocker |
+| `../references/cv64_decomp` | `main` at `5307217`, matches origin/main | up to date | Recent upstream includes matched `honmaru_1f.c`, `pause_menu.c`, `honmaru_5f.c`, and common/gameplay textbox refactors; useful for naming and later gameplay/menu comparison |
 
 ## Known Safe Patterns
 
@@ -255,84 +235,11 @@ pgrep -la LodRecomp
 
 - Forced gamestate skip as a permanent fix.
 - Auto-input as a permanent fix.
+- Registering internal-label functions globally in reusable overlay VRAM ranges.
 - Reintroducing dirty submodule-only runtime changes.
 - Running N64Recomp directly instead of `./tools/regen_recomp.sh`.
 - Long unbounded runs during leak-prone experiments.
 
-## Symbol Naming Queue
-
-Keep this synchronized with `FUNCTION_MAP.md`, `castlevania2.syms.toml`, and `symbol_addrs.txt`.
-
-Priority naming targets:
-
-- Save object update function.
-- Save object state handlers.
-- Gamestate transition setter(s).
-- NI overlay pair `101`, `105`, and `120` owner functions.
-- PFS wrapper callsites involved in the save screen.
-
-## Override Matrix
-
-The current baseline keeps several old bring-up overrides default-on to preserve behavior. Each one needs an explicit disposition.
-
-| Override | Default | Current disposition | Next test |
-|----------|---------|---------------------|-----------|
-| `LOD_OVERRIDE_FUNC_8009E480` | on | Unknown; audio-chain no-op may mask a real issue | Build/run with `=0` after `gs=4` tracing is understood |
-| `LOD_OVERRIDE_FUNC_8001D398` | on | Known build-gate issue fixed; runtime necessity still unknown | Build/run with `=0` |
-| `LOD_OVERRIDE_FUNC_8001C93C` | on | Unknown; Pak validation gate | Build/run with `=0` |
-| `LOD_OVERRIDE_FUNC_8009F400` | on | Unknown; PFS find-file shim | Build/run with `=0` |
-| `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS` | on | Dedicated compile combo passed with this disabled while `FUNC_8001D398` stayed enabled | Build/run with `=0` |
-| `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; tested and confirmed to move the save-screen state machine but not leave `gs=4` | Use only for explicit input-flow experiments |
-| `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe; default-off to avoid hiding dispatch bugs | Enable only for targeted handler-entry confirmation |
-| `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use to confirm whether `0x8001AF54` or adjacent table handlers are reached |
-| `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only wrapper probe for state-4/5 schedule-helper decisions; now also logs host caller symbols for helper calls | Use with auto-input to identify helper callers such as `ni_ovl_120_result_schedule_dispatch` |
-| `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; should stay off by default | Use only to compare downstream behavior, never as permanent fix |
-
-## Experiment Log
-
-Record durable experiments here. Keep entries concise and technical.
-
-| ID | Flags / build | Runtime bound | Result | Conclusion |
-|----|---------------|---------------|--------|------------|
-| BASE-001 | default baseline at `18a56c5` | 20s | Built, launched, reached `gs=4`; save object `255 → 1 → 2 → 3`; NI loop `105 / 120 / 101`; no internal crash; timeout stopped it | Clean baseline is viable; primary blocker is natural transition out of `gs=4` |
-| BUILD-001 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0`, `LOD_OVERRIDE_FUNC_8001D398=1` compile-only check | n/a | `src/main/ignored_func_stubs.cpp` compiled successfully | Review-reported dependent override-gate compile failure is fixed |
-| G4-001A | default flags + schedule-aware save dispatch trace | 20s | Built; final run timed out cleanly; fixed parent `0x8031AFA4` reached outer dispatch state `3` → `save_screen_outer_state3_update` while `+0x24/+0x34/+0x70` were zero; nearby child objects had valid-looking pointers | The state-3 blocker is now an object ownership/precondition problem, not simply "inner table state 3 waiting for input" |
-| G4-001B | default flags + initial `map_ovl_34` code/data alignment | 20s | Built; launched; no `Failed to find function`; save-screen state still reaches/polls parent dispatch state `3` | Overlay alignment is a real precondition fix, not a gameplay skip; remaining blocker is later state/owner/PFS flow |
-| G4-001C | temporary auto-input build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`; handler wrapper probe available as `LOD_ENABLE_SAVE_HANDLER_TRACE=1`) | 20s | Baked `Down`, `A`, `A` fired; state moved `3 → 4 → 5 → 0`; `contpak_get_inserted_status` and `osPfsFindFile` ran; game stayed `gs=4`; no handler-entry wrapper hits | Input is reaching the game; the menu/PFS path loops instead of transitioning, so the next target is the state owner/result that should leave `gs=4` |
-| G4-001D | sanitized default flags after gating auto-input and handler wrappers off | 20s | Build/run clean; init confirms `map_ovl_34`; no auto-input; no handler wrapper install; no missing-function crash; timeout stopped cleanly | Default baseline is clean while retaining optional probes for targeted experiments |
-| G4-001E | temporary exit-trace build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) | 20s | First sample timed out cleanly; wrappers installed; 40 `0x80001CE8` schedule advances logged for save-screen objects; no `0x8001AF54` or adjacent main-code table-handler hit; no missing function/crash before timeout | The active tested loop is map_ovl_34 object scheduling, not the main-code `gamestate_change(3)` table target |
-| G4-001F | same temporary exit-trace build with less-filtered table logs | <20s | Built; crashed with `SIGBUS` after first baked `DPad-Down`; before crash, still no main-code table-handler or `0x8001AF54` hit | Treat as trace-only/non-baseline until reproduced without temporary trace |
-| G4-001G | object schedule helper rename + approved regen pipeline | 20s | Named the object schedule helper family, improved truncation repair for partial `funcs.h`, partial `recomp_overlays.inl`, generic truncated C tails, and the `static_276_0E0037A0` split; build/run clean with default flags | Regen is healthier and the next runtime trace can target state-4/5 decision fields instead of unnamed helpers |
-| G4-001H | temporary state-4/5 helper trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Timed out cleanly; 62 `object_curLevel_goToFunc` and 80 `object_curLevel_goToNextFuncAndClearTimer` traces; parent `0x8031AFA4` advanced `3 → 4 → 5` then `5 → 0`; child `0x8031B08C` remained active with data `0x802A9770`; direct state-4/5 handler wrappers did not fire | The active tested loop resets parent state `5 → 0`, not the main-code `0x8001AF54` table |
-| G4-001I | same state-4/5 trace after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch` | 25s | Timed out cleanly; schedule-helper counts unchanged; zero overlay dispatcher/state handler wrapper hits | Runtime helper wrapping works for main-code schedule helpers but not for these map_ovl_34 overlay handlers; next trace should tag generated callsites via `tools/apply_patches.py` |
-| G4-001J | temporary generated map_ovl_34 callsite trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_CALLSITE_TRACE=1`, then combined with `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Built and timed out cleanly; zero `[SAVE45-CALL]` hits; runtime helper trace still reproduced parent `state 5 → 0` | The reset caller is not one of the patched map_ovl_34 dispatch/helper callsites; generated patch was removed instead of kept |
-| G4-001K | temporary host-caller schedule-helper trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Built and timed out cleanly; `dladdr` resolved parent `0x8031AFA4` reset `object_curLevel_goToFunc(a2=0)` to `ni_ovl_120_result_schedule_dispatch+0x19C`; symbol renamed and regen succeeded | Active next lead is NI overlay pair 120 callback/result logic, not map_ovl_34 dispatcher wrapping |
-| G4-001L | temporary state45 trace with object `+0x38/+0x48` fields plus static pair-120 table dump | 25s | Built and timed out cleanly; table starts `[0]=0x0F00086C`, `[7]=0x0F000964`; helper-call snapshots showed resets with post-callback `obj48=7/0` and nonzero-looking `obj38` values | Need an inside-function trace for `ni_ovl_120_result_schedule_dispatch`; helper-entry snapshots occur after callback/table side effects |
-
-## Open Questions
-
-- Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
-- Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
-- Which fields represent the current save-screen selection/cursor?
-- Which pre-callback `obj+0x48` case under `ni_ovl_120_result_schedule_dispatch` returns nonzero and causes parent `0x8031AFA4` to reset from state `5` to `0`?
-- Why did direct wrappers for map_ovl_34 handlers (`save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, `save_screen_inner_state5_update`) not fire while main-code schedule-helper wrappers did? Current lead: the active reset path is NI overlay pair 120 instead.
-- Is `data+0x50 == 0` in inner state 5 relevant to the tested path, or is the active loop driven by a different object/dispatcher?
-- Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
-- Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
-- Which function should write the next gamestate after a valid selection?
-- Is main-code `0x8001AF54` an alternate save/PFS branch, or is the current map_ovl_34 path failing to select it?
-- Are NI pairs `105 / 120 / 101` the expected idle loop for the save screen, or evidence of an overlay dispatch mismatch?
-
-## Dependency Posture
-
-Do not wholesale update dependencies until the `gs=4` blocker is explained.
-
-Only consider dependency cherry-picks if they directly affect:
-
-- Controller Pak/PIF behavior.
-- Overlay loading.
-- Scheduling/message queue correctness.
-
 ## Current Next Step
 
-Work item `G4-001`: decode NI overlay pair `120`'s callback/result path. The active caller that resets parent `0x8031AFA4` from state `5` back to `0` is known: `ni_ovl_120_result_schedule_dispatch+0x19C`. The immediate next trace should instrument inside that function to capture the pre-callback `obj+0x48`, callback target, callback `v0`, and post-write `obj+0x38`. Do not add a gameplay skip or force a gamestate transition yet.
+Work item `G5-001`: add a default-off trace for the `gs=5` transition and NI pair `104`, then reproduce the crash with object/argument context. Do not reintroduce a gamestate skip; the natural path now reaches the next blocker.

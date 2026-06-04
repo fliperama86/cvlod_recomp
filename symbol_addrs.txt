@@ -184,6 +184,7 @@ atari_work_post_update     = 0x80040A6C; // type:func  // post-update after all 
 poolObject_complete        = 0x80041C54; // type:func  // pool object completion handler
 // NI overlay pair 120 (section-scoped; flat vram aliases other NI overlays)
 ni_ovl_120_result_schedule_dispatch = 0x0F000484; // type:func  // pair 120: runs result callback table and resets current schedule to 0 when result is nonzero
+ni_ovl_104_schedule_dispatch = 0x0F000000; // type:func  // pair 104: schedule dispatcher via table 0x0F0026F8; post-expansion-pak gs=5 crash path
 
 // NI system handler / overlay_system lifecycle
 ni_system_handler          = 0x8001B9A0; // type:func  // NI system object handler (obj+0x10), increments sys+0x2B24
@@ -230,6 +231,7 @@ contpak_check_rumble_pak   = 0x8001D30C; // type:func  // checks whether inserte
 contpak_check_inserted_err = 0x8001D398; // type:func  // rechecks insertion and returns new-pack/no-pack style error
 contpak_backup_pfs_state   = 0x8001D3E8; // type:func  // copies live OSPfs slot to backup storage
 contpak_restore_pfs_state  = 0x8001D458; // type:func  // restores live OSPfs slot from backup storage
+pfs_find_file              = 0x8009F400; // type:func  // libultra PFS find-file; legacy direct shim is default-off
 contpak_readPIF            = 0x80098B50; // type:func  // low-level PIF SI DMA read/write
 contpak_formatPIF          = 0x80098C60; // type:func  // formats PIF command buffer for button read
 contpak_parsePIF           = 0x80098BD4; // type:func  // parses PIF response, extracts button data

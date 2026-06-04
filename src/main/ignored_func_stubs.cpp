@@ -36,14 +36,18 @@
 #endif
 
 // ── PFS/audio override gates ────────────────────────────────────────
-// Each override masks a real runtime/PFS-internal issue. They default
-// to 1 (override active) to preserve current behavior. Set any to 0
+// Each override masks a real runtime/PFS-internal issue. Most old bring-up
+// overrides still default to 1 until individually burned down. Set any to 0
 // at build time to drop the override; the linker will then resolve
 // the symbol to the weak RECOMP_FUNC version in RecompiledFuncs/.
 //
 // Cleanup priority (try disabling first — thinnest justification):
 //   * LOD_OVERRIDE_FUNC_8009E480       — audio-chain hard no-op
 //   * LOD_OVERRIDE_FUNC_8001D398       — contpak recheck force-return-2
+//
+// LOD_OVERRIDE_FUNC_8009F400 is intentionally default-off: the direct
+// osPfsFindFile shim can return stale NOT FOUND after the game creates a
+// Controller Pak note, while the recompiled/native PFS path advances.
 #ifndef LOD_OVERRIDE_FUNC_8009E480
 #define LOD_OVERRIDE_FUNC_8009E480 1
 #endif
@@ -57,7 +61,7 @@
 #define LOD_OVERRIDE_FUNC_8001C93C 1
 #endif
 #ifndef LOD_OVERRIDE_FUNC_8009F400
-#define LOD_OVERRIDE_FUNC_8009F400 1
+#define LOD_OVERRIDE_FUNC_8009F400 0
 #endif
 
 // Input callback — defined in main.cpp (C++ linkage)
@@ -209,9 +213,10 @@ void osPfsInitPak_recomp(uint8_t* rdram, recomp_context* ctx) {
 }
 
 #if LOD_OVERRIDE_FUNC_8009F400
-// func_8009F400 (osPfsFindFile): scan directory directly from pak image.
-// The recompiled version goes through PIF but returned a wrong error code.
-void func_8009F400(uint8_t* rdram, recomp_context* ctx) {
+// pfs_find_file / func_8009F400: legacy bring-up shim that scans the
+// directory directly from the pak image. Keep default-off; use only for
+// controlled A/B regression checks against the native/recompiled PFS path.
+static void lod_osPfsFindFile_direct_shim(uint8_t* rdram, recomp_context* ctx) {
     // s32 osPfsFindFile(OSPfs *pfs, u16 company, u32 game_code, u8 *name, u8 *ext, s32 *file_no)
     gpr pfs_addr = (gpr)(int32_t)(uint32_t)ctx->r4;
     uint16_t company = (uint16_t)ctx->r5;
@@ -266,6 +271,16 @@ void func_8009F400(uint8_t* rdram, recomp_context* ctx) {
     } else {
         ctx->r2 = 5; // PFS_ERR_INVALID = file not found
     }
+}
+
+// Keep both names so the A/B-only override works before and after symbol
+// regeneration renamed 0x8009F400 from func_8009F400 to pfs_find_file.
+void func_8009F400(uint8_t* rdram, recomp_context* ctx) {
+    lod_osPfsFindFile_direct_shim(rdram, ctx);
+}
+
+void pfs_find_file(uint8_t* rdram, recomp_context* ctx) {
+    lod_osPfsFindFile_direct_shim(rdram, ctx);
 }
 #endif // LOD_OVERRIDE_FUNC_8009F400
 

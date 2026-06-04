@@ -12,9 +12,20 @@
 #include <cstring>
 #include <unistd.h>
 #include <sys/mman.h>
+#if defined(__APPLE__) || defined(__linux__)
+#include <dlfcn.h>
+#endif
 
 #include "recomp.h"
 #include "librecomp/overlays.hpp"
+
+#ifndef LOD_ENABLE_SAVE_PAIR120_TRACE
+#define LOD_ENABLE_SAVE_PAIR120_TRACE 0
+#endif
+
+#ifndef LOD_FIX_NI_PAIR120_RESULT_LABELS
+#define LOD_FIX_NI_PAIR120_RESULT_LABELS 1
+#endif
 
 extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
 extern "C" void unload_overlay_by_id(uint32_t id);
@@ -32,6 +43,276 @@ static constexpr int NI_PAIR_COUNT = 245;
 // Track separately for 0x0E and 0x0F (they're independent)
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
+
+#if LOD_FIX_NI_PAIR120_RESULT_LABELS
+static const char* lod_ni_pair120_internal_label_name(uint32_t target) {
+    switch (target) {
+        case 0x0F00086C: return "pair120_label_clear";
+        case 0x0F0008D4: return "pair120_label_10b";
+        case 0x0F0008E4: return "pair120_label_10a";
+        case 0x0F000958: return "pair120_label_obj3c";
+        case 0x0F000964: return "pair120_label_111";
+        case 0x0F000974: return "pair120_label_112";
+        default: return nullptr;
+    }
+}
+
+static bool lod_ni_pair120_call_internal_result_label(uint32_t target, uint8_t* rdram,
+                                                       recomp_context* ctx) {
+    switch (target) {
+        case 0x0F00086C:
+            // Original internal label 0x0F00086C inside ni_ovl_120_func_0F000860:
+            //   sw a0, 0(sp); sh -1, 0x801CAE1C; v0 = 0; jr ra
+            ctx->r14 = ADD32(0, -1);
+            ctx->r1 = S32(0x801D << 16);
+            MEM_W(0x0, ctx->r29) = ctx->r4;
+            MEM_H(-0x51E4, ctx->r1) = (int16_t)-1;
+            ctx->r2 = 0;
+            return true;
+        case 0x0F0008D4:
+            ctx->r14 = ADD32(0, 0x10B);
+            MEM_W(0x38, ctx->r4) = ctx->r14;
+            ctx->r2 = ADD32(0, 0x10B);
+            return true;
+        case 0x0F0008E4:
+            ctx->r14 = ADD32(0, 0x10A);
+            MEM_W(0x38, ctx->r4) = ctx->r14;
+            ctx->r2 = ADD32(0, 0x10A);
+            return true;
+        case 0x0F000958:
+            ctx->r2 = MEM_W(0x3C, ctx->r4);
+            MEM_W(0x38, ctx->r4) = ctx->r2;
+            return true;
+        case 0x0F000964:
+            ctx->r14 = ADD32(0, 0x111);
+            MEM_W(0x38, ctx->r4) = ctx->r14;
+            ctx->r2 = ADD32(0, 0x111);
+            return true;
+        case 0x0F000974:
+            ctx->r14 = ADD32(0, 0x112);
+            MEM_W(0x38, ctx->r4) = ctx->r14;
+            ctx->r2 = ADD32(0, 0x112);
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void lod_call_ni_pair120_result_callback(uint8_t* rdram, recomp_context* ctx,
+                                                 uint32_t target) {
+    if (!lod_ni_pair120_call_internal_result_label(target, rdram, ctx)) {
+        LOOKUP_FUNC((int32_t)target)(rdram, ctx);
+    }
+}
+
+static void lod_fixed_ni_pair120_result_schedule_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    // Scoped compatibility shim for ni_ovl_120_result_schedule_dispatch.
+    // The pair-120 result table at 0x0F0016BC intentionally contains a mix of
+    // function starts and internal labels. N64Recomp's range fallback resolves
+    // internal-label targets to their containing function starts, which changes
+    // callback return values and can reset the save/Controller Pak state machine.
+    ctx->r29 = ADD32(ctx->r29, -0x18);
+    MEM_W(0x14, ctx->r29) = ctx->r31;
+    MEM_W(0x18, ctx->r29) = ctx->r4;
+
+    ctx->r14 = MEM_W(ctx->r4, 0x48);
+    ctx->r25 = S32(0x0F00 << 16);
+    ctx->r15 = S32(ctx->r14 << 2);
+    ctx->r25 = ADD32(ctx->r25, ctx->r15);
+    ctx->r25 = MEM_W(ctx->r25, 0x16BC);
+
+    lod_call_ni_pair120_result_callback(rdram, ctx, (uint32_t)ctx->r25);
+
+    ctx->r7 = MEM_W(ctx->r29, 0x18);
+    ctx->r24 = ADD32(0, 1);
+    ctx->r25 = S32(0x8000 << 16);
+    ctx->r3 = ADD32(ctx->r7, 0x34);
+    MEM_W(0x4, ctx->r3) = ctx->r2;
+
+    if (ctx->r2 != 0) {
+        ctx->r25 = ADD32(S32(0x8000 << 16), 0x1E30);
+        ctx->r4 = ADD32(ctx->r7, 0x8);
+        ctx->r5 = ADD32(ctx->r7, 0xE);
+        ctx->r6 = 0;
+        LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+        ctx->r31 = MEM_W(ctx->r29, 0x14);
+    } else {
+        ctx->r25 = ADD32(ctx->r25, 0x1CE8);
+        MEM_W(0x10, ctx->r3) = ctx->r24;
+        ctx->r4 = ADD32(ctx->r7, 0x8);
+        ctx->r5 = ADD32(ctx->r7, 0xE);
+        LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+        ctx->r31 = MEM_W(ctx->r29, 0x14);
+    }
+
+    ctx->r29 = ADD32(ctx->r29, 0x18);
+}
+
+static void lod_install_ni_pair120_dispatch_fix(const char* reason) {
+    recomp::overlays::add_loaded_function((int32_t)0x0F000484,
+        lod_fixed_ni_pair120_result_schedule_dispatch);
+
+#if LOD_ENABLE_SAVE_PAIR120_TRACE
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 8 || (install_count % 100) == 0) {
+        fprintf(stderr,
+            "[PAIR120-FIX] installed scoped result dispatcher fix #%d reason=%s\n",
+            install_count, reason);
+    }
+#else
+    (void)reason;
+#endif
+}
+#endif
+
+#if LOD_ENABLE_SAVE_PAIR120_TRACE
+static recomp_func_t* lod_orig_ni_pair120_result_schedule_dispatch = nullptr;
+
+static bool lod_pair120_rdram_range_ok(uint32_t phys, uint32_t size) {
+    return phys < 0x00800000 && size <= 0x00800000 && phys <= 0x00800000 - size;
+}
+
+static uint32_t lod_pair120_rdram_u32(uint8_t* rdram, uint32_t phys) {
+    if (!lod_pair120_rdram_range_ok(phys, 4)) {
+        return 0;
+    }
+    return *(uint32_t*)(rdram + phys);
+}
+
+static uint8_t lod_pair120_rdram_u8(uint8_t* rdram, uint32_t phys) {
+    if (!lod_pair120_rdram_range_ok(phys, 1)) {
+        return 0;
+    }
+    return rdram[phys ^ 3];
+}
+
+static int16_t lod_pair120_rdram_s16(uint8_t* rdram, uint32_t phys) {
+    if (!lod_pair120_rdram_range_ok(phys, 2)) {
+        return 0;
+    }
+    return *(int16_t*)(rdram + (phys ^ 2));
+}
+
+static int32_t lod_pair120_current_gamestate(uint8_t* rdram) {
+    constexpr uint32_t GSM_PTR_PHYS = 0x0C1520; // 0x800C1520
+    uint32_t gsm_addr = lod_pair120_rdram_u32(rdram, GSM_PTR_PHYS);
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_addr == 0 || !lod_pair120_rdram_range_ok(gsm_phys + 0x24, 4)) {
+        return -1;
+    }
+    return (int32_t)lod_pair120_rdram_u32(rdram, gsm_phys + 0x24);
+}
+
+static void lod_pair120_host_symbol(recomp_func_t* func, const char** symbol_out,
+                                    uintptr_t* offset_out) {
+    const char* symbol = "(unknown)";
+    uintptr_t offset = 0;
+#if defined(__APPLE__) || defined(__linux__)
+    Dl_info info = {};
+    if (func != nullptr && dladdr((void*)func, &info) != 0) {
+        if (info.dli_sname != nullptr) {
+            symbol = info.dli_sname;
+        }
+        uintptr_t sym_base = (uintptr_t)info.dli_saddr;
+        uintptr_t addr = (uintptr_t)func;
+        if (sym_base != 0 && addr >= sym_base) {
+            offset = addr - sym_base;
+        }
+    }
+#endif
+    *symbol_out = symbol;
+    *offset_out = offset;
+}
+
+static void lod_trace_ni_pair120_result_schedule_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    count++;
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj & 0x1FFFFFFF;
+    bool obj_ok = lod_pair120_rdram_range_ok(obj_phys, 0x74);
+    int32_t gs = lod_pair120_current_gamestate(rdram);
+
+    uint8_t before_state = obj_ok ? lod_pair120_rdram_u8(rdram, obj_phys + 0x09) : 255;
+    int16_t before_func_id = obj_ok ? lod_pair120_rdram_s16(rdram, obj_phys + 0x0E) : 0;
+    uint32_t before_38 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t before_44 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x44) : 0;
+    uint32_t before_48 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x48) : 0;
+    uint32_t callback_target = 0;
+    recomp_func_t* callback_host = nullptr;
+    if (before_48 < 64) {
+        callback_target = (uint32_t)MEM_W(0x16BC + before_48 * 4, (gpr)(int32_t)0x0F000000);
+        if (callback_target >= 0x0F000000 && callback_target < 0x0F010000) {
+            callback_host = get_function((int32_t)callback_target);
+        }
+    }
+
+    const char* callback_symbol = "(unknown)";
+    uintptr_t callback_offset = 0;
+#if LOD_FIX_NI_PAIR120_RESULT_LABELS
+    if (const char* label_name = lod_ni_pair120_internal_label_name(callback_target)) {
+        callback_symbol = label_name;
+    } else
+#endif
+    {
+        lod_pair120_host_symbol(callback_host, &callback_symbol, &callback_offset);
+    }
+
+    bool interesting = obj_ok && obj_phys >= 0x31A000 && obj_phys < 0x31D000;
+    bool should_log = count <= 32 || (gs == 4 && interesting);
+    if (should_log) {
+        fprintf(stderr,
+            "[PAIR120] enter #%d gs=%d obj=0x%08X state09=%u func_id=%d "
+            "idx_pre=%u cb=0x%08X cb_host=%p cb_symbol=%s+0x%zX "
+            "obj38_pre=0x%08X obj44_pre=0x%08X obj48_pre=0x%08X ra=0x%08X sp=0x%08X\n",
+            count, gs, obj, before_state, before_func_id, before_48,
+            callback_target, (void*)callback_host, callback_symbol, (size_t)callback_offset,
+            before_38, before_44, before_48, (uint32_t)ctx->r31, (uint32_t)ctx->r29);
+    }
+
+    if (lod_orig_ni_pair120_result_schedule_dispatch != nullptr) {
+        lod_orig_ni_pair120_result_schedule_dispatch(rdram, ctx);
+    }
+
+    if (should_log) {
+        uint8_t after_state = obj_ok ? lod_pair120_rdram_u8(rdram, obj_phys + 0x09) : 255;
+        int16_t after_func_id = obj_ok ? lod_pair120_rdram_s16(rdram, obj_phys + 0x0E) : 0;
+        uint32_t after_38 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x38) : 0;
+        uint32_t after_44 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x44) : 0;
+        uint32_t after_48 = obj_ok ? lod_pair120_rdram_u32(rdram, obj_phys + 0x48) : 0;
+        const char* branch = after_38 != 0 ? "reset-nonzero" : "advance-zero";
+        fprintf(stderr,
+            "[PAIR120] exit #%d gs=%d obj=0x%08X state09=%u->%u func_id=%d->%d "
+            "idx_pre=%u cb=0x%08X result_obj38=0x%08X obj44=0x%08X obj48=0x%08X branch=%s v0_after=0x%08X ra=0x%08X\n",
+            count, lod_pair120_current_gamestate(rdram), obj, before_state, after_state,
+            before_func_id, after_func_id, before_48, callback_target,
+            after_38, after_44, after_48, branch, (uint32_t)ctx->r2, (uint32_t)ctx->r31);
+    }
+}
+
+static void lod_install_ni_pair120_trace_wrapper(const char* reason) {
+#if LOD_FIX_NI_PAIR120_RESULT_LABELS
+    lod_orig_ni_pair120_result_schedule_dispatch =
+        lod_fixed_ni_pair120_result_schedule_dispatch;
+#else
+    recomp_func_t* current = get_function((int32_t)0x0F000484);
+    if (current != lod_trace_ni_pair120_result_schedule_dispatch) {
+        lod_orig_ni_pair120_result_schedule_dispatch = current;
+    }
+#endif
+    recomp::overlays::add_loaded_function((int32_t)0x0F000484,
+        lod_trace_ni_pair120_result_schedule_dispatch);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 8 || (install_count % 100) == 0) {
+        fprintf(stderr,
+            "[PAIR120] installed result dispatcher trace #%d reason=%s original=%p\n",
+            install_count, reason, (void*)lod_orig_ni_pair120_result_schedule_dispatch);
+    }
+}
+#endif
 
 
 
@@ -105,6 +386,17 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     // Copy full overlay data (text+data) from extended ROM to segment region
     copy_overlay_data_to_segment(rdram, pair_index, vram);
     loaded_pair = pair_index;
+
+#if LOD_FIX_NI_PAIR120_RESULT_LABELS
+    if (pair_index == 120) {
+        lod_install_ni_pair120_dispatch_fix("pair120-load");
+    }
+#endif
+#if LOD_ENABLE_SAVE_PAIR120_TRACE
+    if (pair_index == 120) {
+        lod_install_ni_pair120_trace_wrapper("pair120-load");
+    }
+#endif
 
     static int load_count = 0;
     load_count++;
@@ -190,4 +482,3 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
         }
     }
 }
-

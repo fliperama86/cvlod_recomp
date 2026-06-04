@@ -67,6 +67,7 @@
 #define SCENE_TITLE_DEMO        9
 #define SCENE_GAMENOTE_DELETE   10
 #define SCENE_CREDITS           11
+#define SCENE_EXPANSION_PAK     12  /* confirmed visually in LoD boot flow */
 
 /* Gamestate config struct offsets (80 bytes per entry, base = scene_table) */
 #define GSS_CFG_INIT_FUNC       (-0x48)   /* void* init function (s2-0x48) */

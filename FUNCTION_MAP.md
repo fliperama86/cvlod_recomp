@@ -60,6 +60,15 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80018E30 | scheduler_taskDispatch | Sends task to scheduler cmdQ via osJamMesg |
 | 0x80019034 | createGraphicTasks | Builds GFX task struct, submits to scheduler |
 
+## Gamestate IDs
+| ID | Name | Notes |
+|----|------|-------|
+| 1 | `SCENE_KONAMI_LOGO` | Boot logo flow |
+| 4 | `SCENE_SAVE_GAME` | Save/Controller Pak screen; LoD starts here before logo/intro flow |
+| 5 | `SCENE_INTRO_CUTSCENE` | Current post-Expansion-Pak target; crashes after NI pair 104 in `G12-001A` |
+| 6 | `SCENE_TITLE_SCREEN` | Expected title-screen state from older skip comments |
+| 12 | `SCENE_EXPANSION_PAK` | Expansion Pak screen, visually confirmed during recovery |
+
 ## Controller Pak / Input
 | Address | Name | Description |
 |---------|------|-------------|
@@ -81,6 +90,7 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x8001D398 | contpak_check_inserted_err | Rechecks insertion and returns new-pack/no-pack style error |
 | 0x8001D3E8 | contpak_backup_pfs_state | Copies live OSPfs slot to backup storage |
 | 0x8001D458 | contpak_restore_pfs_state | Restores live OSPfs slot from backup storage |
+| 0x8009F400 | pfs_find_file | libultra `osPfsFindFile`-equivalent routine; the old direct host shim was stale after Pak writes and is now default-off |
 | 0x80098B50 | contpak_readPIF | Low-level PIF SI DMA read/write |
 | 0x80098BD4 | contpak_parsePIF | Parses PIF response, extracts button data |
 | 0x80098C60 | contpak_formatPIF | Formats PIF command buffer for button read |
@@ -172,7 +182,32 @@ Known state-3 inputs:
 | Address | Name | Description |
 |---------|------|-------------|
 | 0x801CB5CC | NI_systemInit | Creates NI file management object at sys+0x295C |
-| 0x0F000484 (NI pair 120) | ni_ovl_120_result_schedule_dispatch | Pair-120 result dispatcher: calls callback table `0x0F0016BC[obj+0x48]`, stores `v0` at `obj+0x38`, resets current schedule to `0` when result is nonzero, otherwise sets `obj+0x44=1` and advances; table starts `[0]=0x0F00086C`, `[7]=0x0F000964` |
+| 0x0F000000 (NI pair 104) | ni_ovl_104_schedule_dispatch | Pair-104 schedule dispatcher: dispatches table `0x0F0026F8[obj schedule state]`; current post-Expansion-Pak `gs=5` crash path enters here |
+| 0x0F000130 (NI pair 104) | ni_ovl_104_func_0F000130 | Pair-104 state handler in current `gs=5` crash path; role still under investigation |
+| 0x0F000484 (NI pair 120) | ni_ovl_120_result_schedule_dispatch | Pair-120 result dispatcher: calls callback table `0x0F0016BC[obj+0x48]`, stores `v0` at `obj+0x38`, resets current schedule to `0` when result is nonzero, otherwise sets `obj+0x44=1` and advances |
+
+Pair-120 result callback table at `0x0F0016BC`:
+
+| Index | Target | Notes |
+|-------|--------|-------|
+| 0 | 0x0F00086C | Internal label (`pair120_label_clear`): stores `a0` on stack, writes `-1` to `0x801CAE1C`, returns `0` |
+| 1 | 0x0F000884 | Function start |
+| 2 | 0x0F0008D4 | Internal label: stores/returns `0x10B` |
+| 3 | 0x0F0008E4 | Internal label: stores/returns `0x10A` |
+| 4 | 0x0F0008F4 | Function start |
+| 5 | 0x0F00091C | Function start |
+| 6 | 0x0F000958 | Internal label: copies `obj+0x3C` to `obj+0x38` and returns it |
+| 7 | 0x0F000964 | Internal label: stores/returns `0x111` |
+| 8 | 0x0F000974 | Internal label: stores/returns `0x112` |
+| 9 | 0x0F000984 | Function start |
+| 10 | 0x0F000070 | Function start |
+| 11 | 0x0F0000BC | Function start |
+
+Notes:
+
+- The `0x0F...` VRAM range is reused by many NI pairs. Do not globally register pair-120 internal labels as loaded functions.
+- The current compatibility fix scopes the internal-label behavior to `ni_ovl_120_result_schedule_dispatch` only.
+- N64Recomp's range fallback resolves internal-label jumps to the containing function start; that is useful for many computed jumps but wrong for this callback table.
 
 ## Key Globals
 | Address | Name | Description |
