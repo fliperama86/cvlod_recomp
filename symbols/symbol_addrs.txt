@@ -25,7 +25,8 @@ D_800150D8 = 0x800150D8; // type:func
 D_800150E0 = 0x800150E0; // type:func
 D_80016444 = 0x80016444; // type:func
 D_80016E38 = 0x80016E38; // type:func
-D_80017994 = 0x80017994; // type:func
+// D_80017994 is part of func_800178D0, not a separate function
+func_800178D0 = 0x800178D0; // type:func size:0x4E8
 D_800181C0 = 0x800181C0; // type:func
 D_80018360 = 0x80018360; // type:func
 D_80018364 = 0x80018364; // type:func

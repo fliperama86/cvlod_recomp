@@ -95,8 +95,6 @@ segments:
       - [0x00017A00, asm]              # Contains decompression and file-loading functions
       - [0x00018310, asm, dma]
       - [0x00018430, asm]
-      - [0x00018590, asm, crash_screen]
-      - [0x000186E0, asm] # potential file split
       - [0x00018E40, asm] # potential file split
       - [0x00018FC0, asm] # potential file split
       - [0x00019340, asm] # potential file split

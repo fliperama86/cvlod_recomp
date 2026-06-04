@@ -2160,6 +2160,7 @@ extern "C" void func_8008C350(uint8_t* rdram, recomp_context* ctx);
 extern "C" void L_8008C358(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008C380(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C3D0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008C4E0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void L_8008C550(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C55C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C568(uint8_t* rdram, recomp_context* ctx);
@@ -3449,7 +3450,7 @@ extern "C" void static_7_8018F634(uint8_t* rdram, recomp_context* ctx);
 
 void init_function_table() {
     g_function_table.clear();
-    g_function_table.reserve(3429);
+    g_function_table.reserve(3430);
 
     g_function_table[0x80000460] = func_80000460;
     g_function_table[0x8000053C] = func_8000053C;
@@ -5594,6 +5595,7 @@ void init_function_table() {
     g_function_table[0x8008C358] = L_8008C358;
     g_function_table[0x8008C380] = func_8008C380;
     g_function_table[0x8008C3D0] = D_8008C3D0;
+    g_function_table[0x8008C4E0] = L_8008C4E0;
     g_function_table[0x8008C550] = L_8008C550;
     g_function_table[0x8008C55C] = D_8008C55C;
     g_function_table[0x8008C568] = D_8008C568;
@@ -6915,24 +6917,43 @@ void set_trace_lookups(bool enable) {
     g_trace_lookups = enable;
 }
 
-// Add address aliases for thread entry points
-// The ELF symbol addresses don't match the actual code addresses in the ROM
-// There's a 0xEA0 offset between them
+// Add address aliases for thread entry points.
+// Some runtime thread entry addresses observed through osCreateThread do not
+// match the ELF symbol addresses emitted by the recompile pipeline.
 void add_address_aliases() {
     printf("Adding address aliases for thread entry points...\n");
-    
-    // 0x800186DC -> func_8001783C (idle thread entry)
-    // 0x80018770 -> func_800178D0 (main thread entry)
-    
-    recomp_func_t* idle_entry = cvlod_get_function(0x8001783C);
-    if (idle_entry) {
+
+    recomp_func_t* alias_800186DC = cvlod_get_function(0x8001783C);
+    if (alias_800186DC) {
         printf("  0x800186DC -> func_8001783C (idle thread entry)\n");
-        g_function_table[0x800186DC] = idle_entry;
+        g_function_table[0x800186DC] = alias_800186DC;
     }
-    
-    recomp_func_t* main_entry = cvlod_get_function(0x800178D0);
-    if (main_entry) {
+
+    recomp_func_t* alias_80018770 = cvlod_get_function(0x800178D0);
+    if (alias_80018770) {
         printf("  0x80018770 -> func_800178D0 (main thread entry)\n");
-        g_function_table[0x80018770] = main_entry;
+        g_function_table[0x80018770] = alias_80018770;
     }
+
+    recomp_func_t* alias_80019B14 = cvlod_get_function(0x80018774);
+    if (alias_80019B14) {
+        printf("  0x80019B14 -> func_80018774 (thread 19 entry)\n");
+        g_function_table[0x80019B14] = alias_80019B14;
+    }
+
+    recomp_func_t* alias_80019D58 = cvlod_get_function(0x800189B8);
+    if (alias_80019D58) {
+        printf("  0x80019D58 -> func_800189B8 (thread 18 entry)\n");
+        g_function_table[0x80019D58] = alias_80019D58;
+    }
+
+    recomp_func_t* alias_80018D28 = cvlod_get_function(0x80017DB8);
+    if (alias_80018D28) {
+        printf("  0x80018D28 -> func_80017DB8 (thread 16 entry)\n");
+        g_function_table[0x80018D28] = alias_80018D28;
+    }
+
+    // Thread entry 0x80018B50 falls in the middle of a containing function in
+    // current splits. Do not alias it to the containing function start; it needs
+    // a real mid-function trampoline/label before it can be registered safely.
 }

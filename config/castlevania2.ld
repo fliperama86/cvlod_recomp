@@ -101,8 +101,6 @@ SECTIONS
         build/asm/17A00.o(.text);
         build/asm/dma.o(.text);
         build/asm/18430.o(.text);
-        build/asm/crash_screen.o(.text);
-        build/asm/186E0.o(.text);
         build/asm/18E40.o(.text);
         build/asm/18FC0.o(.text);
         build/asm/19340.o(.text);
@@ -555,8 +553,6 @@ SECTIONS
         build/asm/data/17A00.data.o(.data);
         build/asm/dma.o(.data);
         build/asm/18430.o(.data);
-        build/asm/crash_screen.o(.data);
-        build/asm/186E0.o(.data);
         build/asm/18E40.o(.data);
         build/asm/18FC0.o(.data);
         build/asm/19340.o(.data);
@@ -726,8 +722,6 @@ SECTIONS
         build/asm/17A00.o(.rodata);
         build/asm/dma.o(.rodata);
         build/asm/18430.o(.rodata);
-        build/asm/crash_screen.o(.rodata);
-        build/asm/186E0.o(.rodata);
         build/asm/18E40.o(.rodata);
         build/asm/18FC0.o(.rodata);
         build/asm/19340.o(.rodata);
@@ -1015,8 +1009,6 @@ SECTIONS
         build/asm/17A00.o(.bss);
         build/asm/dma.o(.bss);
         build/asm/18430.o(.bss);
-        build/asm/crash_screen.o(.bss);
-        build/asm/186E0.o(.bss);
         build/asm/18E40.o(.bss);
         build/asm/18FC0.o(.bss);
         build/asm/19340.o(.bss);

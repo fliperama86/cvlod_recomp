@@ -25,6 +25,13 @@ add_subdirectory(lib/N64ModernRuntime)
 if(BUILD_WITH_RT64)
     set(RT64_STATIC ON CACHE BOOL "Build RT64 as a static library" FORCE)
     add_subdirectory(lib/rt64)
+    if(APPLE AND TARGET rt64)
+        # hlslpp's scalar backend uses labs() without including stdlib.h.
+        # Newer Xcode/SDK combinations do not expose it transitively.
+        target_compile_options(rt64 PRIVATE
+            $<$<COMPILE_LANGUAGE:CXX>:-include stdlib.h>
+        )
+    endif()
 endif()
 
 # =============================================================================

@@ -839,13 +839,7 @@ ignored = [
     "func_8008BD70",
     ".L8008C4E0",
     "func_80081D80",
-    "func_800812C0",
-    "func_80098A00",
-    "func_800A6E30",
-    "func_8009B2F0",
-    "func_800A19D0",
-    "func_800A11D0",
-    "func_800178D0"
+    "func_800812C0"
 ]
 
 [[input.manual_funcs]]
@@ -871,4 +865,13 @@ name = "func_800A1340"
 section = ".main"
 vram = 0x800A1340
 size = 0x400
+
+# Main thread entry function - truncated in ELF, D_80017994 is continuation
+# ELF has func_800178D0 at 0x80017670 (not 0x800178D0 due to segment offset)
+# Size 0x4E8 covers full initialization including D_80017994 continuation
+[[input.manual_funcs]]
+name = "func_800178D0"
+section = ".main"
+vram = 0x80017670
+size = 0x4E8
 

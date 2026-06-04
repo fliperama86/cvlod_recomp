@@ -34,8 +34,7 @@ build/castlevania2.elf: \
     build/asm/17A00.o \
     build/asm/dma.o \
     build/asm/18430.o \
-    build/asm/crash_screen.o \
-    build/asm/186E0.o \
+    build/asm/18590.o \
     build/asm/18E40.o \
     build/asm/18FC0.o \
     build/asm/19340.o \
@@ -484,8 +483,7 @@ build/castlevania2.elf: \
     build/asm/data/17A00.data.o \
     build/asm/dma.o \
     build/asm/18430.o \
-    build/asm/crash_screen.o \
-    build/asm/186E0.o \
+    build/asm/18590.o \
     build/asm/18E40.o \
     build/asm/18FC0.o \
     build/asm/19340.o \
@@ -651,8 +649,7 @@ build/castlevania2.elf: \
     build/asm/17A00.o \
     build/asm/dma.o \
     build/asm/18430.o \
-    build/asm/crash_screen.o \
-    build/asm/186E0.o \
+    build/asm/18590.o \
     build/asm/18E40.o \
     build/asm/18FC0.o \
     build/asm/19340.o \
@@ -931,8 +928,7 @@ build/castlevania2.elf: \
     build/asm/17A00.o \
     build/asm/dma.o \
     build/asm/18430.o \
-    build/asm/crash_screen.o \
-    build/asm/186E0.o \
+    build/asm/18590.o \
     build/asm/18E40.o \
     build/asm/18FC0.o \
     build/asm/19340.o \
@@ -1506,8 +1502,7 @@ build/asm/controller.o:
 build/asm/17A00.o:
 build/asm/dma.o:
 build/asm/18430.o:
-build/asm/crash_screen.o:
-build/asm/186E0.o:
+build/asm/18590.o:
 build/asm/18E40.o:
 build/asm/18FC0.o:
 build/asm/19340.o:
@@ -1956,8 +1951,7 @@ build/asm/scheduler.o:
 build/asm/data/17A00.data.o:
 build/asm/dma.o:
 build/asm/18430.o:
-build/asm/crash_screen.o:
-build/asm/186E0.o:
+build/asm/18590.o:
 build/asm/18E40.o:
 build/asm/18FC0.o:
 build/asm/19340.o:
@@ -2123,8 +2117,7 @@ build/asm/controller.o:
 build/asm/17A00.o:
 build/asm/dma.o:
 build/asm/18430.o:
-build/asm/crash_screen.o:
-build/asm/186E0.o:
+build/asm/18590.o:
 build/asm/18E40.o:
 build/asm/18FC0.o:
 build/asm/19340.o:
@@ -2403,8 +2396,7 @@ build/asm/controller.o:
 build/asm/17A00.o:
 build/asm/dma.o:
 build/asm/18430.o:
-build/asm/crash_screen.o:
-build/asm/186E0.o:
+build/asm/18590.o:
 build/asm/18E40.o:
 build/asm/18FC0.o:
 build/asm/19340.o:

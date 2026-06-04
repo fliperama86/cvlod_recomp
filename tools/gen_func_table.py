@@ -10,6 +10,19 @@ import re
 import sys
 from pathlib import Path
 
+
+# Runtime thread entry addresses observed through osCreateThread do not always
+# match the ELF symbol addresses used by N64Recomp. Keep those fixups here so
+# regenerating src/funcs.cpp preserves the lookup behavior.
+ADDRESS_ALIASES = [
+    (0x800186DC, 0x8001783C, "func_8001783C", "idle thread entry"),
+    (0x80018770, 0x800178D0, "func_800178D0", "main thread entry"),
+    (0x80019B14, 0x80018774, "func_80018774", "thread 19 entry"),
+    (0x80019D58, 0x800189B8, "func_800189B8", "thread 18 entry"),
+    (0x80018D28, 0x80017DB8, "func_80017DB8", "thread 16 entry"),
+]
+
+
 def parse_funcs_header(header_path: Path) -> list[tuple[str, int]]:
     """Parse funcs.h and extract function names with their addresses."""
     functions = []
@@ -112,26 +125,26 @@ void set_trace_lookups(bool enable) {
     g_trace_lookups = enable;
 }
 
-// Add address aliases for thread entry points
-// The ELF symbol addresses don't match the actual code addresses in the ROM
-// There's a 0xEA0 offset between them
+// Add address aliases for thread entry points.
+// Some runtime thread entry addresses observed through osCreateThread do not
+// match the ELF symbol addresses emitted by the recompile pipeline.
 void add_address_aliases() {
     printf("Adding address aliases for thread entry points...\\n");
-    
-    // 0x800186DC -> func_8001783C (idle thread entry)
-    // 0x80018770 -> func_800178D0 (main thread entry)
-    
-    recomp_func_t* idle_entry = cvlod_get_function(0x8001783C);
-    if (idle_entry) {
-        printf("  0x800186DC -> func_8001783C (idle thread entry)\\n");
-        g_function_table[0x800186DC] = idle_entry;
-    }
-    
-    recomp_func_t* main_entry = cvlod_get_function(0x800178D0);
-    if (main_entry) {
-        printf("  0x80018770 -> func_800178D0 (main thread entry)\\n");
-        g_function_table[0x80018770] = main_entry;
-    }
+''')
+
+        for alias_addr, target_addr, target_name, description in ADDRESS_ALIASES:
+            f.write(f'''
+    recomp_func_t* alias_{alias_addr:08X} = cvlod_get_function(0x{target_addr:08X});
+    if (alias_{alias_addr:08X}) {{
+        printf("  0x{alias_addr:08X} -> {target_name} ({description})\\n");
+        g_function_table[0x{alias_addr:08X}] = alias_{alias_addr:08X};
+    }}
+''')
+
+        f.write('''
+    // Thread entry 0x80018B50 falls in the middle of a containing function in
+    // current splits. Do not alias it to the containing function start; it needs
+    // a real mid-function trampoline/label before it can be registered safely.
 }
 ''')
 
