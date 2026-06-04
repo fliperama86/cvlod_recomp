@@ -8,12 +8,18 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 |---------|------|-------------|
 | 0x80000578 | GameStateMgr_execute | Root object manager — dispatches scene via scene_arg |
 | 0x800007B0 | scene_init | Scene init — writes scene_arg, calls scene loader |
-| 0x80001C20 | object_curLevel_goToNextFunc | Advances the current object schedule level |
-| 0x80001C9C | object_nextLevel_goToNextFunc | Advances the next object schedule level |
-| 0x80001CE8 | object_curLevel_goToNextFuncAndClearTimer | Advances the current object schedule level and clears its timer byte |
-| 0x80001D28 | object_curLevel_goToPrevFunc | Rewinds the current object schedule level |
-| 0x80001DA4 | object_nextLevel_goToPrevFunc | Rewinds the next object schedule level |
-| 0x80001E64 | object_curLevel_goToFuncInLevel | Jumps within the current object schedule level |
+| 0x80001C20 | object_curLevel_goToNextFunc | Advances the current object schedule level and clears deeper levels |
+| 0x80001C5C | object_prevLevel_goToNextFunc | Advances the previous object schedule level and clears deeper levels |
+| 0x80001C9C | object_nextLevel_goToNextFunc | Advances the next object schedule level and clears deeper levels |
+| 0x80001CE8 | object_curLevel_goToNextFuncAndClearTimer | Advances the current object schedule level, clears its timer byte, and clears deeper levels |
+| 0x80001D28 | object_curLevel_goToPrevFunc | Rewinds the current object schedule level and clears deeper levels |
+| 0x80001D64 | object_prevLevel_goToPrevFunc | Rewinds the previous object schedule level and clears deeper levels |
+| 0x80001DA4 | object_nextLevel_goToPrevFunc | Rewinds the next object schedule level and clears deeper levels |
+| 0x80001DF0 | object_curLevel_goToPrevFuncAndClearTimer | Rewinds the current object schedule level, clears its timer byte, and clears deeper levels |
+| 0x80001E30 | object_curLevel_goToFunc | Sets the current object schedule level to a target function and clears deeper levels |
+| 0x80001E64 | object_goToFuncInLevel | Sets an explicit object schedule level to a target function and clears deeper levels |
+| 0x80001EA0 | object_prevLevel_goToFunc | Sets the previous object schedule level to a target function and clears deeper levels |
+| 0x80001ED8 | object_nextLevel_goToFunc | Sets the next object schedule level to a target function and clears deeper levels |
 | 0x8000224C | object_allocate | Allocates object struct (bzero 0x74 bytes) |
 | 0x80002410 | object_create | Creates object from template ID |
 | 0x80002808 | object_allocEntryInList | Allocates data in object's alloc_data[] array |
@@ -90,6 +96,9 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x802EBAF0 | save_screen_outer_dispatch | map_ovl_34 wrapper that dispatches the outer save-screen table at `0x802F7170` |
 | 0x802ECA84 | save_screen_schedule_dispatch | Outer-table state 2 wrapper that may dispatch the inner table at `0x802F71A8` |
 | 0x802ECF4C | save_screen_outer_state3_update | Outer-table state 3 handler; current fixed parent object reaches this state |
+| 0x802ED630 | save_screen_inner_state4_init | Inner-table state 4 initializer; writes motion/vector fields under object data `+0x1C/+0x20/+0x24`, sets `data+0x46=0x78`, then advances via `object_curLevel_goToNextFuncAndClearTimer` |
+| 0x802ED6C4 | save_screen_inner_state5_update | Inner-table state 5 update; uses `data+0x48/+0x50` and movement/result helpers; if `data+0x50 == 0`, clears `data+0x46` and returns, otherwise advances the current schedule level |
+| 0x802EDBD8 | save_screen_outer_state4_bridge | Outer-table state 4 bridge; temporarily dispatches the next schedule level through `0x802F71D0`, then may force current level to state `9` via `object_curLevel_goToFunc` when `data+0x46 <= 0`, input flag `0x40` is set, or global `0x802F6FE4 == 1` |
 | 0x802F7170 | save_screen_outer_state_table | map_ovl_34 data jump table used by `save_screen_outer_dispatch` |
 | 0x802F71A8 | save_screen_inner_state_table | map_ovl_34 data jump table used by `save_screen_schedule_dispatch` |
 | 0x802ED804 | save_screen_state3_update | Inner-table state 3 update handler |
@@ -111,7 +120,7 @@ Decoded `save_screen_outer_state_table` entries from map_ovl_34 data:
 | 1 | 0x802EC550 |
 | 2 | `save_screen_schedule_dispatch` |
 | 3 | `save_screen_outer_state3_update` |
-| 4 | 0x802EDBD8 |
+| 4 | `save_screen_outer_state4_bridge` |
 | 5 | 0x802EE454 |
 | 6 | 0x802ED1E8 |
 | 7 | 0x802ED3AC |
@@ -130,8 +139,8 @@ Decoded `save_screen_inner_state_table` entries from map_ovl_34 data:
 | 1 | 0x802ED578 |
 | 2 | 0x802ED6C4 |
 | 3 | `save_screen_state3_update` |
-| 4 | 0x802ED630 |
-| 5 | 0x802ED6C4 |
+| 4 | `save_screen_inner_state4_init` |
+| 5 | `save_screen_inner_state5_update` |
 | 6 | 0x802ED804 |
 | 7 | 0x802ED630 |
 | 8 | 0x802ED6C4 |

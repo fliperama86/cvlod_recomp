@@ -78,6 +78,11 @@ Current evidence:
   save-screen loop advances through `object_curLevel_goToNextFuncAndClearTimer`
   (`0x80001CE8`) on objects around `0x8031AFA4`, but did not reach `0x8001AF54`
   or the adjacent main-code table handlers in the auto-input path.
+- Read-only analysis of map_ovl_34 state `4/5` identified the active loop fields:
+  - inner state 4 (`0x802ED630`) initializes object-data motion fields and sets `data+0x46 = 0x78`;
+  - inner state 5 (`0x802ED6C4`) uses `data+0x48/+0x50` and either advances the schedule or clears `data+0x46`;
+  - outer state 4 (`0x802EDBD8`) bridges into the inner table, then forces current level to state `9` via `object_curLevel_goToFunc` when `data+0x46 <= 0`, input flag `0x40` is set, or global `0x802F6FE4 == 1`.
+- The object schedule helper family is now named coherently in `castlevania2.syms.toml`/`symbol_addrs.txt`; `0x80001E30` is `object_curLevel_goToFunc`, the helper used by outer state 4 to force state `9`.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
@@ -99,6 +104,7 @@ Latest bounded traces (`G4-001`, 20s):
   - auto-input fired all three baked inputs and the screen looped `3 → 4 → 5 → 1 → 2 → 3`;
   - no `Failed to find function` and no internal crash before the timeout signal.
 - A second loosened trace sample reproduced the same lack of main-code table/exit hits before an intermittent `SIGBUS` after the first baked `DPad-Down`; treat this as non-baseline until reproduced without temporary trace.
+- Symbol-regeneration/tooling sample after naming the object schedule helper family built and timed out cleanly (`exit=124`) with default flags. This also proved the stale direct generated-code guard in `func_800048A0/48C4` is not needed for the default 20s save-screen path.
 - One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
 - Parent object at `0x8031AFA4`:
   - `state09=3`, `func_id=-1`, `dispatch_state=3`
@@ -114,18 +120,21 @@ Latest bounded traces (`G4-001`, 20s):
 
 Next action:
 
-1. Focus the next trace on map_ovl_34 state handlers for states `4` and `5`, plus the
-   fields they read to decide whether to loop or transition.
-2. Determine why the tested loop does not reach the main-code `0x8001AF54`
+1. Add the narrowest default-off trace around map_ovl_34 outer state 4 / inner states 4-5:
+   object pointer, `data+0x46/+0x48/+0x50`, globals `0x801CAB18` and `0x802F6FE4`,
+   and calls to `object_curLevel_goToFunc` / `object_curLevel_goToNextFuncAndClearTimer`.
+2. Determine whether the observed `3 → 4 → 5 → 0/1` loop is caused by `data+0x50 == 0`,
+   `data+0x46` expiring/being cleared, or an input/PFS result selecting state `9`.
+3. Determine why the tested loop does not reach the main-code `0x8001AF54`
    `gamestate_change(3)` table target. Current evidence says this is either a different
    branch/owner table or a later PFS/menu result not reached by the baked inputs.
-3. Determine whether fixed parent `0x8031AFA4` is supposed to execute
+4. Determine whether fixed parent `0x8031AFA4` is supposed to execute
    `save_screen_outer_state3_update`, or whether it is only a container/sentinel and the real
    state owner is a nearby child object.
-4. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
+5. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
    save-screen object chain.
-5. Trace which field/button/PFS result should write the next gamestate after state `5`.
-6. Only after the owner/precondition issue is explained, decide whether PFS/input status is
+6. Trace which field/button/PFS result should write the next gamestate after state `5`.
+7. Only after the owner/precondition issue is explained, decide whether PFS/input status is
    blocking the transition or merely a symptom.
 
 ## Milestones
@@ -279,12 +288,14 @@ Record durable experiments here. Keep entries concise and technical.
 | G4-001D | sanitized default flags after gating auto-input and handler wrappers off | 20s | Build/run clean; init confirms `map_ovl_34`; no auto-input; no handler wrapper install; no missing-function crash; timeout stopped cleanly | Default baseline is clean while retaining optional probes for targeted experiments |
 | G4-001E | temporary exit-trace build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) | 20s | First sample timed out cleanly; wrappers installed; 40 `0x80001CE8` schedule advances logged for save-screen objects; no `0x8001AF54` or adjacent main-code table-handler hit; no missing function/crash before timeout | The active tested loop is map_ovl_34 object scheduling, not the main-code `gamestate_change(3)` table target |
 | G4-001F | same temporary exit-trace build with less-filtered table logs | <20s | Built; crashed with `SIGBUS` after first baked `DPad-Down`; before crash, still no main-code table-handler or `0x8001AF54` hit | Treat as trace-only/non-baseline until reproduced without temporary trace |
+| G4-001G | object schedule helper rename + approved regen pipeline | 20s | Named the object schedule helper family, improved truncation repair for partial `funcs.h`, partial `recomp_overlays.inl`, generic truncated C tails, and the `static_276_0E0037A0` split; build/run clean with default flags | Regen is healthier and the next runtime trace can target state-4/5 decision fields instead of unnamed helpers |
 
 ## Open Questions
 
 - Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
 - Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
 - Which fields represent the current save-screen selection/cursor?
+- Is `data+0x50 == 0` in inner state 5 the reason the tested path clears `data+0x46` and loops, or is it a transient effect-object pointer/result?
 - Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
 - Which function should write the next gamestate after a valid selection?
@@ -303,7 +314,8 @@ Only consider dependency cherry-picks if they directly affect:
 
 ## Current Next Step
 
-Work item `G4-001`: trace the object/GSS executor path that advances the save-screen object chain,
-especially around objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, and `0x8031B100`. Identify
-which owner/state/PFS result should leave `gs=4`. Do not add a gameplay skip or force a gamestate
-transition yet.
+Work item `G4-001`: add a default-off trace for map_ovl_34 outer state 4 / inner states 4-5,
+especially around objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, and `0x8031B100`. Log
+`data+0x46/+0x48/+0x50`, globals `0x801CAB18` and `0x802F6FE4`, and schedule-helper calls so we can
+explain which owner/state/PFS result should leave `gs=4`. Do not add a gameplay skip or force a
+gamestate transition yet.
