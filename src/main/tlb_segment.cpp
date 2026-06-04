@@ -32,7 +32,7 @@ struct TlbEntry {
 static TlbEntry tlb_table[32] = {};
 
 // NI overlay loader hook
-extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
+extern "C" bool ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr);
 extern "C" uint32_t ni_overlay_loaded_span(uint32_t vaddr);
 
@@ -92,30 +92,41 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // 0x0F012000 can corrupt the segment bytes the NI loader already populated.
     uint32_t ni_base = 0;
     if (ni_segment_base_for_vaddr(vaddr, &ni_base)) {
-        if (vaddr == ni_base) {
-            ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
+        bool is_base_map = (vaddr == ni_base);
+        bool base_map_matched_overlay = false;
+        if (is_base_map) {
+            base_map_matched_overlay = ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
         }
 
         uint32_t skip_span = ni_overlay_loaded_span(ni_base);
-        if (skip_span < NI_TLB_LEGACY_SKIP_SPAN) {
-            skip_span = NI_TLB_LEGACY_SKIP_SPAN;
-        } else if (skip_span > NI_TLB_MAX_SEGMENT_SPAN) {
-            skip_span = NI_TLB_MAX_SEGMENT_SPAN;
-        }
-        skip_span = align_up_u32(skip_span, entry_size);
+        if (is_base_map && !base_map_matched_overlay) {
+            // This base mapping did not identify a new NI executable overlay.
+            // Keep any previous recompiled functions registered, but let the
+            // normal TLB copy update the mapped segment bytes for this page.
+        } else if (skip_span == 0) {
+            // No known NI overlay is resident for this segment. Fall through to
+            // the normal TLB copy path.
+        } else {
+            if (skip_span < NI_TLB_LEGACY_SKIP_SPAN) {
+                skip_span = NI_TLB_LEGACY_SKIP_SPAN;
+            } else if (skip_span > NI_TLB_MAX_SEGMENT_SPAN) {
+                skip_span = NI_TLB_MAX_SEGMENT_SPAN;
+            }
+            skip_span = align_up_u32(skip_span, entry_size);
 
-        if (vaddr < ni_base + skip_span) {
-            // Save mapping info but skip data copy — overlay loader already populated
-            if (index >= 0 && index < 32) {
-                tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
+            if (vaddr < ni_base + skip_span) {
+                // Save mapping info but skip data copy — overlay loader already populated
+                if (index >= 0 && index < 32) {
+                    tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
+                }
+                static int log_count_ni = 0;
+                log_count_ni++;
+                if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
+                    fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X ni_span=0x%X (NI skip copy)\n",
+                            log_count_ni, index, vaddr, even_paddr, odd_paddr, page_size, skip_span);
+                }
+                return;
             }
-            static int log_count_ni = 0;
-            log_count_ni++;
-            if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
-                fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X ni_span=0x%X (NI skip copy)\n",
-                        log_count_ni, index, vaddr, even_paddr, odd_paddr, page_size, skip_span);
-            }
-            return;
         }
     }
 

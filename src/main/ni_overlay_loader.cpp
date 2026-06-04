@@ -53,20 +53,35 @@ static uint32_t ni_overlay_cpu_mirror(uint32_t vram) {
     return 0;
 }
 
+static int* ni_overlay_loaded_pair_for_vram(uint32_t vram) {
+    if (vram == 0x0F000000) return &loaded_0f_pair;
+    if (vram == 0x0E000000) return &loaded_0e_pair;
+    return nullptr;
+}
+
+static void unload_ni_overlay_segment(uint32_t vram) {
+    int* loaded_pair = ni_overlay_loaded_pair_for_vram(vram);
+    if (loaded_pair == nullptr || *loaded_pair < 0) {
+        return;
+    }
+
+    unload_overlays((int32_t)vram, NI_OVERLAY_UNLOAD_SIZE);
+    if (uint32_t mirror_vram = ni_overlay_cpu_mirror(vram)) {
+        unload_overlays((int32_t)mirror_vram, NI_OVERLAY_UNLOAD_SIZE);
+    }
+    *loaded_pair = -1;
+}
+
 extern "C" uint32_t ni_overlay_loaded_span(uint32_t vram) {
-    int loaded_pair = -1;
-    if (vram == 0x0F000000) {
-        loaded_pair = loaded_0f_pair;
-    } else if (vram == 0x0E000000) {
-        loaded_pair = loaded_0e_pair;
-    } else {
+    int* loaded_pair = ni_overlay_loaded_pair_for_vram(vram);
+    if (loaded_pair == nullptr) {
         return 0;
     }
 
-    if (loaded_pair < 0 || loaded_pair >= NI_OVL_COUNT) {
+    if (*loaded_pair < 0 || *loaded_pair >= NI_OVL_COUNT) {
         return 0;
     }
-    return ni_ovl_data[loaded_pair].full_size;
+    return ni_ovl_data[*loaded_pair].full_size;
 }
 
 #if LOD_FIX_NI_PAIR120_RESULT_LABELS
@@ -570,10 +585,7 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     if (pair_index == loaded_pair) return;
 
     if (loaded_pair >= 0) {
-        unload_overlays((int32_t)vram, NI_OVERLAY_UNLOAD_SIZE);
-        if (uint32_t mirror_vram = ni_overlay_cpu_mirror(vram)) {
-            unload_overlays((int32_t)mirror_vram, NI_OVERLAY_UNLOAD_SIZE);
-        }
+        unload_ni_overlay_segment(vram);
     }
 
     const NiOvlData& data = ni_ovl_data[pair_index];
@@ -653,9 +665,9 @@ extern "C" uint32_t g_tlb_segment_0e;
 extern "C" uint32_t g_tlb_segment_0f;
 
 // Called from osMapTLB hook when vaddr is 0x0E000000 or 0x0F000000
-extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
+extern "C" bool ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr) {
-    if (vaddr != 0x0F000000 && vaddr != 0x0E000000) return;
+    if (vaddr != 0x0F000000 && vaddr != 0x0E000000) return false;
 
     // Set RT64 segment override to the MEM_W region (0x8F/0x8E000000).
     // osVirtualToPhysical passes 0x0F/0x0E addresses through raw, so the DL
@@ -666,7 +678,7 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {
         load_ni_overlay(rdram, pair, vaddr);
-        return;
+        return true;
     }
 
     static int miss_count = 0;
@@ -687,4 +699,5 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                     ni_fingerprints[0].words[2], ni_fingerprints[0].words[3]);
         }
     }
+    return false;
 }
