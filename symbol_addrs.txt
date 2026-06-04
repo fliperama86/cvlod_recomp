@@ -123,7 +123,10 @@ scene4_init                = 0x8000067C; // type:func  // scene 4 (save game) in
 save_screen_outer_dispatch = 0x802EBAF0; // type:func  // map_ovl_34 outer schedule dispatch via table 0x802F7170
 save_screen_schedule_dispatch = 0x802ECA84; // type:func  // map_ovl_34 wrapper that advances/dispatches save-screen schedule entries
 save_screen_outer_state3_update = 0x802ECF4C; // type:func  // map_ovl_34 outer state 3 handler
+save_screen_inner_state4_init = 0x802ED630; // type:func  // map_ovl_34 inner state 4 initializer, sets object data motion/timer fields
+save_screen_inner_state5_update = 0x802ED6C4; // type:func  // map_ovl_34 inner state 5 update, consumes movement/result helper
 save_screen_state3_update  = 0x802ED804; // type:func  // map_ovl_34 save-screen object state 3 handler
+save_screen_outer_state4_bridge = 0x802EDBD8; // type:func  // map_ovl_34 outer state 4 bridge into secondary schedule table
 
 // Game State Manager
 GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene

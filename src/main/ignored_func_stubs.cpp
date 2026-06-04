@@ -24,6 +24,10 @@
 #define LOD_ENABLE_SAVE_EXIT_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_SAVE_STATE45_TRACE
+#define LOD_ENABLE_SAVE_STATE45_TRACE 0
+#endif
+
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
 #define LOD_ENABLE_BOOT_GS_SKIP 0
 #endif
@@ -76,6 +80,9 @@ static void lod_install_save_trace_wrappers(const char* reason);
 #if LOD_ENABLE_SAVE_EXIT_TRACE
 static void lod_install_save_exit_trace_wrappers(const char* reason);
 #endif
+#if LOD_ENABLE_SAVE_STATE45_TRACE
+static void lod_install_save_state45_trace_wrappers(const char* reason);
+#endif
 
 // ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
 // Built from game's overlay table at ROM 0xB39E8 + section_table .index values.
@@ -126,6 +133,11 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
 #if LOD_ENABLE_SAVE_HANDLER_TRACE
                 if (rom_start == 0x007EF5E0) {
                     lod_install_save_trace_wrappers("map_ovl_34-load");
+                }
+#endif
+#if LOD_ENABLE_SAVE_STATE45_TRACE
+                if (rom_start == 0x007EF5E0) {
+                    lod_install_save_state45_trace_wrappers("map_ovl_34-load");
                 }
 #endif
 
@@ -670,6 +682,266 @@ static void lod_install_save_trace_wrappers(const char* reason) {
 
 #endif
 
+#if LOD_ENABLE_SAVE_STATE45_TRACE
+static recomp_func_t* lod_orig_state45_save_outer_dispatch = nullptr;
+static recomp_func_t* lod_orig_state45_save_schedule_dispatch = nullptr;
+static recomp_func_t* lod_orig_save_outer_state4_bridge = nullptr;
+static recomp_func_t* lod_orig_save_inner_state4_init = nullptr;
+static recomp_func_t* lod_orig_save_inner_state5_update = nullptr;
+static recomp_func_t* lod_orig_state45_curLevel_goToFunc = nullptr;
+static recomp_func_t* lod_orig_state45_curLevel_goToNextFuncAndClearTimer = nullptr;
+
+struct LodSaveState45Snapshot {
+    int32_t gs = 0;
+    uint32_t obj_phys = 0;
+    bool obj_ok = false;
+    uint8_t state09 = 255;
+    int16_t func_id = 0;
+    uint8_t dispatch_state = 255;
+    uint8_t sched[6] = {};
+    uint32_t data = 0;
+    bool data_ok = false;
+    int16_t data_3e = 0;
+    int16_t data_40 = 0;
+    int16_t data_46 = 0;
+    int16_t data_48_s16 = 0;
+    uint32_t data_1c = 0;
+    uint32_t data_20 = 0;
+    uint32_t data_24 = 0;
+    uint32_t data_44 = 0;
+    uint32_t data_48 = 0;
+    uint32_t data_50 = 0;
+    uint32_t data_54 = 0;
+    uint32_t flags_cab18 = 0;
+    uint32_t flags_cabc8 = 0;
+    int16_t map_6fe4 = 0;
+    uint8_t pak0 = 0;
+    uint32_t pfs_status = 0;
+};
+
+static bool lod_save_state45_object_interesting(uint32_t obj_phys) {
+    return obj_phys >= 0x31A000 && obj_phys < 0x31D000;
+}
+
+static LodSaveState45Snapshot lod_capture_save_state45_snapshot(uint8_t* rdram, uint32_t obj_phys) {
+    constexpr uint32_t FLAGS_CAB18_PHYS = 0x1CAB18; // 0x801CAB18
+    constexpr uint32_t FLAGS_CABC8_PHYS = 0x1CABC8; // 0x801CABC8
+    constexpr uint32_t MAP_OVL_34_FLAG_6FE4_PHYS = 0x2F6FE4; // 0x802F6FE4
+    constexpr uint32_t PAK_UNINSERTED_PHYS = 0x0F2260;
+    constexpr uint32_t PFS_STATUS_PHYS = 0x0F1F20;
+
+    LodSaveState45Snapshot s;
+    s.gs = lod_current_gamestate(rdram);
+    s.obj_phys = obj_phys;
+    s.obj_ok = lod_rdram_range_ok(obj_phys, 0x74);
+    s.flags_cab18 = lod_rdram_u32(rdram, FLAGS_CAB18_PHYS);
+    s.flags_cabc8 = lod_rdram_u32(rdram, FLAGS_CABC8_PHYS);
+    s.map_6fe4 = lod_rdram_s16(rdram, MAP_OVL_34_FLAG_6FE4_PHYS);
+    s.pak0 = lod_rdram_u8(rdram, PAK_UNINSERTED_PHYS);
+    s.pfs_status = lod_rdram_u32(rdram, PFS_STATUS_PHYS);
+
+    if (!s.obj_ok) {
+        return s;
+    }
+
+    s.state09 = lod_rdram_u8(rdram, obj_phys + 0x09);
+    s.func_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+    s.dispatch_state = lod_object_dispatch_state(rdram, obj_phys);
+    for (int i = 0; i < 6; i++) {
+        s.sched[i] = lod_rdram_u8(rdram, obj_phys + 0x08 + i);
+    }
+
+    s.data = lod_rdram_u32(rdram, obj_phys + 0x34);
+    uint32_t data_phys = s.data & 0x1FFFFFFF;
+    s.data_ok = s.data != 0 && lod_rdram_range_ok(data_phys, 0x58);
+    if (s.data_ok) {
+        s.data_1c = lod_rdram_u32(rdram, data_phys + 0x1C);
+        s.data_20 = lod_rdram_u32(rdram, data_phys + 0x20);
+        s.data_24 = lod_rdram_u32(rdram, data_phys + 0x24);
+        s.data_3e = lod_rdram_s16(rdram, data_phys + 0x3E);
+        s.data_40 = lod_rdram_s16(rdram, data_phys + 0x40);
+        s.data_44 = lod_rdram_u32(rdram, data_phys + 0x44);
+        s.data_46 = lod_rdram_s16(rdram, data_phys + 0x46);
+        s.data_48_s16 = lod_rdram_s16(rdram, data_phys + 0x48);
+        s.data_48 = lod_rdram_u32(rdram, data_phys + 0x48);
+        s.data_50 = lod_rdram_u32(rdram, data_phys + 0x50);
+        s.data_54 = lod_rdram_u32(rdram, data_phys + 0x54);
+    }
+
+    return s;
+}
+
+static void lod_print_save_state45_snapshot(const char* label, const char* phase, int count,
+                                            uint32_t vram, const LodSaveState45Snapshot& s,
+                                            uint32_t a0, uint32_t a1, int32_t a2,
+                                            uint32_t ra) {
+    if (!s.obj_ok) {
+        fprintf(stderr,
+            "[SAVE45] %s-%s #%d vram=0x%08X gs=%d obj=0x%08X(invalid) "
+            "a0=0x%08X a1=0x%08X a2=%d ra=0x%08X flagsCAB18=0x%08X flagsCABC8=0x%08X map6FE4=%d\n",
+            label, phase, count, vram, s.gs, s.obj_phys | 0x80000000,
+            a0, a1, a2, ra, s.flags_cab18, s.flags_cabc8, s.map_6fe4);
+        return;
+    }
+
+    fprintf(stderr,
+        "[SAVE45] %s-%s #%d vram=0x%08X gs=%d obj=0x%08X state09=%u func_id=%d "
+        "dispatch_state=%u sched=%02X,%02X,%02X,%02X,%02X,%02X "
+        "data=0x%08X%s d1C=0x%08X d20=0x%08X d24=0x%08X d3E=%d d40=%d "
+        "d44=0x%08X d46=%d d48h=%d d48=0x%08X d50=0x%08X d54=0x%08X "
+        "flagsCAB18=0x%08X flagsCABC8=0x%08X bit10=%d bit40=%d map6FE4=%d "
+        "pak0=%u pfs=0x%08X a0=0x%08X a1=0x%08X a2=%d ra=0x%08X\n",
+        label, phase, count, vram, s.gs, s.obj_phys | 0x80000000,
+        s.state09, s.func_id, s.dispatch_state,
+        s.sched[0], s.sched[1], s.sched[2], s.sched[3], s.sched[4], s.sched[5],
+        s.data, s.data_ok ? "" : "(invalid)",
+        s.data_1c, s.data_20, s.data_24, s.data_3e, s.data_40,
+        s.data_44, s.data_46, s.data_48_s16, s.data_48, s.data_50, s.data_54,
+        s.flags_cab18, s.flags_cabc8, (s.flags_cabc8 & 0x10) != 0, (s.flags_cabc8 & 0x40) != 0,
+        s.map_6fe4, s.pak0, s.pfs_status, a0, a1, a2, ra);
+}
+
+static void lod_trace_save_state45_handler(uint8_t* rdram, recomp_context* ctx,
+                                           const char* label, uint32_t vram,
+                                           int* counter, recomp_func_t* original) {
+    (*counter)++;
+    uint32_t obj_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    LodSaveState45Snapshot before = lod_capture_save_state45_snapshot(rdram, obj_phys);
+    bool should_log = *counter <= 16 ||
+        (before.gs == 4 && before.obj_ok && lod_save_state45_object_interesting(obj_phys));
+
+    if (should_log) {
+        lod_print_save_state45_snapshot(label, "enter", *counter, vram, before,
+            obj_addr, (uint32_t)ctx->r5, (int32_t)ctx->r6, (uint32_t)ctx->r31);
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (should_log) {
+        LodSaveState45Snapshot after = lod_capture_save_state45_snapshot(rdram, obj_phys);
+        lod_print_save_state45_snapshot(label, "exit", *counter, vram, after,
+            obj_addr, (uint32_t)ctx->r5, (int32_t)ctx->r6, (uint32_t)ctx->r31);
+    }
+}
+
+static void lod_trace_save_state45_schedule(uint8_t* rdram, recomp_context* ctx,
+                                            const char* label, uint32_t vram,
+                                            int* counter, recomp_func_t* original,
+                                            bool has_target) {
+    (*counter)++;
+    uint32_t schedule_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = (schedule_addr - 0x08) & 0x1FFFFFFF;
+    int32_t target = has_target ? (int32_t)(int16_t)ctx->r6 : -1;
+    LodSaveState45Snapshot before = lod_capture_save_state45_snapshot(rdram, obj_phys);
+    bool should_log = *counter <= 24 ||
+        (before.gs == 4 && before.obj_ok && lod_save_state45_object_interesting(obj_phys));
+
+    if (should_log) {
+        lod_print_save_state45_snapshot(label, "enter", *counter, vram, before,
+            schedule_addr, (uint32_t)ctx->r5, target, (uint32_t)ctx->r31);
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (should_log) {
+        LodSaveState45Snapshot after = lod_capture_save_state45_snapshot(rdram, obj_phys);
+        lod_print_save_state45_snapshot(label, "exit", *counter, vram, after,
+            schedule_addr, (uint32_t)ctx->r5, target, (uint32_t)ctx->r31);
+    }
+}
+
+static void lod_trace_state45_save_outer_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_handler(rdram, ctx, "save_screen_outer_dispatch",
+        0x802EBAF0, &count, lod_orig_state45_save_outer_dispatch);
+}
+
+static void lod_trace_state45_save_schedule_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_handler(rdram, ctx, "save_screen_schedule_dispatch",
+        0x802ECA84, &count, lod_orig_state45_save_schedule_dispatch);
+}
+
+static void lod_trace_save_outer_state4_bridge(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_handler(rdram, ctx, "outer_state4_bridge",
+        0x802EDBD8, &count, lod_orig_save_outer_state4_bridge);
+}
+
+static void lod_trace_save_inner_state4_init(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_handler(rdram, ctx, "inner_state4_init",
+        0x802ED630, &count, lod_orig_save_inner_state4_init);
+}
+
+static void lod_trace_save_inner_state5_update(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_handler(rdram, ctx, "inner_state5_update",
+        0x802ED6C4, &count, lod_orig_save_inner_state5_update);
+}
+
+static void lod_trace_state45_curLevel_goToFunc(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_schedule(rdram, ctx, "object_curLevel_goToFunc",
+        0x80001E30, &count, lod_orig_state45_curLevel_goToFunc, true);
+}
+
+static void lod_trace_state45_curLevel_goToNextFuncAndClearTimer(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_state45_schedule(rdram, ctx, "object_curLevel_goToNextFuncAndClearTimer",
+        0x80001CE8, &count, lod_orig_state45_curLevel_goToNextFuncAndClearTimer, false);
+}
+
+static void lod_install_save_state45_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                   recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_save_state45_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_save_state45_trace_wrapper(0x802EBAF0, lod_trace_state45_save_outer_dispatch,
+        &lod_orig_state45_save_outer_dispatch);
+    lod_install_save_state45_trace_wrapper(0x802ECA84, lod_trace_state45_save_schedule_dispatch,
+        &lod_orig_state45_save_schedule_dispatch);
+    lod_install_save_state45_trace_wrapper(0x802EDBD8, lod_trace_save_outer_state4_bridge,
+        &lod_orig_save_outer_state4_bridge);
+    lod_install_save_state45_trace_wrapper(0x802ED630, lod_trace_save_inner_state4_init,
+        &lod_orig_save_inner_state4_init);
+    lod_install_save_state45_trace_wrapper(0x802ED6C4, lod_trace_save_inner_state5_update,
+        &lod_orig_save_inner_state5_update);
+    lod_install_save_state45_trace_wrapper(0x80001E30, lod_trace_state45_curLevel_goToFunc,
+        &lod_orig_state45_curLevel_goToFunc);
+    lod_install_save_state45_trace_wrapper(0x80001CE8, lod_trace_state45_curLevel_goToNextFuncAndClearTimer,
+        &lod_orig_state45_curLevel_goToNextFuncAndClearTimer);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+            "[SAVE45] installed state4/5 trace wrappers #%d reason=%s originals "
+            "outer=%p schedule=%p outer4=%p inner4=%p inner5=%p goToFunc=%p nextClear=%p\n",
+            install_count, reason,
+            (void*)lod_orig_state45_save_outer_dispatch,
+            (void*)lod_orig_state45_save_schedule_dispatch,
+            (void*)lod_orig_save_outer_state4_bridge,
+            (void*)lod_orig_save_inner_state4_init,
+            (void*)lod_orig_save_inner_state5_update,
+            (void*)lod_orig_state45_curLevel_goToFunc,
+            (void*)lod_orig_state45_curLevel_goToNextFuncAndClearTimer);
+    }
+}
+
+#endif
+
 #if LOD_ENABLE_SAVE_EXIT_TRACE
 static recomp_func_t* lod_orig_object_curLevel_goToNextFunc = nullptr;
 static recomp_func_t* lod_orig_object_curLevel_goToNextFuncAndClearTimer = nullptr;
@@ -914,6 +1186,13 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     if (!save_exit_trace_wrappers_installed) {
         lod_install_save_exit_trace_wrappers("si-lazy-init");
         save_exit_trace_wrappers_installed = true;
+    }
+#endif
+#if LOD_ENABLE_SAVE_STATE45_TRACE
+    static bool save_state45_trace_wrappers_installed = false;
+    if (!save_state45_trace_wrappers_installed) {
+        lod_install_save_state45_trace_wrappers("si-lazy-init");
+        save_state45_trace_wrappers_installed = true;
     }
 #endif
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {

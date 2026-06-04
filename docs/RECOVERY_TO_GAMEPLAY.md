@@ -79,10 +79,16 @@ Current evidence:
   (`0x80001CE8`) on objects around `0x8031AFA4`, but did not reach `0x8001AF54`
   or the adjacent main-code table handlers in the auto-input path.
 - Read-only analysis of map_ovl_34 state `4/5` identified the active loop fields:
-  - inner state 4 (`0x802ED630`) initializes object-data motion fields and sets `data+0x46 = 0x78`;
-  - inner state 5 (`0x802ED6C4`) uses `data+0x48/+0x50` and either advances the schedule or clears `data+0x46`;
-  - outer state 4 (`0x802EDBD8`) bridges into the inner table, then forces current level to state `9` via `object_curLevel_goToFunc` when `data+0x46 <= 0`, input flag `0x40` is set, or global `0x802F6FE4 == 1`.
-- The object schedule helper family is now named coherently in `castlevania2.syms.toml`/`symbol_addrs.txt`; `0x80001E30` is `object_curLevel_goToFunc`, the helper used by outer state 4 to force state `9`.
+  - inner state 4 (`save_screen_inner_state4_init` / `0x802ED630`) initializes object-data motion fields and sets `data+0x46 = 0x78`;
+  - inner state 5 (`save_screen_inner_state5_update` / `0x802ED6C4`) uses `data+0x48/+0x50` and either advances the schedule or clears `data+0x46`;
+  - outer state 4 (`save_screen_outer_state4_bridge` / `0x802EDBD8`) bridges into the inner table, then forces current level to state `9` via `object_curLevel_goToFunc` when `data+0x46 <= 0`, input flag `0x40` is set, or global `0x802F6FE4 == 1`.
+- Temporary state-4/5 helper tracing (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`, 25s) timed out cleanly and showed:
+  - 62 `object_curLevel_goToFunc` calls and 80 `object_curLevel_goToNextFuncAndClearTimer` calls on save-screen objects;
+  - fixed parent `0x8031AFA4` advances `3 → 4 → 5`, then resets `5 → 0` via `object_curLevel_goToFunc(a2=0)`, so the tested path loops before selecting an exit state;
+  - child `0x8031B08C` is active during the same loop with data pointer `0x802A9770` and transitions through targets `2/3/4/1`;
+  - direct wrappers for `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, and `save_screen_inner_state5_update` did not fire in that sample.
+- A follow-up trace added default-off wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch`, but those also did not fire; current runtime `add_loaded_function` wrapping is effective for main-code helpers but not for these map_ovl_34 handler entries in the tested path.
+- The object schedule helper family and identified save-screen state-4/5 handlers are now named coherently in `castlevania2.syms.toml`/`symbol_addrs.txt`.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
@@ -103,6 +109,12 @@ Latest bounded traces (`G4-001`, 20s):
   - no `0x8001AF54` exit-candidate hit and no adjacent main-code table-handler hit occurred;
   - auto-input fired all three baked inputs and the screen looped `3 → 4 → 5 → 1 → 2 → 3`;
   - no `Failed to find function` and no internal crash before the timeout signal.
+- Temporary state-4/5 helper trace sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) timed out cleanly:
+  - wrappers installed and produced 143 `[SAVE45]` lines;
+  - helper trace proves the parent reset is `0x8031AFA4: state 5 → 0` through `object_curLevel_goToFunc(a2=0)`;
+  - helper trace also proves no direct `outer_state4_bridge`, `inner_state4_init`, or `inner_state5_update` wrapper calls occurred before timeout;
+  - no missing function and no internal crash before timeout/SIGTERM.
+- Follow-up state-4/5 dispatch-wrapper sample, with the same flags after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch`, also timed out cleanly but still recorded zero overlay-dispatch wrapper hits; schedule-helper traces were unchanged.
 - A second loosened trace sample reproduced the same lack of main-code table/exit hits before an intermittent `SIGBUS` after the first baked `DPad-Down`; treat this as non-baseline until reproduced without temporary trace.
 - Symbol-regeneration/tooling sample after naming the object schedule helper family built and timed out cleanly (`exit=124`) with default flags. This also proved the stale direct generated-code guard in `func_800048A0/48C4` is not needed for the default 20s save-screen path.
 - One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
@@ -120,20 +132,20 @@ Latest bounded traces (`G4-001`, 20s):
 
 Next action:
 
-1. Add the narrowest default-off trace around map_ovl_34 outer state 4 / inner states 4-5:
-   object pointer, `data+0x46/+0x48/+0x50`, globals `0x801CAB18` and `0x802F6FE4`,
-   and calls to `object_curLevel_goToFunc` / `object_curLevel_goToNextFuncAndClearTimer`.
-2. Determine whether the observed `3 → 4 → 5 → 0/1` loop is caused by `data+0x50 == 0`,
-   `data+0x46` expiring/being cleared, or an input/PFS result selecting state `9`.
-3. Determine why the tested loop does not reach the main-code `0x8001AF54`
+1. Instrument the generated map_ovl_34 helper callsites through the sanctioned patch pipeline
+   (`tools/apply_patches.py`) so schedule-helper calls can be tagged with their overlay caller/branch;
+   runtime overlay-handler wrapping did not intercept these handlers.
+2. Identify the exact caller/branch that issues `object_curLevel_goToFunc(a2=0)` on parent
+   `0x8031AFA4` at state `5`, and why it does not select an exit state such as `9`.
+3. Determine whether the direct wrapper miss is a runtime patching limitation for overlay handlers,
+   or whether the visible state `3 → 4 → 5 → 0` loop is driven by a different dispatcher/table.
+4. Determine why the tested loop does not reach the main-code `0x8001AF54`
    `gamestate_change(3)` table target. Current evidence says this is either a different
    branch/owner table or a later PFS/menu result not reached by the baked inputs.
-4. Determine whether fixed parent `0x8031AFA4` is supposed to execute
-   `save_screen_outer_state3_update`, or whether it is only a container/sentinel and the real
-   state owner is a nearby child object.
-5. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
+5. Determine whether fixed parent `0x8031AFA4` is a real state owner or a container/sentinel;
+   child `0x8031B08C` currently looks like the active object with valid data.
+6. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
    save-screen object chain.
-6. Trace which field/button/PFS result should write the next gamestate after state `5`.
 7. Only after the owner/precondition issue is explained, decide whether PFS/input status is
    blocking the transition or merely a symptom.
 
@@ -162,12 +174,11 @@ Questions to answer:
 
 Next recommended experiment:
 
-- Add the narrowest next trace around map_ovl_34 state `4`/`5` handlers and the
-  loop/exit decision fields:
-  - state/function slots that drive objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, `0x8031B100`;
-  - object `+0x24/+0x34/+0x70` writes before state `3`;
-  - global PFS/menu decision fields read by outer-table states `4` and `5`;
-  - why state `5` advances back to state `0/1` instead of selecting an exit path;
+- Add a default-off generated-code trace patch for map_ovl_34 helper callsites, focused on:
+  - `object_curLevel_goToFunc(a2=0)` on parent `0x8031AFA4` at state `5`;
+  - helper-call labels in `save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, and nearby outer-table handlers;
+  - child `0x8031B08C` data `0x802A9770` and its target `2/3/4/1` loop;
+  - global PFS/menu decision fields read while state `5` is reset;
   - whether the main-code `0x8001AF54` table is an alternate branch or an unreachable intended exit.
 
 ### Milestone 2 — Burn Down or Justify Remaining Overrides
@@ -272,6 +283,7 @@ The current baseline keeps several old bring-up overrides default-on to preserve
 | `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; tested and confirmed to move the save-screen state machine but not leave `gs=4` | Use only for explicit input-flow experiments |
 | `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe; default-off to avoid hiding dispatch bugs | Enable only for targeted handler-entry confirmation |
 | `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use to confirm whether `0x8001AF54` or adjacent table handlers are reached |
+| `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only wrapper probe for save-screen dispatchers plus state-4/5 schedule-helper decisions | Use with auto-input to identify the branch that resets parent state `5 → 0` |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; should stay off by default | Use only to compare downstream behavior, never as permanent fix |
 
 ## Experiment Log
@@ -289,13 +301,17 @@ Record durable experiments here. Keep entries concise and technical.
 | G4-001E | temporary exit-trace build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) | 20s | First sample timed out cleanly; wrappers installed; 40 `0x80001CE8` schedule advances logged for save-screen objects; no `0x8001AF54` or adjacent main-code table-handler hit; no missing function/crash before timeout | The active tested loop is map_ovl_34 object scheduling, not the main-code `gamestate_change(3)` table target |
 | G4-001F | same temporary exit-trace build with less-filtered table logs | <20s | Built; crashed with `SIGBUS` after first baked `DPad-Down`; before crash, still no main-code table-handler or `0x8001AF54` hit | Treat as trace-only/non-baseline until reproduced without temporary trace |
 | G4-001G | object schedule helper rename + approved regen pipeline | 20s | Named the object schedule helper family, improved truncation repair for partial `funcs.h`, partial `recomp_overlays.inl`, generic truncated C tails, and the `static_276_0E0037A0` split; build/run clean with default flags | Regen is healthier and the next runtime trace can target state-4/5 decision fields instead of unnamed helpers |
+| G4-001H | temporary state-4/5 helper trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Timed out cleanly; 62 `object_curLevel_goToFunc` and 80 `object_curLevel_goToNextFuncAndClearTimer` traces; parent `0x8031AFA4` advanced `3 → 4 → 5` then `5 → 0`; child `0x8031B08C` remained active with data `0x802A9770`; direct state-4/5 handler wrappers did not fire | The active tested loop resets parent state `5 → 0`, not the main-code `0x8001AF54` table |
+| G4-001I | same state-4/5 trace after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch` | 25s | Timed out cleanly; schedule-helper counts unchanged; zero overlay dispatcher/state handler wrapper hits | Runtime helper wrapping works for main-code schedule helpers but not for these map_ovl_34 overlay handlers; next trace should tag generated callsites via `tools/apply_patches.py` |
 
 ## Open Questions
 
 - Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
 - Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
 - Which fields represent the current save-screen selection/cursor?
-- Is `data+0x50 == 0` in inner state 5 the reason the tested path clears `data+0x46` and loops, or is it a transient effect-object pointer/result?
+- Which dispatcher/caller issues `object_curLevel_goToFunc(a2=0)` when parent `0x8031AFA4` reaches state `5`?
+- Why did direct wrappers for map_ovl_34 handlers (`save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, `save_screen_inner_state5_update`) not fire while main-code schedule-helper wrappers did?
+- Is `data+0x50 == 0` in inner state 5 relevant to the tested path, or is the active loop driven by a different object/dispatcher?
 - Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
 - Which function should write the next gamestate after a valid selection?
@@ -314,8 +330,8 @@ Only consider dependency cherry-picks if they directly affect:
 
 ## Current Next Step
 
-Work item `G4-001`: add a default-off trace for map_ovl_34 outer state 4 / inner states 4-5,
-especially around objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, and `0x8031B100`. Log
-`data+0x46/+0x48/+0x50`, globals `0x801CAB18` and `0x802F6FE4`, and schedule-helper calls so we can
-explain which owner/state/PFS result should leave `gs=4`. Do not add a gameplay skip or force a
+Work item `G4-001`: add a default-off generated-code trace patch for map_ovl_34 helper callsites
+through `tools/apply_patches.py`. The next question is not “can input move the screen?” (yes); it is
+which active caller resets parent `0x8031AFA4` from state `5` back to `0`, and why no exit
+state/main-code `gamestate_change(3)` path is selected. Do not add a gameplay skip or force a
 gamestate transition yet.
