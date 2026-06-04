@@ -2,17 +2,21 @@
 
 - Don’t change any code or run any non-read-only-commands without informing me and discussing it first.
 - Be extremely methodical, performing one step at a time and ensuring it works properly before continuing.
-- Do not commit code unless explicitly told otherwise.
+- Commit and push cohesive progress once the scope is understood; the user prefers a clean baseline over dangling local files.
+- Never commit unrelated changes silently. Summarize what was committed/pushed and keep commits intentional.
 
-## Session Memory (Required)
+## Project Tracking (Required)
 
-- Maintain `SCRATCHBOOK.md` as persistent cross-session memory.
-- Update `SCRATCHBOOK.md` on nearly every user interaction with concise entries.
-- Always record:
-  - User preferences and workflow constraints.
+- `SCRATCHBOOK.md` is retired. Do not recreate it or use append-only per-turn session memory.
+- Keep durable project state in focused docs instead:
+  - `docs/RECOVERY_TO_GAMEPLAY.md` — live gameplay-recovery tracker. Update it whenever recovery work changes the baseline, hypotheses, experiments, milestones, validation status, or next actions.
+  - `FUNCTION_MAP.md` — identified functions and naming notes.
+  - `docs/controller-pak-approaches.md` — Controller Pak/PFS-specific notes.
+- Update focused docs only when durable project knowledge changes, not on every interaction.
+- Keep tracking entries concise, factual, and actionable:
+  - Current baseline and validation status.
   - What was attempted, what worked, and what failed/regressed.
   - Current hypotheses, safe/unsafe patterns, and next recommended steps.
-- Keep entries factual, timestamped, and short (append-only log style).
 - Prefer introducing risky or experimental behavior behind compile-time feature flags (`#ifdef`/macros).
 - Default policy for experiments: flag-gated, off by default, easy rollback path, avoid direct regression risk.
 
