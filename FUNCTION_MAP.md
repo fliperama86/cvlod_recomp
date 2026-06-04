@@ -74,6 +74,72 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80098BD4 | contpak_parsePIF | Parses PIF response, extracts button data |
 | 0x80098C60 | contpak_formatPIF | Formats PIF command buffer for button read |
 
+## Save Screen / map_ovl_34
+| Address | Name | Description |
+|---------|------|-------------|
+| 0x802EBAF0 | save_screen_outer_dispatch | map_ovl_34 wrapper that dispatches the outer save-screen table at `0x802F7170` |
+| 0x802ECA84 | save_screen_schedule_dispatch | Outer-table state 2 wrapper that may dispatch the inner table at `0x802F71A8` |
+| 0x802ECF4C | save_screen_outer_state3_update | Outer-table state 3 handler; current fixed parent object reaches this state |
+| 0x802F7170 | save_screen_outer_state_table | map_ovl_34 data jump table used by `save_screen_outer_dispatch` |
+| 0x802F71A8 | save_screen_inner_state_table | map_ovl_34 data jump table used by `save_screen_schedule_dispatch` |
+| 0x802ED804 | save_screen_state3_update | Inner-table state 3 update handler |
+
+Decoded `save_screen_outer_state_table` entries from map_ovl_34 data:
+
+| State | Handler |
+|-------|---------|
+| 0 | 0x802EBCBC |
+| 1 | 0x802EC550 |
+| 2 | `save_screen_schedule_dispatch` |
+| 3 | `save_screen_outer_state3_update` |
+| 4 | 0x802EDBD8 |
+| 5 | 0x802EE454 |
+| 6 | 0x802ED1E8 |
+| 7 | 0x802ED3AC |
+| 8 | 0x802EDCA0 |
+| 9 | 0x802EE908 |
+| 10 | 0x802EEF3C |
+| 11 | 0x802EBEC0 |
+| 12 | 0x802EC0B8 |
+| 13 | 0x802EC848 |
+
+Decoded `save_screen_inner_state_table` entries from map_ovl_34 data:
+
+| State | Handler |
+|-------|---------|
+| 0 | 0x802ECD18 |
+| 1 | 0x802ED578 |
+| 2 | 0x802ED6C4 |
+| 3 | `save_screen_state3_update` |
+| 4 | 0x802ED630 |
+| 5 | 0x802ED6C4 |
+| 6 | 0x802ED804 |
+| 7 | 0x802ED630 |
+| 8 | 0x802ED6C4 |
+| 9 | 0x802ED804 |
+| 10 | 0x802EDD68 |
+| 11 | 0x802EE358 |
+| 12 | 0x802EE420 |
+| 13 | 0x802EE1A0 |
+| 14 | 0x802EE358 |
+| 15 | 0x802EE420 |
+
+Known state-3 inputs:
+
+- Save-screen dispatch functions use `h(obj+0x0E) + 1` to select the active
+  two-byte schedule entry from `obj+0x08..0x0D`; the state byte is
+  `u8(obj + (h(obj+0x0E)+1)*2 + 0x09)`.
+- `save_screen_outer_state3_update` expects `Object + 0x24` and `Object + 0x34`
+  to be valid pointers.
+- `Object + 0x34` is the inner state-3 base allocation used as `s0`.
+- `save_screen_state3_update` unconditionally advances `s0 += 8` after reading
+  base `s0+0x48`, so later `s0+0x40` refers to base allocation `+0x48`.
+- Base allocation `+0x48 == 2` selects the nested `ctx->0x14->0x14->0x14`
+  source and helper `0x802F5584`; otherwise it uses the direct `ctx->0x14`
+  source and helper `0x802F0014`.
+- Global `0x801CAB18` bits `0x10` and `0x40` adjust a state-3 parameter.
+- Global pointer `0x801CAC20` is the context root used by the direct/nested source branch.
+
 ## NI (Nisitenma-Ichigo) System
 | Address | Name | Description |
 |---------|------|-------------|

@@ -46,23 +46,50 @@ Objective:
 
 Current evidence:
 
-- Save object reaches state `3`.
+- The fixed parent object at `0x8031AFA4` reaches dispatch state `3`.
+- The save-screen dispatch model has two adjacent tables:
+  - outer table `0x802F7170`, used by `save_screen_outer_dispatch`
+  - inner table `0x802F71A8`, used by `save_screen_schedule_dispatch`
+- Parent dispatch state `3` maps through the outer table to
+  `0x802ECF4C`, now named `save_screen_outer_state3_update`.
+- Inner table state `3` maps to `0x802ED804`, now named `save_screen_state3_update`,
+  but that is not the fixed parent object's direct state-3 handler.
+- `save_screen_outer_state3_update` expects valid object `+0x24` and `+0x34` pointers.
+  The fixed parent object currently has both as zero when it reaches outer state `3`.
 - Input callback is active.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
 
+Latest bounded trace (`G4-001`, 20s, default flags):
+
+- Build succeeds.
+- Final schedule-aware sample timed out cleanly (`exit=124`) with no stale `LodRecomp` process.
+- One intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced in the final sample.
+- Parent object at `0x8031AFA4`:
+  - `state09=3`, `func_id=-1`, `dispatch_state=3`
+  - outer handler `0x802ECF4C` / inner handler `0x802ED804`
+  - `fig0=0`, `alloc0=0`, `alloc15=0`
+  - `disp_flags=0`, `map6FE4=0`, input/status flags `0x801CAB18=0`
+  - `pfs_status=1`, `contpak_uninserted[0]=0`
+- Nearby object window at parent state-3 entry:
+  - `0x8031B08C`: child of parent, `dispatch_state=1`, outer handler `0x802EC550`,
+    `fig0=0x802ECCE8`, `alloc0=0x802A9770`, `alloc1=0x802A3B88`
+  - `0x8031B100`: child of `0x8031B018`, `dispatch_state=2`, outer handler
+    `save_screen_schedule_dispatch`, `fig0=0x802ECC30`, `alloc0=0`, `alloc1=0x80324920`
+
 Next action:
 
-1. Identify the save-screen state-3 handler and menu-selection fields.
-2. Rename any confirmed `func_XXXXXXXX` symbols immediately.
-3. Add the narrowest possible trace for:
-   - save object state-3 branch decision
-   - consumed input bits
-   - selected option / menu cursor
-   - PFS result consumed by that state
-   - gamestate write attempt, if any
-4. Run one bounded sample and update this tracker with the result.
+1. Determine whether the fixed parent object is supposed to execute
+   `save_screen_outer_state3_update`, or whether `0x8031AFA4` is only a container/sentinel
+   and the real state owner is a nearby child object.
+2. Trace the actual object passed into outer state `2`/`3` handlers:
+   - `save_screen_schedule_dispatch` (`0x802ECA84`)
+   - `save_screen_outer_state3_update` (`0x802ECF4C`)
+3. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
+   save-screen object chain.
+4. Only after the owner/precondition issue is explained, decide whether PFS/input status is
+   blocking the transition or merely a symptom.
 
 ## Milestones
 
@@ -74,8 +101,11 @@ Known facts:
 
 - LoD intentionally starts at `gs=4` on real hardware/emulator.
 - `gs=4` is the save/Controller Pak management screen.
-- Current recomp reaches this screen path and advances the save object to state `3`.
+- Current recomp reaches this screen path and advances the fixed parent object to outer
+  dispatch state `3`.
 - Current recomp continues cycling NI overlays `105 / 120 / 101` without transitioning.
+- The outer/inner save-screen dispatch tables are now decoded and documented in
+  `FUNCTION_MAP.md`.
 
 Questions to answer:
 
@@ -86,14 +116,12 @@ Questions to answer:
 
 Next recommended experiment:
 
-- Run a longer bounded trace with targeted logs only, focused on:
-  - current game state
-  - exiting game state
-  - save object state
-  - selected save/menu option
-  - consumed input bits
-  - latest PFS result
-  - functions writing gamestate fields
+- Add the narrowest next trace around the actual outer handler owner:
+  - object pointer passed to `save_screen_outer_dispatch`
+  - object pointer passed to `save_screen_schedule_dispatch`
+  - object pointer passed to `save_screen_outer_state3_update`
+  - object `+0x24/+0x34/+0x70` at entry
+  - whether `object_curLevel_goToNextFunc` is requested for states `3` or `9`
 
 ### Milestone 2 — Burn Down or Justify Remaining Overrides
 
@@ -205,10 +233,12 @@ Record durable experiments here. Keep entries concise and technical.
 |----|---------------|---------------|--------|------------|
 | BASE-001 | default baseline at `18a56c5` | 20s | Built, launched, reached `gs=4`; save object `255 → 1 → 2 → 3`; NI loop `105 / 120 / 101`; no internal crash; timeout stopped it | Clean baseline is viable; primary blocker is natural transition out of `gs=4` |
 | BUILD-001 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0`, `LOD_OVERRIDE_FUNC_8001D398=1` compile-only check | n/a | `src/main/ignored_func_stubs.cpp` compiled successfully | Review-reported dependent override-gate compile failure is fixed |
+| G4-001A | default flags + schedule-aware save dispatch trace | 20s | Built; final run timed out cleanly; fixed parent `0x8031AFA4` reached outer dispatch state `3` → `save_screen_outer_state3_update` while `+0x24/+0x34/+0x70` were zero; nearby child objects had valid-looking pointers | The state-3 blocker is now an object ownership/precondition problem, not simply "inner table state 3 waiting for input" |
 
 ## Open Questions
 
-- Which function owns save object state `3`?
+- Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
+- Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
 - Which fields represent the current save-screen selection/cursor?
 - Does state `3` expect a button press that is not being delivered/consumed?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
@@ -227,4 +257,6 @@ Only consider dependency cherry-picks if they directly affect:
 
 ## Current Next Step
 
-Work item `G4-001`: identify the save-screen state-3 handler and its branch inputs before adding any new gameplay skip or broad patch.
+Work item `G4-001`: trace the actual object pointer passed to `save_screen_outer_state3_update`
+and identify why the fixed parent reaches outer state `3` with missing `+0x24/+0x34/+0x70`
+preconditions. Do not add a gameplay skip or force a gamestate transition yet.

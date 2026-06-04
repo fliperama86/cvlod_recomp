@@ -367,6 +367,188 @@ void osPiGetCmdQueue_recomp(uint8_t* rdram, recomp_context* ctx) {}
 #define RD_MEM_B(base, offset) (base)[(offset) ^ 3]
 #define WR_MEM_B(base, offset, val) (base)[(offset) ^ 3] = (uint8_t)(val)
 
+static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size) {
+    return size <= 0x800000 && phys <= (0x800000 - size);
+}
+
+static inline uint8_t lod_rdram_u8(uint8_t* rdram, uint32_t phys) {
+    return rdram[phys ^ 3];
+}
+
+static inline int16_t lod_rdram_s16(uint8_t* rdram, uint32_t phys) {
+    uint16_t value = ((uint16_t)lod_rdram_u8(rdram, phys) << 8) |
+                     (uint16_t)lod_rdram_u8(rdram, phys + 1);
+    return (int16_t)value;
+}
+
+static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys) {
+    return *(uint32_t*)(rdram + phys);
+}
+
+static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys) {
+    if (!lod_rdram_range_ok(obj_phys, 0x10)) {
+        return 255;
+    }
+
+    int16_t function_info_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+    int dispatch_index = function_info_id + 1;
+    if (dispatch_index < 0 || dispatch_index >= 3) {
+        return 255;
+    }
+
+    return lod_rdram_u8(rdram, obj_phys + 0x09 + dispatch_index * 2);
+}
+
+static void lod_dump_save_state_context(uint8_t* rdram, int si_dma_count,
+                                        const char* label, uint32_t obj_phys,
+                                        const char* reason) {
+    constexpr uint32_t SAVE_OUTER_TABLE_PHYS = 0x2F7170;
+    constexpr uint32_t SAVE_INNER_TABLE_PHYS = 0x2F71A8;
+    constexpr uint32_t GSM_PTR_PHYS = 0x0C1520;
+    constexpr uint32_t PAK_UNINSERTED_PHYS = 0x0F2260;
+    constexpr uint32_t PFS_STATUS_PHYS = 0x0F1F20;
+    constexpr uint32_t SAVE_DISPATCH_FLAGS_PHYS = 0x1CABC8; // 0x801D0000 - 0x5438
+    constexpr uint32_t STATE3_FLAGS_PHYS = 0x1CAB18; // 0x801D0000 - 0x54E8
+    constexpr uint32_t STATE3_CTX_PTR_PHYS = 0x1CAC20; // 0x801D0000 - 0x53E0
+    constexpr uint32_t MAP_OVL_34_FLAG_6FE4_PHYS = 0x2F6FE4; // 0x802F6FE4
+
+    if (!lod_rdram_range_ok(obj_phys, 0x74)) {
+        fprintf(stderr, "[G4-001] %s %s #%d obj=0x%08X(invalid)\n",
+            label, reason, si_dma_count, obj_phys | 0x80000000);
+        return;
+    }
+
+    uint32_t gsm_addr = lod_rdram_u32(rdram, GSM_PTR_PHYS);
+    int32_t cur_gs = 0;
+    if (gsm_addr != 0) {
+        uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+        if (lod_rdram_range_ok(gsm_phys, 0x28)) {
+            cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
+        }
+    }
+
+    uint8_t obj_state = lod_rdram_u8(rdram, obj_phys + 0x09);
+    int16_t function_info_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+    uint8_t sched_08 = lod_rdram_u8(rdram, obj_phys + 0x08);
+    uint8_t sched_09 = lod_rdram_u8(rdram, obj_phys + 0x09);
+    uint8_t sched_0a = lod_rdram_u8(rdram, obj_phys + 0x0A);
+    uint8_t sched_0b = lod_rdram_u8(rdram, obj_phys + 0x0B);
+    uint8_t sched_0c = lod_rdram_u8(rdram, obj_phys + 0x0C);
+    uint8_t sched_0d = lod_rdram_u8(rdram, obj_phys + 0x0D);
+    uint8_t dispatch_state = lod_object_dispatch_state(rdram, obj_phys);
+    uint32_t outer_handler = 0;
+    uint32_t inner_handler = 0;
+    if (dispatch_state < 16) {
+        if (lod_rdram_range_ok(SAVE_OUTER_TABLE_PHYS + dispatch_state * 4, 4)) {
+            outer_handler = lod_rdram_u32(rdram, SAVE_OUTER_TABLE_PHYS + dispatch_state * 4);
+        }
+        if (lod_rdram_range_ok(SAVE_INNER_TABLE_PHYS + dispatch_state * 4, 4)) {
+            inner_handler = lod_rdram_u32(rdram, SAVE_INNER_TABLE_PHYS + dispatch_state * 4);
+        }
+    }
+
+    uint32_t fig0 = lod_rdram_u32(rdram, obj_phys + 0x24);
+    uint32_t alloc_base = lod_rdram_u32(rdram, obj_phys + 0x34);
+    uint32_t alloc_base_phys = alloc_base & 0x1FFFFFFF;
+    bool alloc_ok = alloc_base != 0 && lod_rdram_range_ok(alloc_base_phys, 0x54);
+    int16_t base_40 = 0;
+    int16_t base_48 = 0;
+    int16_t work_3e = 0; // after handler's unconditional s0 += 8, this is base + 0x46
+    int16_t work_40 = 0; // after s0 += 8, this is base + 0x48
+    uint32_t work_48_ptr = 0; // after s0 += 8, this is base + 0x50
+    if (alloc_ok) {
+        base_40 = lod_rdram_s16(rdram, alloc_base_phys + 0x40);
+        base_48 = lod_rdram_s16(rdram, alloc_base_phys + 0x48);
+        work_3e = lod_rdram_s16(rdram, alloc_base_phys + 0x46);
+        work_40 = lod_rdram_s16(rdram, alloc_base_phys + 0x48);
+        work_48_ptr = lod_rdram_u32(rdram, alloc_base_phys + 0x50);
+    }
+
+    uint32_t flags = lod_rdram_u32(rdram, STATE3_FLAGS_PHYS);
+    uint32_t state3_ctx = lod_rdram_u32(rdram, STATE3_CTX_PTR_PHYS);
+    uint32_t ctx_14 = 0;
+    uint32_t ctx_14_14 = 0;
+    uint32_t ctx_14_14_14 = 0;
+    uint32_t ctx_phys = state3_ctx & 0x1FFFFFFF;
+    if (state3_ctx != 0 && lod_rdram_range_ok(ctx_phys, 0x18)) {
+        ctx_14 = lod_rdram_u32(rdram, ctx_phys + 0x14);
+        uint32_t ctx_14_phys = ctx_14 & 0x1FFFFFFF;
+        if (ctx_14 != 0 && lod_rdram_range_ok(ctx_14_phys, 0x18)) {
+            ctx_14_14 = lod_rdram_u32(rdram, ctx_14_phys + 0x14);
+            uint32_t ctx_14_14_phys = ctx_14_14 & 0x1FFFFFFF;
+            if (ctx_14_14 != 0 && lod_rdram_range_ok(ctx_14_14_phys, 0x18)) {
+                ctx_14_14_14 = lod_rdram_u32(rdram, ctx_14_14_phys + 0x14);
+            }
+        }
+    }
+
+    uint32_t child = lod_rdram_u32(rdram, obj_phys + 0x1C);
+    uint32_t dispatch = lod_rdram_u32(rdram, obj_phys + 0x10);
+    uint32_t alloc15 = lod_rdram_u32(rdram, obj_phys + 0x70);
+    uint8_t pak0 = lod_rdram_u8(rdram, PAK_UNINSERTED_PHYS);
+    uint32_t pfs_status = lod_rdram_u32(rdram, PFS_STATUS_PHYS);
+    uint32_t dispatch_flags = lod_rdram_u32(rdram, SAVE_DISPATCH_FLAGS_PHYS);
+    int16_t map_flag_6fe4 = lod_rdram_s16(rdram, MAP_OVL_34_FLAG_6FE4_PHYS);
+
+    const char* helper_path = alloc_ok && work_40 == 2 ? "802F5584" : "802F0014";
+    const char* source_path = alloc_ok && base_48 == 2 ? "nested_ctx" : "direct_ctx";
+    fprintf(stderr,
+        "[G4-001] %s %s #%d gs=%d obj=0x%08X state09=%u func_id=%d sched=%02X,%02X,%02X,%02X,%02X,%02X dispatch_state=%u outer=0x%08X inner=0x%08X "
+        "dispatch=0x%08X child=0x%08X fig0=0x%08X alloc15=0x%08X "
+        "alloc_base=0x%08X%s base40=%d base48=%d work3E=%d work40=%d work48ptr=0x%08X helper=%s source=%s "
+        "disp_flags=0x%08X map6FE4=%d flags=0x%08X bit10=%d bit40=%d "
+        "ctx=0x%08X ctx14=0x%08X ctx1414=0x%08X ctx141414=0x%08X "
+        "pak0=%u pfs_status=0x%08X\n",
+        label, reason, si_dma_count, cur_gs, obj_phys | 0x80000000, obj_state,
+        function_info_id, sched_08, sched_09, sched_0a, sched_0b, sched_0c, sched_0d,
+        dispatch_state, outer_handler, inner_handler,
+        dispatch, child, fig0, alloc15,
+        alloc_base, alloc_ok ? "" : "(invalid)", base_40, base_48, work_3e, work_40, work_48_ptr,
+        helper_path, source_path,
+        dispatch_flags, map_flag_6fe4,
+        flags, (flags & 0x10) != 0, (flags & 0x40) != 0,
+        state3_ctx, ctx_14, ctx_14_14, ctx_14_14_14,
+        pak0, pfs_status);
+}
+
+static void lod_dump_save_object_window(uint8_t* rdram, int si_dma_count, const char* reason) {
+    constexpr uint32_t SAVE_OUTER_TABLE_PHYS = 0x2F7170;
+    constexpr uint32_t START_PHYS = 0x31AFA4;
+    constexpr uint32_t OBJECT_SIZE = 0x74;
+
+    fprintf(stderr, "[G4-001] object-window %s #%d\n", reason, si_dma_count);
+    for (int i = 0; i < 14; i++) {
+        uint32_t obj_phys = START_PHYS + i * OBJECT_SIZE;
+        if (!lod_rdram_range_ok(obj_phys, OBJECT_SIZE)) {
+            continue;
+        }
+
+        uint8_t state09 = lod_rdram_u8(rdram, obj_phys + 0x09);
+        int16_t function_info_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+        uint8_t dispatch_state = lod_object_dispatch_state(rdram, obj_phys);
+        uint32_t outer_handler = 0;
+        if (dispatch_state < 16 && lod_rdram_range_ok(SAVE_OUTER_TABLE_PHYS + dispatch_state * 4, 4)) {
+            outer_handler = lod_rdram_u32(rdram, SAVE_OUTER_TABLE_PHYS + dispatch_state * 4);
+        }
+
+        uint32_t destroy = lod_rdram_u32(rdram, obj_phys + 0x10);
+        uint32_t parent = lod_rdram_u32(rdram, obj_phys + 0x14);
+        uint32_t child = lod_rdram_u32(rdram, obj_phys + 0x1C);
+        uint32_t fig0 = lod_rdram_u32(rdram, obj_phys + 0x24);
+        uint32_t alloc0 = lod_rdram_u32(rdram, obj_phys + 0x34);
+        uint32_t alloc1 = lod_rdram_u32(rdram, obj_phys + 0x38);
+        uint32_t alloc15 = lod_rdram_u32(rdram, obj_phys + 0x70);
+
+        if (state09 != 0 || dispatch_state != 255 || destroy || parent || child || fig0 || alloc0 || alloc1 || alloc15) {
+            fprintf(stderr,
+                "[G4-001]   obj[%02d]=0x%08X state09=%u func_id=%d dispatch_state=%u outer=0x%08X "
+                "destroy=0x%08X parent=0x%08X child=0x%08X fig0=0x%08X alloc0=0x%08X alloc1=0x%08X alloc15=0x%08X\n",
+                i, obj_phys | 0x80000000, state09, function_info_id, dispatch_state, outer_handler,
+                destroy, parent, child, fig0, alloc0, alloc1, alloc15);
+        }
+    }
+}
+
 void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     int32_t direction = (int32_t)ctx->r4;
     uint32_t dram_addr = (uint32_t)ctx->r5;
@@ -614,7 +796,31 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     // Watchpoint: monitor save object state byte at 0x8031AFA4+0x09
     if (direction == 0) {
         static uint8_t prev_state = 255;
+        static uint8_t prev_parent_dispatch_state = 255;
+        static uint8_t prev_child_state = 255;
+        static uint8_t prev_child_dispatch_state = 255;
+        static bool dumped_dispatch3_window = false;
         uint8_t cur_state = rdram[(0x31AFA4 + 0x09) ^ 3];
+        uint8_t parent_dispatch_state = lod_object_dispatch_state(rdram, 0x31AFA4);
+        uint32_t child_addr = *(uint32_t*)(rdram + 0x31AFA4 + 0x1C);
+        uint32_t child_phys = child_addr & 0x1FFFFFFF;
+        bool child_ok = child_addr != 0 && lod_rdram_range_ok(child_phys, 0x74);
+        uint8_t child_state = child_ok ? lod_rdram_u8(rdram, child_phys + 0x09) : 255;
+        uint8_t child_dispatch_state = child_ok ? lod_object_dispatch_state(rdram, child_phys) : 255;
+        if (parent_dispatch_state == 3 &&
+                (parent_dispatch_state != prev_parent_dispatch_state || (si_dma_count % 500) == 0)) {
+            lod_dump_save_state_context(rdram, si_dma_count, "parent", 0x31AFA4,
+                parent_dispatch_state != prev_parent_dispatch_state ? "enter-dispatch3" : "poll-dispatch3");
+            if (!dumped_dispatch3_window) {
+                lod_dump_save_object_window(rdram, si_dma_count, "parent-enter-dispatch3");
+                dumped_dispatch3_window = true;
+            }
+        }
+        if (child_dispatch_state == 3 &&
+                (child_dispatch_state != prev_child_dispatch_state || (si_dma_count % 500) == 0)) {
+            lod_dump_save_state_context(rdram, si_dma_count, "child", child_phys,
+                child_dispatch_state != prev_child_dispatch_state ? "enter-dispatch3" : "poll-dispatch3");
+        }
         // Log alloc_data when state changes
         if (cur_state != prev_state && cur_state >= 3 && cur_state <= 5) {
             fprintf(stderr, "[ALLOC] state=%d alloc1=0x%08X alloc2=0x%08X alloc3=0x%08X alloc5=0x%08X\n",
@@ -656,6 +862,24 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 }
             }
             prev_state = cur_state;
+        }
+        if (parent_dispatch_state != prev_parent_dispatch_state && parent_dispatch_state != 255) {
+            fprintf(stderr, "[WATCH] Save parent dispatch_state: %d → %d (SI_DMA #%d)\n",
+                    prev_parent_dispatch_state, parent_dispatch_state, si_dma_count);
+            prev_parent_dispatch_state = parent_dispatch_state;
+        }
+        if (child_ok && child_state != prev_child_state && child_state != 0) {
+            fprintf(stderr, "[WATCH] Save child state: %d → %d (SI_DMA #%d child=0x%08X)\n",
+                    prev_child_state, child_state, si_dma_count, child_addr);
+            prev_child_state = child_state;
+        }
+        if (child_ok && child_dispatch_state != prev_child_dispatch_state && child_dispatch_state != 255) {
+            fprintf(stderr, "[WATCH] Save child dispatch_state: %d → %d (SI_DMA #%d child=0x%08X)\n",
+                    prev_child_dispatch_state, child_dispatch_state, si_dma_count, child_addr);
+            prev_child_dispatch_state = child_dispatch_state;
+        } else if (!child_ok) {
+            prev_child_state = 255;
+            prev_child_dispatch_state = 255;
         }
     }
 

@@ -120,6 +120,10 @@ strlen  = 0x800A136C; // type:func
 gamestate_create           = 0x80000460; // type:func  // loads scene: calls init func, creates root object, copies GSS slots
 gamestate_change           = 0x8000053C; // type:func  // requests scene change: sets obj+0x24 = -scene_id
 scene4_init                = 0x8000067C; // type:func  // scene 4 (save game) init: heaps, objects, display, sound
+save_screen_outer_dispatch = 0x802EBAF0; // type:func  // map_ovl_34 outer schedule dispatch via table 0x802F7170
+save_screen_schedule_dispatch = 0x802ECA84; // type:func  // map_ovl_34 wrapper that advances/dispatches save-screen schedule entries
+save_screen_outer_state3_update = 0x802ECF4C; // type:func  // map_ovl_34 outer state 3 handler
+save_screen_state3_update  = 0x802ED804; // type:func  // map_ovl_34 save-screen object state 3 handler
 
 // Game State Manager
 GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene
