@@ -12012,7 +12012,7 @@ functions = [
     { name = "ni_ovl_120_func_0F000248", vram = 0x0F000248, size = 0x50 },
     { name = "ni_ovl_120_func_0F000298", vram = 0x0F000298, size = 0x19C },
     { name = "ni_ovl_120_func_0F000434", vram = 0x0F000434, size = 0x50 },
-    { name = "ni_ovl_120_func_0F000484", vram = 0x0F000484, size = 0x84 },
+    { name = "ni_ovl_120_result_schedule_dispatch", vram = 0x0F000484, size = 0x84 },
     { name = "ni_ovl_120_func_0F000508", vram = 0x0F000508, size = 0x34 },
     { name = "ni_ovl_120_func_0F00053C", vram = 0x0F00053C, size = 0x160 },
     { name = "ni_ovl_120_func_0F00069C", vram = 0x0F00069C, size = 0x19C },

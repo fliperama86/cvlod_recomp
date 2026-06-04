@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#if defined(__APPLE__) || defined(__linux__)
+#include <dlfcn.h>
+#endif
 #include "ultramodern/ultramodern.hpp"
 #include "ultramodern/ultra64.h"
 
@@ -699,6 +702,11 @@ struct LodSaveState45Snapshot {
     int16_t func_id = 0;
     uint8_t dispatch_state = 255;
     uint8_t sched[6] = {};
+    uint32_t obj_38 = 0;
+    uint32_t obj_3c = 0;
+    uint32_t obj_40 = 0;
+    uint32_t obj_44 = 0;
+    uint32_t obj_48 = 0;
     uint32_t data = 0;
     bool data_ok = false;
     int16_t data_3e = 0;
@@ -752,6 +760,11 @@ static LodSaveState45Snapshot lod_capture_save_state45_snapshot(uint8_t* rdram, 
     }
 
     s.data = lod_rdram_u32(rdram, obj_phys + 0x34);
+    s.obj_38 = lod_rdram_u32(rdram, obj_phys + 0x38);
+    s.obj_3c = lod_rdram_u32(rdram, obj_phys + 0x3C);
+    s.obj_40 = lod_rdram_u32(rdram, obj_phys + 0x40);
+    s.obj_44 = lod_rdram_u32(rdram, obj_phys + 0x44);
+    s.obj_48 = lod_rdram_u32(rdram, obj_phys + 0x48);
     uint32_t data_phys = s.data & 0x1FFFFFFF;
     s.data_ok = s.data != 0 && lod_rdram_range_ok(data_phys, 0x58);
     if (s.data_ok) {
@@ -787,7 +800,8 @@ static void lod_print_save_state45_snapshot(const char* label, const char* phase
     fprintf(stderr,
         "[SAVE45] %s-%s #%d vram=0x%08X gs=%d obj=0x%08X state09=%u func_id=%d "
         "dispatch_state=%u sched=%02X,%02X,%02X,%02X,%02X,%02X "
-        "data=0x%08X%s d1C=0x%08X d20=0x%08X d24=0x%08X d3E=%d d40=%d "
+        "data=0x%08X%s obj38=0x%08X obj3C=0x%08X obj40=0x%08X obj44=0x%08X obj48=0x%08X "
+        "d1C=0x%08X d20=0x%08X d24=0x%08X d3E=%d d40=%d "
         "d44=0x%08X d46=%d d48h=%d d48=0x%08X d50=0x%08X d54=0x%08X "
         "flagsCAB18=0x%08X flagsCABC8=0x%08X bit10=%d bit40=%d map6FE4=%d "
         "pak0=%u pfs=0x%08X a0=0x%08X a1=0x%08X a2=%d ra=0x%08X\n",
@@ -795,6 +809,7 @@ static void lod_print_save_state45_snapshot(const char* label, const char* phase
         s.state09, s.func_id, s.dispatch_state,
         s.sched[0], s.sched[1], s.sched[2], s.sched[3], s.sched[4], s.sched[5],
         s.data, s.data_ok ? "" : "(invalid)",
+        s.obj_38, s.obj_3c, s.obj_40, s.obj_44, s.obj_48,
         s.data_1c, s.data_20, s.data_24, s.data_3e, s.data_40,
         s.data_44, s.data_46, s.data_48_s16, s.data_48, s.data_50, s.data_54,
         s.flags_cab18, s.flags_cabc8, (s.flags_cabc8 & 0x10) != 0, (s.flags_cabc8 & 0x40) != 0,
@@ -827,10 +842,34 @@ static void lod_trace_save_state45_handler(uint8_t* rdram, recomp_context* ctx,
     }
 }
 
+static void lod_print_save_state45_host_caller(const char* label, const char* phase,
+                                               int counter, void* host_return) {
+    const char* symbol = "(unknown)";
+    const char* image = "(unknown)";
+    uintptr_t symbol_base = 0;
+#if defined(__APPLE__) || defined(__linux__)
+    Dl_info info = {};
+    if (host_return != nullptr && dladdr(host_return, &info) != 0) {
+        if (info.dli_sname != nullptr) {
+            symbol = info.dli_sname;
+        }
+        if (info.dli_fname != nullptr) {
+            image = info.dli_fname;
+        }
+        symbol_base = (uintptr_t)info.dli_saddr;
+    }
+#endif
+    uintptr_t addr = (uintptr_t)host_return;
+    uintptr_t offset = (symbol_base != 0 && addr >= symbol_base) ? (addr - symbol_base) : 0;
+    fprintf(stderr,
+        "[SAVE45-HOST] %s-%s #%d host_return=%p symbol=%s+0x%zX image=%s\n",
+        label, phase, counter, host_return, symbol, (size_t)offset, image);
+}
+
 static void lod_trace_save_state45_schedule(uint8_t* rdram, recomp_context* ctx,
                                             const char* label, uint32_t vram,
                                             int* counter, recomp_func_t* original,
-                                            bool has_target) {
+                                            bool has_target, void* host_return) {
     (*counter)++;
     uint32_t schedule_addr = (uint32_t)ctx->r4;
     uint32_t obj_phys = (schedule_addr - 0x08) & 0x1FFFFFFF;
@@ -842,6 +881,7 @@ static void lod_trace_save_state45_schedule(uint8_t* rdram, recomp_context* ctx,
     if (should_log) {
         lod_print_save_state45_snapshot(label, "enter", *counter, vram, before,
             schedule_addr, (uint32_t)ctx->r5, target, (uint32_t)ctx->r31);
+        lod_print_save_state45_host_caller(label, "enter", *counter, host_return);
     }
 
     if (original != nullptr) {
@@ -852,6 +892,7 @@ static void lod_trace_save_state45_schedule(uint8_t* rdram, recomp_context* ctx,
         LodSaveState45Snapshot after = lod_capture_save_state45_snapshot(rdram, obj_phys);
         lod_print_save_state45_snapshot(label, "exit", *counter, vram, after,
             schedule_addr, (uint32_t)ctx->r5, target, (uint32_t)ctx->r31);
+        lod_print_save_state45_host_caller(label, "exit", *counter, host_return);
     }
 }
 
@@ -888,13 +929,15 @@ static void lod_trace_save_inner_state5_update(uint8_t* rdram, recomp_context* c
 static void lod_trace_state45_curLevel_goToFunc(uint8_t* rdram, recomp_context* ctx) {
     static int count = 0;
     lod_trace_save_state45_schedule(rdram, ctx, "object_curLevel_goToFunc",
-        0x80001E30, &count, lod_orig_state45_curLevel_goToFunc, true);
+        0x80001E30, &count, lod_orig_state45_curLevel_goToFunc, true,
+        __builtin_return_address(0));
 }
 
 static void lod_trace_state45_curLevel_goToNextFuncAndClearTimer(uint8_t* rdram, recomp_context* ctx) {
     static int count = 0;
     lod_trace_save_state45_schedule(rdram, ctx, "object_curLevel_goToNextFuncAndClearTimer",
-        0x80001CE8, &count, lod_orig_state45_curLevel_goToNextFuncAndClearTimer, false);
+        0x80001CE8, &count, lod_orig_state45_curLevel_goToNextFuncAndClearTimer, false,
+        __builtin_return_address(0));
 }
 
 static void lod_install_save_state45_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,

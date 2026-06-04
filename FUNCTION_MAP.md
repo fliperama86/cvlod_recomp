@@ -172,6 +172,7 @@ Known state-3 inputs:
 | Address | Name | Description |
 |---------|------|-------------|
 | 0x801CB5CC | NI_systemInit | Creates NI file management object at sys+0x295C |
+| 0x0F000484 (NI pair 120) | ni_ovl_120_result_schedule_dispatch | Pair-120 result dispatcher: calls callback table `0x0F0016BC[obj+0x48]`, stores `v0` at `obj+0x38`, resets current schedule to `0` when result is nonzero, otherwise sets `obj+0x44=1` and advances; table starts `[0]=0x0F00086C`, `[7]=0x0F000964` |
 
 ## Key Globals
 | Address | Name | Description |

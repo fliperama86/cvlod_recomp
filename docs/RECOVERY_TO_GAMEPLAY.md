@@ -91,6 +91,11 @@ Current evidence:
 - The object schedule helper family and identified save-screen state-4/5 handlers are now named coherently in `castlevania2.syms.toml`/`symbol_addrs.txt`.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
+- Runtime host-caller tracing (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`, 25s) identified the parent reset caller:
+  - fixed parent `0x8031AFA4` reaches state `5`, then `object_curLevel_goToFunc(a2=0)` is called from `ni_ovl_120_result_schedule_dispatch+0x19C`;
+  - this is NI overlay pair `120` (`ROM 0x013560E0`, loaded at `0x0F000000`), not a map_ovl_34 generated callsite;
+  - static inspection shows `ni_ovl_120_result_schedule_dispatch` indexes a callback table at `0x0F0016BC` with `obj+0x48`, stores the callback result in `obj+0x38`, resets current schedule to `0` when the result is nonzero, and otherwise sets `obj+0x44=1` then advances via `object_curLevel_goToNextFuncAndClearTimer`;
+  - table dump from `resources/castlevania2_ni_extended.z64` begins `[0]=0x0F00086C`, `[1]=0x0F000884`, `[2]=0x0F0008D4`, `[3]=0x0F0008E4`, `[4]=0x0F0008F4`, `[5]=0x0F00091C`, `[6]=0x0F000958`, `[7]=0x0F000964`, `[8]=0x0F000974`, `[9]=0x0F000984`, `[10]=0x0F000070`, `[11]=0x0F0000BC`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
 
 Latest bounded traces (`G4-001`, 20s):
@@ -115,6 +120,12 @@ Latest bounded traces (`G4-001`, 20s):
   - helper trace also proves no direct `outer_state4_bridge`, `inner_state4_init`, or `inner_state5_update` wrapper calls occurred before timeout;
   - no missing function and no internal crash before timeout/SIGTERM.
 - Follow-up state-4/5 dispatch-wrapper sample, with the same flags after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch`, also timed out cleanly but still recorded zero overlay-dispatch wrapper hits; schedule-helper traces were unchanged.
+- A generated map_ovl_34 callsite trace experiment (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_CALLSITE_TRACE=1`, 25s) built and timed out cleanly but produced zero `[SAVE45-CALL]` lines, even when combined with `LOD_ENABLE_SAVE_STATE45_TRACE=1`; the reset caller is therefore not one of the patched map_ovl_34 helper callsites.
+- Host-caller trace extension to `LOD_ENABLE_SAVE_STATE45_TRACE` resolved helper callers through `dladdr`; parent `0x8031AFA4` reset lines now show `object_curLevel_goToFunc(a2=0)` from `ni_ovl_120_result_schedule_dispatch+0x19C` with no missing-function crash.
+- Exact object-field trace at the helper call showed two parent resets in the 25s sample:
+  - reset #23: `obj38=0x00040000`, `obj48=0x00000007`;
+  - reset #29: `obj38=0x01000000`, `obj48=0x00000000`;
+  - these are post-callback fields visible when the schedule helper is entered, so they are not enough to prove the original pre-callback table index/result. The next trace should instrument inside `ni_ovl_120_result_schedule_dispatch` before and after the table callback.
 - A second loosened trace sample reproduced the same lack of main-code table/exit hits before an intermittent `SIGBUS` after the first baked `DPad-Down`; treat this as non-baseline until reproduced without temporary trace.
 - Symbol-regeneration/tooling sample after naming the object schedule helper family built and timed out cleanly (`exit=124`) with default flags. This also proved the stale direct generated-code guard in `func_800048A0/48C4` is not needed for the default 20s save-screen path.
 - One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
@@ -132,22 +143,12 @@ Latest bounded traces (`G4-001`, 20s):
 
 Next action:
 
-1. Instrument the generated map_ovl_34 helper callsites through the sanctioned patch pipeline
-   (`tools/apply_patches.py`) so schedule-helper calls can be tagged with their overlay caller/branch;
-   runtime overlay-handler wrapping did not intercept these handlers.
-2. Identify the exact caller/branch that issues `object_curLevel_goToFunc(a2=0)` on parent
-   `0x8031AFA4` at state `5`, and why it does not select an exit state such as `9`.
-3. Determine whether the direct wrapper miss is a runtime patching limitation for overlay handlers,
-   or whether the visible state `3 → 4 → 5 → 0` loop is driven by a different dispatcher/table.
-4. Determine why the tested loop does not reach the main-code `0x8001AF54`
-   `gamestate_change(3)` table target. Current evidence says this is either a different
-   branch/owner table or a later PFS/menu result not reached by the baked inputs.
-5. Determine whether fixed parent `0x8031AFA4` is a real state owner or a container/sentinel;
-   child `0x8031B08C` currently looks like the active object with valid data.
-6. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
-   save-screen object chain.
-7. Only after the owner/precondition issue is explained, decide whether PFS/input status is
-   blocking the transition or merely a symptom.
+1. Instrument `ni_ovl_120_result_schedule_dispatch` itself (entry, pre-callback `obj+0x48`, callback target, callback `v0`, and post-write `obj+0x38`) so the exact reset-producing table case is captured before object fields are mutated.
+2. Decode the active callback's inputs/result: why does it return nonzero for the tested save-screen selection, and what condition would make it return zero and advance instead?
+3. Determine why the tested loop does not reach the main-code `0x8001AF54` `gamestate_change(3)` table target. Current evidence says this is either a different branch/owner table or a later PFS/menu result not reached by the baked inputs.
+4. Determine whether fixed parent `0x8031AFA4` is a real state owner or a container/sentinel; child `0x8031B08C` currently looks like an active object with valid data.
+5. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the save-screen object chain.
+6. Only after the owner/precondition issue is explained, decide whether PFS/input status is blocking the transition or merely a symptom.
 
 ## Milestones
 
@@ -174,12 +175,13 @@ Questions to answer:
 
 Next recommended experiment:
 
-- Add a default-off generated-code trace patch for map_ovl_34 helper callsites, focused on:
-  - `object_curLevel_goToFunc(a2=0)` on parent `0x8031AFA4` at state `5`;
-  - helper-call labels in `save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, and nearby outer-table handlers;
+- Add a focused default-off trace or static annotation for NI overlay pair `120`, centered on:
+  - `ni_ovl_120_result_schedule_dispatch` (`0x0F000484`) and its callback table at `0x0F0016BC`;
+  - the pre-callback `obj+0x48` value and callback target when parent `0x8031AFA4` is about to reset;
+  - the callback `v0` result and post-write `obj+0x38`, because nonzero causes the observed reset while zero advances;
   - child `0x8031B08C` data `0x802A9770` and its target `2/3/4/1` loop;
   - global PFS/menu decision fields read while state `5` is reset;
-  - whether the main-code `0x8001AF54` table is an alternate branch or an unreachable intended exit.
+  - whether the main-code `0x8001AF54` table is an alternate branch or an intended exit that the current selection never reaches.
 
 ### Milestone 2 — Burn Down or Justify Remaining Overrides
 
@@ -283,7 +285,7 @@ The current baseline keeps several old bring-up overrides default-on to preserve
 | `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; tested and confirmed to move the save-screen state machine but not leave `gs=4` | Use only for explicit input-flow experiments |
 | `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe; default-off to avoid hiding dispatch bugs | Enable only for targeted handler-entry confirmation |
 | `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use to confirm whether `0x8001AF54` or adjacent table handlers are reached |
-| `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only wrapper probe for save-screen dispatchers plus state-4/5 schedule-helper decisions | Use with auto-input to identify the branch that resets parent state `5 → 0` |
+| `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only wrapper probe for state-4/5 schedule-helper decisions; now also logs host caller symbols for helper calls | Use with auto-input to identify helper callers such as `ni_ovl_120_result_schedule_dispatch` |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; should stay off by default | Use only to compare downstream behavior, never as permanent fix |
 
 ## Experiment Log
@@ -303,14 +305,17 @@ Record durable experiments here. Keep entries concise and technical.
 | G4-001G | object schedule helper rename + approved regen pipeline | 20s | Named the object schedule helper family, improved truncation repair for partial `funcs.h`, partial `recomp_overlays.inl`, generic truncated C tails, and the `static_276_0E0037A0` split; build/run clean with default flags | Regen is healthier and the next runtime trace can target state-4/5 decision fields instead of unnamed helpers |
 | G4-001H | temporary state-4/5 helper trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Timed out cleanly; 62 `object_curLevel_goToFunc` and 80 `object_curLevel_goToNextFuncAndClearTimer` traces; parent `0x8031AFA4` advanced `3 → 4 → 5` then `5 → 0`; child `0x8031B08C` remained active with data `0x802A9770`; direct state-4/5 handler wrappers did not fire | The active tested loop resets parent state `5 → 0`, not the main-code `0x8001AF54` table |
 | G4-001I | same state-4/5 trace after adding wrappers for `save_screen_outer_dispatch` and `save_screen_schedule_dispatch` | 25s | Timed out cleanly; schedule-helper counts unchanged; zero overlay dispatcher/state handler wrapper hits | Runtime helper wrapping works for main-code schedule helpers but not for these map_ovl_34 overlay handlers; next trace should tag generated callsites via `tools/apply_patches.py` |
+| G4-001J | temporary generated map_ovl_34 callsite trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_CALLSITE_TRACE=1`, then combined with `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Built and timed out cleanly; zero `[SAVE45-CALL]` hits; runtime helper trace still reproduced parent `state 5 → 0` | The reset caller is not one of the patched map_ovl_34 dispatch/helper callsites; generated patch was removed instead of kept |
+| G4-001K | temporary host-caller schedule-helper trace (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_STATE45_TRACE=1`) | 25s | Built and timed out cleanly; `dladdr` resolved parent `0x8031AFA4` reset `object_curLevel_goToFunc(a2=0)` to `ni_ovl_120_result_schedule_dispatch+0x19C`; symbol renamed and regen succeeded | Active next lead is NI overlay pair 120 callback/result logic, not map_ovl_34 dispatcher wrapping |
+| G4-001L | temporary state45 trace with object `+0x38/+0x48` fields plus static pair-120 table dump | 25s | Built and timed out cleanly; table starts `[0]=0x0F00086C`, `[7]=0x0F000964`; helper-call snapshots showed resets with post-callback `obj48=7/0` and nonzero-looking `obj38` values | Need an inside-function trace for `ni_ovl_120_result_schedule_dispatch`; helper-entry snapshots occur after callback/table side effects |
 
 ## Open Questions
 
 - Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
 - Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
 - Which fields represent the current save-screen selection/cursor?
-- Which dispatcher/caller issues `object_curLevel_goToFunc(a2=0)` when parent `0x8031AFA4` reaches state `5`?
-- Why did direct wrappers for map_ovl_34 handlers (`save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, `save_screen_inner_state5_update`) not fire while main-code schedule-helper wrappers did?
+- Which pre-callback `obj+0x48` case under `ni_ovl_120_result_schedule_dispatch` returns nonzero and causes parent `0x8031AFA4` to reset from state `5` to `0`?
+- Why did direct wrappers for map_ovl_34 handlers (`save_screen_outer_dispatch`, `save_screen_schedule_dispatch`, `save_screen_outer_state4_bridge`, `save_screen_inner_state4_init`, `save_screen_inner_state5_update`) not fire while main-code schedule-helper wrappers did? Current lead: the active reset path is NI overlay pair 120 instead.
 - Is `data+0x50 == 0` in inner state 5 relevant to the tested path, or is the active loop driven by a different object/dispatcher?
 - Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
@@ -330,8 +335,4 @@ Only consider dependency cherry-picks if they directly affect:
 
 ## Current Next Step
 
-Work item `G4-001`: add a default-off generated-code trace patch for map_ovl_34 helper callsites
-through `tools/apply_patches.py`. The next question is not “can input move the screen?” (yes); it is
-which active caller resets parent `0x8031AFA4` from state `5` back to `0`, and why no exit
-state/main-code `gamestate_change(3)` path is selected. Do not add a gameplay skip or force a
-gamestate transition yet.
+Work item `G4-001`: decode NI overlay pair `120`'s callback/result path. The active caller that resets parent `0x8031AFA4` from state `5` back to `0` is known: `ni_ovl_120_result_schedule_dispatch+0x19C`. The immediate next trace should instrument inside that function to capture the pre-callback `obj+0x48`, callback target, callback `v0`, and post-write `obj+0x38`. Do not add a gameplay skip or force a gamestate transition yet.

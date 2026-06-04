@@ -182,6 +182,8 @@ atari_work_entry_tick      = 0x80040948; // type:func  // ticks single active po
 poolObject_tick            = 0x800409FC; // type:func  // NI per-frame update (clear/rebuild/pair-process)
 atari_work_post_update     = 0x80040A6C; // type:func  // post-update after all pool entries processed
 poolObject_complete        = 0x80041C54; // type:func  // pool object completion handler
+// NI overlay pair 120 (section-scoped; flat vram aliases other NI overlays)
+ni_ovl_120_result_schedule_dispatch = 0x0F000484; // type:func  // pair 120: runs result callback table and resets current schedule to 0 when result is nonzero
 
 // NI system handler / overlay_system lifecycle
 ni_system_handler          = 0x8001B9A0; // type:func  // NI system object handler (obj+0x10), increments sys+0x2B24
