@@ -8,7 +8,12 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 |---------|------|-------------|
 | 0x80000578 | GameStateMgr_execute | Root object manager — dispatches scene via scene_arg |
 | 0x800007B0 | scene_init | Scene init — writes scene_arg, calls scene loader |
-| 0x80001CE8 | object_curLevel_goToNextFunc | Advances object's state schedule |
+| 0x80001C20 | object_curLevel_goToNextFunc | Advances the current object schedule level |
+| 0x80001C9C | object_nextLevel_goToNextFunc | Advances the next object schedule level |
+| 0x80001CE8 | object_curLevel_goToNextFuncAndClearTimer | Advances the current object schedule level and clears its timer byte |
+| 0x80001D28 | object_curLevel_goToPrevFunc | Rewinds the current object schedule level |
+| 0x80001DA4 | object_nextLevel_goToPrevFunc | Rewinds the next object schedule level |
+| 0x80001E64 | object_curLevel_goToFuncInLevel | Jumps within the current object schedule level |
 | 0x8000224C | object_allocate | Allocates object struct (bzero 0x74 bytes) |
 | 0x80002410 | object_create | Creates object from template ID |
 | 0x80002808 | object_allocEntryInList | Allocates data in object's alloc_data[] array |
@@ -77,12 +82,26 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 ## Save Screen / map_ovl_34
 | Address | Name | Description |
 |---------|------|-------------|
+| 0x8001ACB0 | func_8001ACB0 | Main-code save/PFS state-table dispatcher; fans out through globals near `0x801D2908` |
+| 0x8001AF54 | func_8001AF54 | Main-code save/PFS state-table exit candidate; calls `gamestate_change(3)`, then `object_curLevel_goToNextFuncAndClearTimer` |
+| 0x8001AF90 | func_8001AF90 | Adjacent main-code save/PFS state-table handler; sets a save global, calls `0x80010558`, then advances schedule |
+| 0x8001AFF0 | func_8001AFF0 | Adjacent main-code save/PFS state-table handler; disables several objects/pointers and rewinds/advances via `0x80001C5C` |
+| 0x8001B0B4 | func_8001B0B4 | Adjacent main-code save/PFS state-table handler; re-enables objects, calls `0x80010558`, then advances schedule |
 | 0x802EBAF0 | save_screen_outer_dispatch | map_ovl_34 wrapper that dispatches the outer save-screen table at `0x802F7170` |
 | 0x802ECA84 | save_screen_schedule_dispatch | Outer-table state 2 wrapper that may dispatch the inner table at `0x802F71A8` |
 | 0x802ECF4C | save_screen_outer_state3_update | Outer-table state 3 handler; current fixed parent object reaches this state |
 | 0x802F7170 | save_screen_outer_state_table | map_ovl_34 data jump table used by `save_screen_outer_dispatch` |
 | 0x802F71A8 | save_screen_inner_state_table | map_ovl_34 data jump table used by `save_screen_schedule_dispatch` |
 | 0x802ED804 | save_screen_state3_update | Inner-table state 3 update handler |
+
+ROM scan note:
+
+- The sequence at ROM `0xB43C0` is a main-code save/PFS state schedule table:
+  `00090009 8001A63C 8001A6BC 8001A74C ... 8001ACB0 80010B40 8001AF54 800107F0
+  8001AF90 80010B40 8001AFF0 8001B0B4 ...`.
+- `func_8001AF54` is therefore a natural state-table target, not a standalone forced skip.
+- `G4-001E` tracing did not observe this table or `func_8001AF54` in the current
+  auto-input loop; the active tested path remained map_ovl_34 object scheduling.
 
 Decoded `save_screen_outer_state_table` entries from map_ovl_34 data:
 

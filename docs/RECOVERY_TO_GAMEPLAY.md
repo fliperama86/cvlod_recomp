@@ -71,6 +71,13 @@ Current evidence:
   - state advances `3 → 4 → 5 → 0`, then loops back through initialization;
   - PFS lookup/status paths run (`contpak_get_inserted_status`, `osPfsFindFile`);
   - gamestate still stays `gs=4`.
+- ROM scan found a main-code save/PFS state schedule table at ROM `0xB43C0`.
+  It contains `0x8001AF54`, which calls `gamestate_change(3)` and then advances the
+  object's current schedule level via `object_curLevel_goToNextFuncAndClearTimer`.
+- Temporary exit tracing (`LOD_ENABLE_SAVE_EXIT_TRACE=1`) proved the current tested
+  save-screen loop advances through `object_curLevel_goToNextFuncAndClearTimer`
+  (`0x80001CE8`) on objects around `0x8031AFA4`, but did not reach `0x8001AF54`
+  or the adjacent main-code table handlers in the auto-input path.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
@@ -84,6 +91,14 @@ Latest bounded traces (`G4-001`, 20s):
   - `Refreshed initial map_ovl_34 bytes: ROM 0x7EF5E0 → rdram+0x2E3B70 (91792 bytes)`
 - No `Failed to find function`, no `[CRASH]`, no auto-input, no handler-wrapper install in the default sample.
 - Temporary auto-input sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`) timed out cleanly and proved baked controller input reaches the game.
+- Temporary exit-trace sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) timed out cleanly in the first sample:
+  - wrappers installed for `0x80001C20`, `0x80001CE8`, `0x8001ACB0`, `0x8001AF54`,
+    `0x8001AF90`, `0x8001AFF0`, and `0x8001B0B4`;
+  - 40 traced `object_curLevel_goToNextFuncAndClearTimer` calls occurred for save-screen objects;
+  - no `0x8001AF54` exit-candidate hit and no adjacent main-code table-handler hit occurred;
+  - auto-input fired all three baked inputs and the screen looped `3 → 4 → 5 → 1 → 2 → 3`;
+  - no `Failed to find function` and no internal crash before the timeout signal.
+- A second loosened trace sample reproduced the same lack of main-code table/exit hits before an intermittent `SIGBUS` after the first baked `DPad-Down`; treat this as non-baseline until reproduced without temporary trace.
 - One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
 - Parent object at `0x8031AFA4`:
   - `state09=3`, `func_id=-1`, `dispatch_state=3`
@@ -99,17 +114,18 @@ Latest bounded traces (`G4-001`, 20s):
 
 Next action:
 
-1. Trace the actual object execution/dispatch path that advances the save-screen state bytes.
-   Current handler-wrapper probes can be enabled with `LOD_ENABLE_SAVE_HANDLER_TRACE=1`, but
-   previous samples installed the wrappers without observing `handler-entry`; the active path may
-   be the object/GSS slot scheduler rather than the named table handlers directly.
-2. Determine whether fixed parent `0x8031AFA4` is supposed to execute
+1. Focus the next trace on map_ovl_34 state handlers for states `4` and `5`, plus the
+   fields they read to decide whether to loop or transition.
+2. Determine why the tested loop does not reach the main-code `0x8001AF54`
+   `gamestate_change(3)` table target. Current evidence says this is either a different
+   branch/owner table or a later PFS/menu result not reached by the baked inputs.
+3. Determine whether fixed parent `0x8031AFA4` is supposed to execute
    `save_screen_outer_state3_update`, or whether it is only a container/sentinel and the real
    state owner is a nearby child object.
-3. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
+4. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
    save-screen object chain.
-4. Trace which field/button/PFS result should write the next gamestate after state `5`.
-5. Only after the owner/precondition issue is explained, decide whether PFS/input status is
+5. Trace which field/button/PFS result should write the next gamestate after state `5`.
+6. Only after the owner/precondition issue is explained, decide whether PFS/input status is
    blocking the transition or merely a symptom.
 
 ## Milestones
@@ -137,12 +153,13 @@ Questions to answer:
 
 Next recommended experiment:
 
-- Add the narrowest next trace around the object/GSS executor path:
-  - object pointer passed through `object_execute` / child-object execution;
+- Add the narrowest next trace around map_ovl_34 state `4`/`5` handlers and the
+  loop/exit decision fields:
   - state/function slots that drive objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, `0x8031B100`;
   - object `+0x24/+0x34/+0x70` writes before state `3`;
-  - whether `object_curLevel_goToNextFunc` is requested for save-screen states `3`, `4`, `5`, or `9`;
-  - which PFS/input result is supposed to leave `gs=4`.
+  - global PFS/menu decision fields read by outer-table states `4` and `5`;
+  - why state `5` advances back to state `0/1` instead of selecting an exit path;
+  - whether the main-code `0x8001AF54` table is an alternate branch or an unreachable intended exit.
 
 ### Milestone 2 — Burn Down or Justify Remaining Overrides
 
@@ -245,6 +262,7 @@ The current baseline keeps several old bring-up overrides default-on to preserve
 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS` | on | Dedicated compile combo passed with this disabled while `FUNC_8001D398` stayed enabled | Build/run with `=0` |
 | `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; tested and confirmed to move the save-screen state machine but not leave `gs=4` | Use only for explicit input-flow experiments |
 | `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe; default-off to avoid hiding dispatch bugs | Enable only for targeted handler-entry confirmation |
+| `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use to confirm whether `0x8001AF54` or adjacent table handlers are reached |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; should stay off by default | Use only to compare downstream behavior, never as permanent fix |
 
 ## Experiment Log
@@ -259,6 +277,8 @@ Record durable experiments here. Keep entries concise and technical.
 | G4-001B | default flags + initial `map_ovl_34` code/data alignment | 20s | Built; launched; no `Failed to find function`; save-screen state still reaches/polls parent dispatch state `3` | Overlay alignment is a real precondition fix, not a gameplay skip; remaining blocker is later state/owner/PFS flow |
 | G4-001C | temporary auto-input build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`; handler wrapper probe available as `LOD_ENABLE_SAVE_HANDLER_TRACE=1`) | 20s | Baked `Down`, `A`, `A` fired; state moved `3 → 4 → 5 → 0`; `contpak_get_inserted_status` and `osPfsFindFile` ran; game stayed `gs=4`; no handler-entry wrapper hits | Input is reaching the game; the menu/PFS path loops instead of transitioning, so the next target is the state owner/result that should leave `gs=4` |
 | G4-001D | sanitized default flags after gating auto-input and handler wrappers off | 20s | Build/run clean; init confirms `map_ovl_34`; no auto-input; no handler wrapper install; no missing-function crash; timeout stopped cleanly | Default baseline is clean while retaining optional probes for targeted experiments |
+| G4-001E | temporary exit-trace build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`, `LOD_ENABLE_SAVE_EXIT_TRACE=1`) | 20s | First sample timed out cleanly; wrappers installed; 40 `0x80001CE8` schedule advances logged for save-screen objects; no `0x8001AF54` or adjacent main-code table-handler hit; no missing function/crash before timeout | The active tested loop is map_ovl_34 object scheduling, not the main-code `gamestate_change(3)` table target |
+| G4-001F | same temporary exit-trace build with less-filtered table logs | <20s | Built; crashed with `SIGBUS` after first baked `DPad-Down`; before crash, still no main-code table-handler or `0x8001AF54` hit | Treat as trace-only/non-baseline until reproduced without temporary trace |
 
 ## Open Questions
 
@@ -268,6 +288,7 @@ Record durable experiments here. Keep entries concise and technical.
 - Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
 - Which function should write the next gamestate after a valid selection?
+- Is main-code `0x8001AF54` an alternate save/PFS branch, or is the current map_ovl_34 path failing to select it?
 - Are NI pairs `105 / 120 / 101` the expected idle loop for the save screen, or evidence of an overlay dispatch mismatch?
 
 ## Dependency Posture

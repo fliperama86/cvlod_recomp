@@ -20,6 +20,10 @@
 #define LOD_ENABLE_SAVE_HANDLER_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_SAVE_EXIT_TRACE
+#define LOD_ENABLE_SAVE_EXIT_TRACE 0
+#endif
+
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
 #define LOD_ENABLE_BOOT_GS_SKIP 0
 #endif
@@ -68,6 +72,9 @@ extern "C" void contpak_get_inserted_status(uint8_t* rdram, recomp_context* ctx)
 
 #if LOD_ENABLE_SAVE_HANDLER_TRACE
 static void lod_install_save_trace_wrappers(const char* reason);
+#endif
+#if LOD_ENABLE_SAVE_EXIT_TRACE
+static void lod_install_save_exit_trace_wrappers(const char* reason);
 #endif
 
 // ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
@@ -399,6 +406,21 @@ static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys) {
     return *(uint32_t*)(rdram + phys);
 }
 
+static int32_t lod_current_gamestate(uint8_t* rdram) {
+    constexpr uint32_t GSM_PTR_PHYS = 0x0C1520;
+    uint32_t gsm_addr = lod_rdram_u32(rdram, GSM_PTR_PHYS);
+    if (gsm_addr == 0) {
+        return 0;
+    }
+
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (!lod_rdram_range_ok(gsm_phys, 0x2C)) {
+        return 0;
+    }
+
+    return *(int32_t*)(rdram + gsm_phys + 0x24);
+}
+
 static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys) {
     if (!lod_rdram_range_ok(obj_phys, 0x10)) {
         return 255;
@@ -648,6 +670,232 @@ static void lod_install_save_trace_wrappers(const char* reason) {
 
 #endif
 
+#if LOD_ENABLE_SAVE_EXIT_TRACE
+static recomp_func_t* lod_orig_object_curLevel_goToNextFunc = nullptr;
+static recomp_func_t* lod_orig_object_curLevel_goToNextFuncAndClearTimer = nullptr;
+static recomp_func_t* lod_orig_func_8001ACB0 = nullptr;
+static recomp_func_t* lod_orig_func_8001AF54 = nullptr;
+static recomp_func_t* lod_orig_func_8001AF90 = nullptr;
+static recomp_func_t* lod_orig_func_8001AFF0 = nullptr;
+static recomp_func_t* lod_orig_func_8001B0B4 = nullptr;
+
+static bool lod_save_trace_object_interesting(uint32_t obj_phys) {
+    return obj_phys >= 0x31A000 && obj_phys < 0x31D000;
+}
+
+static void lod_trace_save_schedule_advance(uint8_t* rdram, recomp_context* ctx,
+                                            const char* label, uint32_t vram,
+                                            int* counter, recomp_func_t* original) {
+    uint32_t schedule_addr = (uint32_t)ctx->r4;
+    uint32_t function_id_addr = (uint32_t)ctx->r5;
+    uint32_t obj_phys = (schedule_addr - 0x08) & 0x1FFFFFFF;
+    int32_t gs = lod_current_gamestate(rdram);
+    bool obj_ok = lod_rdram_range_ok(obj_phys, 0x74);
+    bool should_log = gs == 4 && obj_ok && lod_save_trace_object_interesting(obj_phys);
+
+    uint8_t before_dispatch = 255;
+    int16_t before_func_id = 0;
+    uint8_t before_sched[6] = {};
+    if (should_log) {
+        (*counter)++;
+        before_dispatch = lod_object_dispatch_state(rdram, obj_phys);
+        before_func_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+        for (int i = 0; i < 6; i++) {
+            before_sched[i] = lod_rdram_u8(rdram, obj_phys + 0x08 + i);
+        }
+
+        if (*counter <= 80 || (*counter % 240) == 0) {
+            fprintf(stderr,
+                "[SAVE-EXIT] state-advance-enter %s #%d vram=0x%08X gs=%d obj=0x%08X "
+                "a0=0x%08X a1=0x%08X func_id=%d dispatch_state=%u "
+                "sched=%02X,%02X,%02X,%02X,%02X,%02X ra=0x%08X\n",
+                label, *counter, vram, gs, obj_phys | 0x80000000,
+                schedule_addr, function_id_addr, before_func_id, before_dispatch,
+                before_sched[0], before_sched[1], before_sched[2],
+                before_sched[3], before_sched[4], before_sched[5],
+                (uint32_t)ctx->r31);
+        }
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (should_log && (*counter <= 80 || (*counter % 240) == 0)) {
+        uint8_t after_dispatch = lod_object_dispatch_state(rdram, obj_phys);
+        int16_t after_func_id = lod_rdram_s16(rdram, obj_phys + 0x0E);
+        uint8_t after_sched[6] = {};
+        for (int i = 0; i < 6; i++) {
+            after_sched[i] = lod_rdram_u8(rdram, obj_phys + 0x08 + i);
+        }
+
+        fprintf(stderr,
+            "[SAVE-EXIT] state-advance-exit  %s #%d gs=%d obj=0x%08X "
+            "func_id=%d->%d dispatch_state=%u->%u "
+            "sched=%02X,%02X,%02X,%02X,%02X,%02X -> %02X,%02X,%02X,%02X,%02X,%02X\n",
+            label, *counter, lod_current_gamestate(rdram), obj_phys | 0x80000000,
+            before_func_id, after_func_id, before_dispatch, after_dispatch,
+            before_sched[0], before_sched[1], before_sched[2],
+            before_sched[3], before_sched[4], before_sched[5],
+            after_sched[0], after_sched[1], after_sched[2],
+            after_sched[3], after_sched[4], after_sched[5]);
+    }
+}
+
+static void lod_trace_save_table_handler(uint8_t* rdram, recomp_context* ctx,
+                                         const char* label, uint32_t vram,
+                                         int* counter, recomp_func_t* original) {
+    uint32_t obj_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    int32_t gs = lod_current_gamestate(rdram);
+    bool obj_ok = lod_rdram_range_ok(obj_phys, 0x74);
+    (*counter)++;
+    bool should_log = *counter <= 24 ||
+        (gs == 4 && obj_ok && lod_save_trace_object_interesting(obj_phys));
+
+    if (should_log) {
+        if (*counter <= 80 || (*counter % 240) == 0) {
+            fprintf(stderr,
+                "[SAVE-EXIT] table-handler-enter %s #%d vram=0x%08X gs=%d obj=0x%08X "
+                "%sdispatch_state=%u func_id=%d a0=0x%08X ra=0x%08X\n",
+                label, *counter, vram, gs, obj_phys | 0x80000000,
+                obj_ok ? "" : "(invalid) ",
+                obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 255,
+                obj_ok ? lod_rdram_s16(rdram, obj_phys + 0x0E) : 0,
+                obj_addr, (uint32_t)ctx->r31);
+            if (obj_ok) {
+                lod_dump_save_state_context(rdram, *counter, label, obj_phys, "table-handler-enter");
+            }
+        }
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+}
+
+static void lod_trace_save_exit_to_gs3_candidate(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    uint32_t obj_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    int32_t before_gs = lod_current_gamestate(rdram);
+    bool obj_ok = lod_rdram_range_ok(obj_phys, 0x74);
+    count++;
+    bool should_log = count <= 12 || (before_gs == 4 && obj_ok);
+
+    if (should_log) {
+        fprintf(stderr,
+            "[SAVE-EXIT] exit-candidate-enter save_exit_to_gs3 #%d vram=0x8001AF54 gs=%d "
+            "obj=0x%08X %sdispatch_state=%u func_id=%d a0=0x%08X ra=0x%08X\n",
+            count, before_gs, obj_phys | 0x80000000,
+            obj_ok ? "" : "(invalid) ",
+            obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 255,
+            obj_ok ? lod_rdram_s16(rdram, obj_phys + 0x0E) : 0,
+            obj_addr, (uint32_t)ctx->r31);
+        if (obj_ok) {
+            lod_dump_save_state_context(rdram, count, "save_exit_to_gs3", obj_phys, "before");
+        }
+    }
+
+    if (lod_orig_func_8001AF54 != nullptr) {
+        lod_orig_func_8001AF54(rdram, ctx);
+    }
+
+    if (should_log) {
+        fprintf(stderr,
+            "[SAVE-EXIT] exit-candidate-exit  save_exit_to_gs3 #%d gs=%d->%d obj=0x%08X "
+            "%sdispatch_state=%u func_id=%d\n",
+            count, before_gs, lod_current_gamestate(rdram), obj_phys | 0x80000000,
+            obj_ok ? "" : "(invalid) ",
+            obj_ok ? lod_object_dispatch_state(rdram, obj_phys) : 255,
+            obj_ok ? lod_rdram_s16(rdram, obj_phys + 0x0E) : 0);
+        if (obj_ok) {
+            lod_dump_save_state_context(rdram, count, "save_exit_to_gs3", obj_phys, "after");
+        }
+    }
+}
+
+static void lod_trace_object_curLevel_goToNextFunc(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_schedule_advance(rdram, ctx, "object_curLevel_goToNextFunc",
+        0x80001C20, &count, lod_orig_object_curLevel_goToNextFunc);
+}
+
+static void lod_trace_object_curLevel_goToNextFuncAndClearTimer(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_schedule_advance(rdram, ctx, "object_curLevel_goToNextFuncAndClearTimer",
+        0x80001CE8, &count, lod_orig_object_curLevel_goToNextFuncAndClearTimer);
+}
+
+static void lod_trace_func_8001ACB0(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_table_handler(rdram, ctx, "save_state_table_8001ACB0",
+        0x8001ACB0, &count, lod_orig_func_8001ACB0);
+}
+
+static void lod_trace_func_8001AF90(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_table_handler(rdram, ctx, "save_state_table_8001AF90",
+        0x8001AF90, &count, lod_orig_func_8001AF90);
+}
+
+static void lod_trace_func_8001AFF0(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_table_handler(rdram, ctx, "save_state_table_8001AFF0",
+        0x8001AFF0, &count, lod_orig_func_8001AFF0);
+}
+
+static void lod_trace_func_8001B0B4(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_table_handler(rdram, ctx, "save_state_table_8001B0B4",
+        0x8001B0B4, &count, lod_orig_func_8001B0B4);
+}
+
+static void lod_install_save_exit_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_save_exit_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_save_exit_trace_wrapper(0x80001C20, lod_trace_object_curLevel_goToNextFunc,
+        &lod_orig_object_curLevel_goToNextFunc);
+    lod_install_save_exit_trace_wrapper(0x80001CE8, lod_trace_object_curLevel_goToNextFuncAndClearTimer,
+        &lod_orig_object_curLevel_goToNextFuncAndClearTimer);
+    lod_install_save_exit_trace_wrapper(0x8001ACB0, lod_trace_func_8001ACB0,
+        &lod_orig_func_8001ACB0);
+    lod_install_save_exit_trace_wrapper(0x8001AF54, lod_trace_save_exit_to_gs3_candidate,
+        &lod_orig_func_8001AF54);
+    lod_install_save_exit_trace_wrapper(0x8001AF90, lod_trace_func_8001AF90,
+        &lod_orig_func_8001AF90);
+    lod_install_save_exit_trace_wrapper(0x8001AFF0, lod_trace_func_8001AFF0,
+        &lod_orig_func_8001AFF0);
+    lod_install_save_exit_trace_wrapper(0x8001B0B4, lod_trace_func_8001B0B4,
+        &lod_orig_func_8001B0B4);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+            "[SAVE-EXIT] installed save exit trace wrappers #%d reason=%s originals "
+            "cur_next=%p cur_next_clear=%p acb0=%p af54=%p af90=%p aff0=%p b0b4=%p\n",
+            install_count, reason,
+            (void*)lod_orig_object_curLevel_goToNextFunc,
+            (void*)lod_orig_object_curLevel_goToNextFuncAndClearTimer,
+            (void*)lod_orig_func_8001ACB0,
+            (void*)lod_orig_func_8001AF54,
+            (void*)lod_orig_func_8001AF90,
+            (void*)lod_orig_func_8001AFF0,
+            (void*)lod_orig_func_8001B0B4);
+    }
+}
+
+#endif
+
 void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     int32_t direction = (int32_t)ctx->r4;
     uint32_t dram_addr = (uint32_t)ctx->r5;
@@ -659,6 +907,13 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     if (!save_trace_wrappers_installed) {
         lod_install_save_trace_wrappers("si-lazy-init");
         save_trace_wrappers_installed = true;
+    }
+#endif
+#if LOD_ENABLE_SAVE_EXIT_TRACE
+    static bool save_exit_trace_wrappers_installed = false;
+    if (!save_exit_trace_wrappers_installed) {
+        lod_install_save_exit_trace_wrappers("si-lazy-init");
+        save_exit_trace_wrappers_installed = true;
     }
 #endif
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
