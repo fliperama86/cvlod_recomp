@@ -6,7 +6,6 @@
  */
 
 #include <cstdint>
-#include <cstdio>
 #include <unordered_map>
 #include "recomp.h"
 #include "funcs.h"
@@ -14,8 +13,10 @@
 // Function lookup table
 static std::unordered_map<int32_t, recomp_func_t*> g_function_table;
 
+// Debug flag for tracing function lookups
+static bool g_trace_lookups = true;
+
 // Forward declarations for all recompiled functions
-extern "C" void game_main(uint8_t* rdram, recomp_context* ctx);  // main() at 0x80018678
 extern "C" void func_80000460(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8000053C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80000578(uint8_t* rdram, recomp_context* ctx);
@@ -428,6 +429,7 @@ extern "C" void D_80011B30(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80011BE4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80011C10(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80011CB8(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80011D00(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80011D10(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80011D80(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80011E48(uint8_t* rdram, recomp_context* ctx);
@@ -545,6 +547,7 @@ extern "C" void func_800159F8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015A40(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015A88(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015AA0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80015AB0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015AB8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015B0C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80015B18(uint8_t* rdram, recomp_context* ctx);
@@ -1102,6 +1105,7 @@ extern "C" void func_8003FB08(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FB10(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FB18(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FB70(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8003FBB0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FC60(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FD28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8003FDF0(uint8_t* rdram, recomp_context* ctx);
@@ -1117,6 +1121,7 @@ extern "C" void func_800402E4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800403C0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800404D0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80040524(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80040570(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80040580(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80040628(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80040694(uint8_t* rdram, recomp_context* ctx);
@@ -1179,6 +1184,7 @@ extern "C" void func_80045010(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80045080(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80045084(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80045388(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80045540(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80045550(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80045554(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80045564(uint8_t* rdram, recomp_context* ctx);
@@ -1695,6 +1701,7 @@ extern "C" void func_80069AE8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069B28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069D0C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069D3C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80069D90(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069DA0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069E04(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80069FC4(uint8_t* rdram, recomp_context* ctx);
@@ -1735,6 +1742,7 @@ extern "C" void func_8006F404(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8006F42C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8006F460(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8006F62C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8006F860(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8006F86C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8006F878(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8006F8C8(uint8_t* rdram, recomp_context* ctx);
@@ -1862,10 +1870,8 @@ extern "C" void func_8007FCF0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8007FEB0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8007FF20(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8007FF68(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_8007FFC0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80080000(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80080018(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_800802B0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_800802BC(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80080370(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80080620(uint8_t* rdram, recomp_context* ctx);
@@ -1887,7 +1893,6 @@ extern "C" void func_80080EF0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80081200(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80081210(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008121C(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_800812C0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008134C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80081410(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80081440(uint8_t* rdram, recomp_context* ctx);
@@ -1906,16 +1911,17 @@ extern "C" void func_80081C80(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80081C84(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80081CFC(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80081D00(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80081D80(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80081D88(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80081ECC(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800820D0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80082178(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008217C(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80082390(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008239C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800823AC(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008246C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80082490(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_800824A0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_800824A8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800824B0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_800824BC(uint8_t* rdram, recomp_context* ctx);
@@ -1956,14 +1962,15 @@ extern "C" void D_80082EC4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80082ECC(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80082FE0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083008(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_80083120(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083190(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800832F0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80083560(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80083564(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800835D0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083864(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083908(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800839A4(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_800839E0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80083A84(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083A94(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80083B10(uint8_t* rdram, recomp_context* ctx);
@@ -1996,6 +2003,7 @@ extern "C" void func_800843F0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008440C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80084410(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_800844C0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_800844C4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_800844C8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_800844D8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008454C(uint8_t* rdram, recomp_context* ctx);
@@ -2062,6 +2070,7 @@ extern "C" void func_80088C70(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80088D20(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80088D48(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80088D50(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_80088D54(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80088D90(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80088DA0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80088FD4(uint8_t* rdram, recomp_context* ctx);
@@ -2086,6 +2095,7 @@ extern "C" void func_80089EC0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80089EF0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80089F5C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80089FA0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008A040(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008A100(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008A104(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008A160(uint8_t* rdram, recomp_context* ctx);
@@ -2102,7 +2112,6 @@ extern "C" void func_8008A530(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008A588(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008A58C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008A600(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_8008A690(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008A6C8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008A6E0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008AA10(uint8_t* rdram, recomp_context* ctx);
@@ -2133,7 +2142,6 @@ extern "C" void func_8008BBF4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008BC28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008BCE0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008BCE8(uint8_t* rdram, recomp_context* ctx);
-extern "C" void func_8008BD70(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008BD74(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008BDA8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008BE10(uint8_t* rdram, recomp_context* ctx);
@@ -2149,8 +2157,10 @@ extern "C" void D_8008C1F4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008C208(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008C2D4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008C350(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008C358(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008C380(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C3D0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008C550(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C55C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C568(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008C574(uint8_t* rdram, recomp_context* ctx);
@@ -2236,6 +2246,7 @@ extern "C" void func_8008F62C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008F658(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008F680(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008F860(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008F890(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008F984(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008F9E0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FA00(uint8_t* rdram, recomp_context* ctx);
@@ -2247,7 +2258,9 @@ extern "C" void func_8008FAE0(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FAE8(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FB08(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008FB60(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008FB64(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FB68(uint8_t* rdram, recomp_context* ctx);
+extern "C" void L_8008FB70(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8008FC20(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FC28(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_8008FC44(uint8_t* rdram, recomp_context* ctx);
@@ -2583,6 +2596,7 @@ extern "C" void func_80146F40(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80147384(uint8_t* rdram, recomp_context* ctx);
 extern "C" void D_80147484(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_801474F0(uint8_t* rdram, recomp_context* ctx);
+extern "C" void static_7_80147584(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_801475A4(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_8014763C(uint8_t* rdram, recomp_context* ctx);
 extern "C" void func_80147690(uint8_t* rdram, recomp_context* ctx);
@@ -3435,7 +3449,7 @@ extern "C" void static_7_8018F634(uint8_t* rdram, recomp_context* ctx);
 
 void init_function_table() {
     g_function_table.clear();
-    g_function_table.reserve(3416);
+    g_function_table.reserve(3429);
 
     g_function_table[0x80000460] = func_80000460;
     g_function_table[0x8000053C] = func_8000053C;
@@ -3849,6 +3863,7 @@ void init_function_table() {
     g_function_table[0x80011BE4] = D_80011BE4;
     g_function_table[0x80011C10] = func_80011C10;
     g_function_table[0x80011CB8] = func_80011CB8;
+    g_function_table[0x80011D00] = L_80011D00;
     g_function_table[0x80011D10] = func_80011D10;
     g_function_table[0x80011D80] = func_80011D80;
     g_function_table[0x80011E48] = func_80011E48;
@@ -3966,6 +3981,7 @@ void init_function_table() {
     g_function_table[0x80015A40] = func_80015A40;
     g_function_table[0x80015A88] = func_80015A88;
     g_function_table[0x80015AA0] = func_80015AA0;
+    g_function_table[0x80015AB0] = L_80015AB0;
     g_function_table[0x80015AB8] = func_80015AB8;
     g_function_table[0x80015B0C] = func_80015B0C;
     g_function_table[0x80015B18] = func_80015B18;
@@ -4076,7 +4092,6 @@ void init_function_table() {
     g_function_table[0x800183A0] = static_5_800183A0;
     g_function_table[0x800183C0] = func_800183C0;
     g_function_table[0x800184E0] = func_800184E0;
-    g_function_table[0x80018678] = game_main;  // The main() function
     g_function_table[0x80018740] = func_80018740;
     g_function_table[0x8001875C] = func_8001875C;
     g_function_table[0x80018764] = func_80018764;
@@ -4524,6 +4539,7 @@ void init_function_table() {
     g_function_table[0x8003FB10] = func_8003FB10;
     g_function_table[0x8003FB18] = func_8003FB18;
     g_function_table[0x8003FB70] = func_8003FB70;
+    g_function_table[0x8003FBB0] = L_8003FBB0;
     g_function_table[0x8003FC60] = func_8003FC60;
     g_function_table[0x8003FD28] = func_8003FD28;
     g_function_table[0x8003FDF0] = func_8003FDF0;
@@ -4539,6 +4555,7 @@ void init_function_table() {
     g_function_table[0x800403C0] = func_800403C0;
     g_function_table[0x800404D0] = func_800404D0;
     g_function_table[0x80040524] = func_80040524;
+    g_function_table[0x80040570] = L_80040570;
     g_function_table[0x80040580] = func_80040580;
     g_function_table[0x80040628] = func_80040628;
     g_function_table[0x80040694] = func_80040694;
@@ -4601,6 +4618,7 @@ void init_function_table() {
     g_function_table[0x80045080] = func_80045080;
     g_function_table[0x80045084] = func_80045084;
     g_function_table[0x80045388] = func_80045388;
+    g_function_table[0x80045540] = L_80045540;
     g_function_table[0x80045550] = D_80045550;
     g_function_table[0x80045554] = D_80045554;
     g_function_table[0x80045564] = func_80045564;
@@ -5117,6 +5135,7 @@ void init_function_table() {
     g_function_table[0x80069B28] = func_80069B28;
     g_function_table[0x80069D0C] = func_80069D0C;
     g_function_table[0x80069D3C] = func_80069D3C;
+    g_function_table[0x80069D90] = L_80069D90;
     g_function_table[0x80069DA0] = func_80069DA0;
     g_function_table[0x80069E04] = func_80069E04;
     g_function_table[0x80069FC4] = func_80069FC4;
@@ -5157,6 +5176,7 @@ void init_function_table() {
     g_function_table[0x8006F42C] = func_8006F42C;
     g_function_table[0x8006F460] = func_8006F460;
     g_function_table[0x8006F62C] = func_8006F62C;
+    g_function_table[0x8006F860] = L_8006F860;
     g_function_table[0x8006F86C] = D_8006F86C;
     g_function_table[0x8006F878] = D_8006F878;
     g_function_table[0x8006F8C8] = func_8006F8C8;
@@ -5284,10 +5304,8 @@ void init_function_table() {
     g_function_table[0x8007FEB0] = func_8007FEB0;
     g_function_table[0x8007FF20] = func_8007FF20;
     g_function_table[0x8007FF68] = D_8007FF68;
-    g_function_table[0x8007FFC0] = func_8007FFC0;
     g_function_table[0x80080000] = D_80080000;
     g_function_table[0x80080018] = D_80080018;
-    g_function_table[0x800802B0] = func_800802B0;
     g_function_table[0x800802BC] = D_800802BC;
     g_function_table[0x80080370] = func_80080370;
     g_function_table[0x80080620] = D_80080620;
@@ -5309,7 +5327,6 @@ void init_function_table() {
     g_function_table[0x80081200] = func_80081200;
     g_function_table[0x80081210] = D_80081210;
     g_function_table[0x8008121C] = D_8008121C;
-    g_function_table[0x800812C0] = func_800812C0;
     g_function_table[0x8008134C] = D_8008134C;
     g_function_table[0x80081410] = func_80081410;
     g_function_table[0x80081440] = D_80081440;
@@ -5328,16 +5345,17 @@ void init_function_table() {
     g_function_table[0x80081C84] = D_80081C84;
     g_function_table[0x80081CFC] = func_80081CFC;
     g_function_table[0x80081D00] = func_80081D00;
-    g_function_table[0x80081D80] = func_80081D80;
     g_function_table[0x80081D88] = D_80081D88;
     g_function_table[0x80081ECC] = func_80081ECC;
     g_function_table[0x800820D0] = func_800820D0;
     g_function_table[0x80082178] = D_80082178;
     g_function_table[0x8008217C] = D_8008217C;
+    g_function_table[0x80082390] = L_80082390;
     g_function_table[0x8008239C] = D_8008239C;
     g_function_table[0x800823AC] = func_800823AC;
     g_function_table[0x8008246C] = D_8008246C;
     g_function_table[0x80082490] = func_80082490;
+    g_function_table[0x800824A0] = L_800824A0;
     g_function_table[0x800824A8] = D_800824A8;
     g_function_table[0x800824B0] = func_800824B0;
     g_function_table[0x800824BC] = D_800824BC;
@@ -5378,14 +5396,15 @@ void init_function_table() {
     g_function_table[0x80082ECC] = func_80082ECC;
     g_function_table[0x80082FE0] = func_80082FE0;
     g_function_table[0x80083008] = func_80083008;
-    g_function_table[0x80083120] = func_80083120;
     g_function_table[0x80083190] = func_80083190;
     g_function_table[0x800832F0] = func_800832F0;
+    g_function_table[0x80083560] = L_80083560;
     g_function_table[0x80083564] = D_80083564;
     g_function_table[0x800835D0] = func_800835D0;
     g_function_table[0x80083864] = func_80083864;
     g_function_table[0x80083908] = func_80083908;
     g_function_table[0x800839A4] = func_800839A4;
+    g_function_table[0x800839E0] = L_800839E0;
     g_function_table[0x80083A84] = D_80083A84;
     g_function_table[0x80083A94] = func_80083A94;
     g_function_table[0x80083B10] = func_80083B10;
@@ -5418,6 +5437,7 @@ void init_function_table() {
     g_function_table[0x8008440C] = D_8008440C;
     g_function_table[0x80084410] = D_80084410;
     g_function_table[0x800844C0] = func_800844C0;
+    g_function_table[0x800844C4] = L_800844C4;
     g_function_table[0x800844C8] = D_800844C8;
     g_function_table[0x800844D8] = D_800844D8;
     g_function_table[0x8008454C] = D_8008454C;
@@ -5484,6 +5504,7 @@ void init_function_table() {
     g_function_table[0x80088D20] = func_80088D20;
     g_function_table[0x80088D48] = D_80088D48;
     g_function_table[0x80088D50] = func_80088D50;
+    g_function_table[0x80088D54] = L_80088D54;
     g_function_table[0x80088D90] = func_80088D90;
     g_function_table[0x80088DA0] = D_80088DA0;
     g_function_table[0x80088FD4] = D_80088FD4;
@@ -5508,6 +5529,7 @@ void init_function_table() {
     g_function_table[0x80089EF0] = func_80089EF0;
     g_function_table[0x80089F5C] = func_80089F5C;
     g_function_table[0x80089FA0] = func_80089FA0;
+    g_function_table[0x8008A040] = L_8008A040;
     g_function_table[0x8008A100] = func_8008A100;
     g_function_table[0x8008A104] = D_8008A104;
     g_function_table[0x8008A160] = func_8008A160;
@@ -5524,7 +5546,6 @@ void init_function_table() {
     g_function_table[0x8008A588] = D_8008A588;
     g_function_table[0x8008A58C] = D_8008A58C;
     g_function_table[0x8008A600] = func_8008A600;
-    g_function_table[0x8008A690] = func_8008A690;
     g_function_table[0x8008A6C8] = D_8008A6C8;
     g_function_table[0x8008A6E0] = func_8008A6E0;
     g_function_table[0x8008AA10] = func_8008AA10;
@@ -5555,7 +5576,6 @@ void init_function_table() {
     g_function_table[0x8008BC28] = func_8008BC28;
     g_function_table[0x8008BCE0] = func_8008BCE0;
     g_function_table[0x8008BCE8] = D_8008BCE8;
-    g_function_table[0x8008BD70] = func_8008BD70;
     g_function_table[0x8008BD74] = func_8008BD74;
     g_function_table[0x8008BDA8] = D_8008BDA8;
     g_function_table[0x8008BE10] = D_8008BE10;
@@ -5571,8 +5591,10 @@ void init_function_table() {
     g_function_table[0x8008C208] = func_8008C208;
     g_function_table[0x8008C2D4] = func_8008C2D4;
     g_function_table[0x8008C350] = func_8008C350;
+    g_function_table[0x8008C358] = L_8008C358;
     g_function_table[0x8008C380] = func_8008C380;
     g_function_table[0x8008C3D0] = D_8008C3D0;
+    g_function_table[0x8008C550] = L_8008C550;
     g_function_table[0x8008C55C] = D_8008C55C;
     g_function_table[0x8008C568] = D_8008C568;
     g_function_table[0x8008C574] = D_8008C574;
@@ -5658,6 +5680,7 @@ void init_function_table() {
     g_function_table[0x8008F658] = D_8008F658;
     g_function_table[0x8008F680] = func_8008F680;
     g_function_table[0x8008F860] = func_8008F860;
+    g_function_table[0x8008F890] = L_8008F890;
     g_function_table[0x8008F984] = D_8008F984;
     g_function_table[0x8008F9E0] = func_8008F9E0;
     g_function_table[0x8008FA00] = D_8008FA00;
@@ -5669,7 +5692,9 @@ void init_function_table() {
     g_function_table[0x8008FAE8] = D_8008FAE8;
     g_function_table[0x8008FB08] = D_8008FB08;
     g_function_table[0x8008FB60] = func_8008FB60;
+    g_function_table[0x8008FB64] = L_8008FB64;
     g_function_table[0x8008FB68] = D_8008FB68;
+    g_function_table[0x8008FB70] = L_8008FB70;
     g_function_table[0x8008FC20] = func_8008FC20;
     g_function_table[0x8008FC28] = D_8008FC28;
     g_function_table[0x8008FC44] = D_8008FC44;
@@ -6005,6 +6030,7 @@ void init_function_table() {
     g_function_table[0x80147384] = func_80147384;
     g_function_table[0x80147484] = D_80147484;
     g_function_table[0x801474F0] = func_801474F0;
+    g_function_table[0x80147584] = static_7_80147584;
     g_function_table[0x801475A4] = func_801475A4;
     g_function_table[0x8014763C] = func_8014763C;
     g_function_table[0x80147690] = func_80147690;
@@ -6856,9 +6882,6 @@ void init_function_table() {
     g_function_table[0x8018F634] = static_7_8018F634;
 }
 
-// Debug flag for tracing function lookups
-static bool g_trace_lookups = true;
-
 recomp_func_t* cvlod_get_function(int32_t vram) {
     auto it = g_function_table.find(vram);
     if (it != g_function_table.end()) {
@@ -6890,4 +6913,26 @@ void set_libultra_wrapper(int32_t vram, recomp_func_t* wrapper) {
 // Disable/enable function lookup tracing
 void set_trace_lookups(bool enable) {
     g_trace_lookups = enable;
+}
+
+// Add address aliases for thread entry points
+// The ELF symbol addresses don't match the actual code addresses in the ROM
+// There's a 0xEA0 offset between them
+void add_address_aliases() {
+    printf("Adding address aliases for thread entry points...\n");
+    
+    // 0x800186DC -> func_8001783C (idle thread entry)
+    // 0x80018770 -> func_800178D0 (main thread entry)
+    
+    recomp_func_t* idle_entry = cvlod_get_function(0x8001783C);
+    if (idle_entry) {
+        printf("  0x800186DC -> func_8001783C (idle thread entry)\n");
+        g_function_table[0x800186DC] = idle_entry;
+    }
+    
+    recomp_func_t* main_entry = cvlod_get_function(0x800178D0);
+    if (main_entry) {
+        printf("  0x80018770 -> func_800178D0 (main thread entry)\n");
+        g_function_table[0x80018770] = main_entry;
+    }
 }

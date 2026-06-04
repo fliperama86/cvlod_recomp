@@ -18,8 +18,8 @@ def parse_funcs_header(header_path: Path) -> list[tuple[str, int]]:
         content = f.read()
 
     # Match function declarations: void func_XXXXXXXX(...)
-    # Also match D_XXXXXXXX and static_N_XXXXXXXX patterns
-    pattern = r'^void\s+((?:func_|D_|static_\d+_)([0-9A-Fa-f]{8}))\s*\('
+    # Also match D_XXXXXXXX, static_N_XXXXXXXX, and L_XXXXXXXX patterns
+    pattern = r'^void\s+((?:func_|D_|static_\d+_|L_)([0-9A-Fa-f]{8}))\s*\('
 
     for line in content.split('\n'):
         match = re.match(pattern, line.strip())
@@ -56,6 +56,9 @@ def generate_cpp(functions: list[tuple[str, int]], output_path: Path):
 // Function lookup table
 static std::unordered_map<int32_t, recomp_func_t*> g_function_table;
 
+// Debug flag for tracing function lookups
+static bool g_trace_lookups = true;
+
 // Forward declarations for all recompiled functions
 ''')
 
@@ -79,6 +82,9 @@ void init_function_table() {
 recomp_func_t* cvlod_get_function(int32_t vram) {
     auto it = g_function_table.find(vram);
     if (it != g_function_table.end()) {
+        if (g_trace_lookups) {
+            printf("[LOOKUP] 0x%08X -> found\\n", (uint32_t)vram);
+        }
         return it->second;
     }
 
@@ -86,7 +92,46 @@ recomp_func_t* cvlod_get_function(int32_t vram) {
     // 1. A stubbed function
     // 2. A function we missed during recompilation
     // 3. An invalid address
+    printf("[LOOKUP] 0x%08X -> NOT FOUND!\\n", (uint32_t)vram);
     return nullptr;
+}
+
+// Set a libultra wrapper function, overriding the stubbed recompiled version
+void set_libultra_wrapper(int32_t vram, recomp_func_t* wrapper) {
+    auto it = g_function_table.find(vram);
+    if (it != g_function_table.end()) {
+        printf("[WRAPPER] Replacing function at 0x%08X\\n", (uint32_t)vram);
+    } else {
+        printf("[WRAPPER] Adding function at 0x%08X\\n", (uint32_t)vram);
+    }
+    g_function_table[vram] = wrapper;
+}
+
+// Disable/enable function lookup tracing
+void set_trace_lookups(bool enable) {
+    g_trace_lookups = enable;
+}
+
+// Add address aliases for thread entry points
+// The ELF symbol addresses don't match the actual code addresses in the ROM
+// There's a 0xEA0 offset between them
+void add_address_aliases() {
+    printf("Adding address aliases for thread entry points...\\n");
+    
+    // 0x800186DC -> func_8001783C (idle thread entry)
+    // 0x80018770 -> func_800178D0 (main thread entry)
+    
+    recomp_func_t* idle_entry = cvlod_get_function(0x8001783C);
+    if (idle_entry) {
+        printf("  0x800186DC -> func_8001783C (idle thread entry)\\n");
+        g_function_table[0x800186DC] = idle_entry;
+    }
+    
+    recomp_func_t* main_entry = cvlod_get_function(0x800178D0);
+    if (main_entry) {
+        printf("  0x80018770 -> func_800178D0 (main thread entry)\\n");
+        g_function_table[0x80018770] = main_entry;
+    }
 }
 ''')
 

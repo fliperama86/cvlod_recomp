@@ -30,3 +30,5 @@ asm/
 
 # CMake build
 cmake-build/
+
+tmp/

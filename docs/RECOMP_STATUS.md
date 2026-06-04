@@ -3,51 +3,104 @@
 ## Project Goal
 Recompile **Castlevania: Legacy of Darkness (N64)** into a native executable using **N64Recomp**.
 
-## Current Phase: Automated Iterative Recompilation
-We are currently bypassing low-level hardware implementation hurdles to reach a "Baseline Build" where the majority of the game logic (16,000+ functions) is successfully converted.
+## Current Phase: Runtime Integration
 
-### 🛠️ Technical Achievements
-1.  **Segment Reconstruction**: Fully mapped the `main` and `common` segments using detailed metadata.
-2.  **Relocation Patching**: Implemented a heuristic patcher to fix "Relocation truncated to fit" errors.
-3.  **Symbol Auto-Discovery**: Automated the definition of undefined symbols (`D_80xxxxxx`).
-4.  **Hardware Instruction Stubbing**: Implemented a comprehensive scanner (`scan_stubs.py`) that pre-emptively identifies and stubs functions containing instructions unsupported by `N64Recomp` (e.g., `mfc0`, `cache`, `tlb`, `eret`).
+### Status Summary (January 2026)
+| Component | Status |
+| :--- | :--- |
+| ROM Disassembly | Complete |
+| Static Recompilation | Complete (3,437 functions) |
+| Runtime Skeleton | Complete |
+| RT64 Graphics Init | **Working** |
+| Game Thread System | **Working** |
+| VI Thread | **Working** (60Hz update_screen calls) |
+| Graphics Rendering | Pending (no display lists yet) |
+| Audio | Not integrated |
+| Input | Not integrated |
 
-### 🤖 Automation Pipeline: Self-Healing Build System 2.0
-We have a robust, optimized pipeline that automatically detects errors, fixes them, and retries until success.
+### Recent Breakthrough
+RT64 graphics backend now initializes successfully on macOS with Metal:
+- SDL window creation
+- RT64::Application setup
+- VI thread running at ~60Hz
+- Game threads (idle + main) created and started correctly
+
+### Technical Achievements
+1. **Segment Reconstruction**: Fully mapped the `main` and `common` segments using detailed metadata.
+2. **Relocation Patching**: Implemented a heuristic patcher to fix "Relocation truncated to fit" errors.
+3. **Symbol Auto-Discovery**: Automated the definition of undefined symbols (`D_80xxxxxx`).
+4. **Hardware Instruction Stubbing**: Pre-emptive scanner identifies and stubs functions with unsupported instructions.
+5. **Zelda-Style Hijacking**: Direct symbol overrides for `libultra` functions via linker interposition.
+6. **RT64 Integration**: Full RT64 renderer context with Metal backend on macOS.
+7. **Thread System**: ultramodern's pthread-based N64 thread emulation working correctly.
+8. **macOS Metal Deadlock Fix**: Solved RT64 setup deadlock by pumping SDL events during initialization.
+
+### Current Stats
+* **Total Functions**: ~16,668 (ELF), ~3,437 (Recompiled)
+* **Active Stubs**: 280+ (Listed in `recomp.toml`)
+* **Patched Relocations**: ~840 lines across 228 files
+* **Build Time**: significantly reduced via parallelization
+* **Successful ELF Generation**: YES
+* **RT64 Graphics Init**: YES
+* **Game Threads Running**: YES
+
+### Current Blockers
+* **ELF Function Boundaries**: `func_800178D0` (main thread entry) has incorrect boundaries in the ELF, preventing real game initialization from running. The function ends prematurely and continues in `D_80017994`.
+* **No Game Initialization**: Because func_800178D0 is stubbed, no VI mode is set, no framebuffers are created, and no display lists are submitted.
+* **Window Close Crash**: Cleanup on window close causes `libc++abi: terminating` (low priority, runtime is stable during operation).
+
+## Automation Pipeline
 
 | Script | Purpose |
 | :--- | :--- |
-| `super_build.py` | **Master Orchestrator**. Runs the build loop: Splat -> Scan -> Patch -> Build -> Recompile. Detects silent failures and auto-retries. |
-| `build.py` | **Parallel & Incremental Builder**. Uses multiprocessing to assemble thousands of `.s` files in parallel and skips files that haven't changed. |
-| `scan_stubs.py` | **Pre-emptive Scanner**. Scans all assembly files for banned instructions (Cop0, Cache, TLB, etc.) and adds them to `stubs.txt` *before* the build fails. |
-| `patch_asm.py` | **Smart Patcher**. Applies stubs from `stubs.txt` and fixes specific relocation errors. Only writes to files if changes are needed, preserving build cache. |
-| `fix_symbols.py` | **Symbol Fixer**. Extracts undefined references from linker logs and adds them to `symbol_addrs.txt`. |
+| `super_build.py` | Master Orchestrator - runs full build loop |
+| `build.py` | Parallel & Incremental Builder |
+| `scan_stubs.py` | Pre-emptive scanner for banned instructions |
+| `patch_asm.py` | Smart patcher for stubs and relocations |
+| `fix_symbols.py` | Extracts undefined references |
+| `gen_func_table.py` | Creates function dispatch table |
+| `fix_recompiled.py` | Fixes .L identifiers and main() conflict |
+| `fix_undeclared_labels.py` | Fixes cross-function goto targets |
+| `gen_stubs.py` | Generates stub implementations |
 
-### 📊 Current Stats
-*   **Total Functions**: ~16,668
-*   **Active Stubs**: 20+ (Auto-identified via `scan_stubs.py`)
-*   **Patched Relocations**: ~840 lines across 228 files
-*   **Build Time**: Significantly reduced due to parallel assembly (utilizing all CPU cores) and incremental skipping of `splat` and `as` steps.
-*   **Successful ELF Generation**: **YES** (Linker stage is stable)
+## Build Commands
 
-### 🛑 Current Blockers
-*   **Jump Table Analysis**: `N64Recomp` sometimes fails to size jump tables in complex functions. These are caught by the loop and auto-stubbed.
-*   **Unsupported Instructions**: `N64Recomp` crashes on certain hardware instructions. `scan_stubs.py` now effectively neutralizes this by stubbing them in advance.
-
-## Workflow
-To run the full self-healing process:
+### Full Rebuild
 ```bash
-python3 super_build.py
+# 1. Recompile from ROM
+python3 tools/super_build.py
+
+# 2. Fix generated code
+python3 tools/fix_recompiled.py
+python3 tools/fix_undeclared_labels.py
+python3 tools/gen_func_table.py
+python3 tools/gen_stubs.py
+
+# 3. Build runtime
+rm -rf cmake-build && mkdir cmake-build && cd cmake-build
+cmake -DBUILD_WITH_RT64=ON .. && cmake --build . --parallel 8
+
+# 4. Run
+./cvlod_recomp ../resources/castlevania_legacy_of_darkness.z64
 ```
-This command will:
-1.  Run `splat` (if `asm/` is missing).
-2.  Run `scan_stubs.py` to find and block problematic hardware code.
-3.  Run `patch_asm.py` to apply stubs and fix relocations.
-4.  Run `build.py` to assemble (parallel) and link the ELF.
-5.  Run `N64Recomp`.
-6.  If `N64Recomp` fails, it adds the failing function to `stubs.txt` and restarts from step 2 automatically.
 
 ## Next Steps
-1.  **Achieve 100% Recompilation**: Let `super_build.py` run until `N64Recomp` exits with a clean success.
-2.  **Verify C Output**: Inspect the `recompiled/` folder to ensure C code is generating correctly.
-3.  **Refine Stubs**: Begin implementing the stubbed functions (hardware access, TLB handling) in C using `N64Recomp`'s runtime or custom hooks.
+
+### Priority 1: Fix ELF Function Boundaries
+The main game thread entry function (`func_800178D0` at 0x80018770) is incomplete in the ELF. We need to:
+1. Investigate why splat creates incorrect function boundaries
+2. Manually merge `func_800178D0` with its continuation at `D_80017994`
+3. Or implement proper initialization in our native stub
+
+### Priority 2: Get First Frame Rendered
+Once game initialization runs:
+1. osViSetMode will be called to set video mode
+2. osViSetEvent will register VI interrupt handler
+3. Display lists will be submitted via osSpTaskStartGo
+4. RT64 will process them and render to screen
+
+### Priority 3: Audio & Input
+Implement remaining syscall bridges:
+- `osAi*` for audio
+- `osCont*` for controller input
+- `osPi*` for peripheral interface

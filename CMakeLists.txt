@@ -23,6 +23,7 @@ add_subdirectory(lib/N64ModernRuntime)
 
 # RT64 graphics backend
 if(BUILD_WITH_RT64)
+    set(RT64_STATIC ON CACHE BOOL "Build RT64 as a static library" FORCE)
     add_subdirectory(lib/rt64)
 endif()
 
@@ -51,12 +52,20 @@ target_compile_options(cvlod_recompiled PRIVATE
 # Game Runtime (with N64ModernRuntime integration)
 # =============================================================================
 
-add_executable(cvlod_recomp
+set(CVLOD_SOURCES
     src/main.cpp
     src/funcs.cpp
     src/hardware.cpp
     src/libultra_wrappers.cpp
+    src/game_thread_stubs.cpp
 )
+
+# Add RT64 context source if enabled
+if(BUILD_WITH_RT64)
+    list(APPEND CVLOD_SOURCES src/rt64_context.cpp)
+endif()
+
+add_executable(cvlod_recomp ${CVLOD_SOURCES})
 
 target_include_directories(cvlod_recomp PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
@@ -73,6 +82,38 @@ target_link_libraries(cvlod_recomp PRIVATE
     ultramodern
     # librecomp  # Not linking for now - provides conflicting symbols
 )
+
+# Link RT64/SDL2 if enabled
+if(BUILD_WITH_RT64)
+    # Find SDL2
+    find_package(SDL2 REQUIRED)
+
+    # For now, use SDL2 stub renderer (full RT64 integration pending)
+    target_link_libraries(cvlod_recomp PRIVATE SDL2::SDL2)
+
+    # RT64 integration
+    target_link_libraries(cvlod_recomp PRIVATE rt64)
+    target_include_directories(cvlod_recomp PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/hle"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/common"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/render"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/shared"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/preset"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/rhi"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/gbi"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/src/contrib/hlslpp/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/lib/rt64/include"
+        "${CMAKE_BINARY_DIR}/lib/rt64/src" # For generated shader headers
+    )
+
+    target_compile_definitions(cvlod_recomp PRIVATE 
+        WITH_RT64
+        HLSL_CPU
+        FFX_GCC
+    )
+endif()
 
 # Platform-specific settings
 if(WIN32)

@@ -832,7 +832,20 @@ stubs = [
 ]
 
 ignored = [
-    "static_7_80147584"
+    "func_8007FFC0",
+    "func_800802B0",
+    "func_8008A690",
+    "func_80083120",
+    "func_8008BD70",
+    ".L8008C4E0",
+    "func_80081D80",
+    "func_800812C0",
+    "func_80098A00",
+    "func_800A6E30",
+    "func_8009B2F0",
+    "func_800A19D0",
+    "func_800A11D0",
+    "func_800178D0"
 ]
 
 [[input.manual_funcs]]

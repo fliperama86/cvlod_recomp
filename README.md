@@ -7,14 +7,14 @@ A project to statically recompile **Castlevania: Legacy of Darkness (N64)** into
 | Phase | Status |
 |-------|--------|
 | ROM Disassembly | ✅ Complete |
-| Static Recompilation | ✅ 3,439 functions converted to C |
-| Runtime Skeleton | ✅ Compiles and runs |
+| Static Recompilation | ✅ 3,437 functions converted to C |
+| Runtime Skeleton | ✅ Builds and runs |
 | Infrastructure Tests | ✅ All passing |
 | ROM Loading | ✅ 16MB loaded, format detected |
 | Boot Sequence | ✅ BSS clear, stack setup |
 | Entry Point | ✅ game_main() executes and returns |
-| Thread System | ⏳ Pending (game creates threads) |
-| Graphics (RT64) | ⏳ Pending |
+| Thread System | ✅ Integrated with pthreads |
+| Graphics (RT64) | ⏳ Hooked via native syscall overrides |
 | Audio | ⏳ Pending |
 | Input | ⏳ Pending |
 | **Playable** | ❌ Not yet |
@@ -28,16 +28,13 @@ A project to statically recompile **Castlevania: Legacy of Darkness (N64)** into
 git clone --recursive https://github.com/user/cvlod_recomp.git
 cd cvlod_recomp
 
-# Build (without graphics for now)
+# Build (WITH graphics enabled)
 mkdir cmake-build && cd cmake-build
-cmake -DBUILD_WITH_RT64=OFF ..
+cmake -DBUILD_WITH_RT64=ON ..
 cmake --build . --parallel 8
 
-# Run (test mode - no ROM needed)
-./cvlod_recomp --test
-
-# Run with ROM (will attempt execution)
-./cvlod_recomp path/to/game.z64
+# Run with ROM
+./cvlod_recomp ../path/to/game.z64
 
 # Test infrastructure
 ./cvlod_test
@@ -56,7 +53,7 @@ python3 tools/gen_func_table.py
 python3 tools/gen_stubs.py
 
 # Rebuild runtime
-cd cmake-build && cmake --build . --parallel 8
+cd cmake-build && cmake .. && cmake --build . --parallel 8
 ```
 
 ## Architecture
@@ -70,10 +67,10 @@ ROM → splat → MIPS ASM → ELF → N64Recomp → C Code → CMake → Execut
 
 ### Key Stats
 
-- **Functions recompiled:** 3,439
+- **Functions recompiled:** ~3,437
 - **Generated C code:** 18MB (72 files)
-- **Function lookup table:** 3,416 entries
-- **Code fixes applied:** 9,789 (invalid identifiers, cross-function jumps)
+- **Function lookup table:** 3,437 entries
+- **Code fixes applied:** 9,724 (gotos), 65 (.L identifiers)
 
 ## Project Structure
 
@@ -85,7 +82,8 @@ cvlod_recomp/
 │   └── rt64/               # Graphics backend
 ├── src/                    # Runtime source
 │   ├── main.cpp            # Entry point
-│   ├── game.cpp            # Game registration
+│   ├── libultra_wrappers.cpp # Zelda-style syscall overrides
+│   ├── rt64_context.cpp    # RT64 integration
 │   └── funcs.cpp           # Function lookup table
 ├── recompiled/             # Generated C code (gitignored)
 ├── tools/                  # Build scripts
@@ -99,10 +97,12 @@ cvlod_recomp/
 - ✅ Memory access simulation (RDRAM)
 - ✅ Register context (32 GPR, 32 FPR)
 - ✅ 64-bit arithmetic (DMULT, DDIV)
-- ✅ Function lookup for indirect calls
+- ✅ Function lookup for indirect calls (incl. labels)
 - ✅ ROM loading (z64/v64/n64 formats)
 - ✅ Boot sequence (BSS clear, stack setup)
 - ✅ game_main() executes and returns normally
+- ✅ Native syscall overrides (Zelda-style hijacking)
+- ✅ Graphics hooked (osViSwapBuffer, osViSetEvent captured)
 
 ## What's Next
 
