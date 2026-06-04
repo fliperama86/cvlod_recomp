@@ -2266,6 +2266,43 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                             fprintf(stderr, "[AUTO] gs=5 frame %d: A+Start\n", boot_script_gs_frame);
                         }
                     }
+                } else if (boot_script_gs == 6) {
+                    // Title / main-menu path. Pulse Start+A without changing
+                    // gamestate directly; if the menu is already open, A
+                    // should select the default highlighted item.
+                    bool pulse = (boot_script_gs_frame >= 60 && boot_script_gs_frame < 66) ||
+                                 (boot_script_gs_frame >= 150 && boot_script_gs_frame < 156) ||
+                                 (boot_script_gs_frame >= 300 && boot_script_gs_frame < 306) ||
+                                 (boot_script_gs_frame >= 600 && boot_script_gs_frame < 606) ||
+                                 (boot_script_gs_frame >= 900 && boot_script_gs_frame < 906);
+                    if (pulse) {
+                        buttons |= 0x9000; // A + Start
+                        if (boot_script_gs_frame == 60 ||
+                            boot_script_gs_frame == 150 ||
+                            boot_script_gs_frame == 300 ||
+                            boot_script_gs_frame == 600 ||
+                            boot_script_gs_frame == 900) {
+                            fprintf(stderr, "[AUTO] gs=6 frame %d: A+Start\n", boot_script_gs_frame);
+                        }
+                    }
+                } else if (boot_script_gs == 8) {
+                    // New-game/character-select/book sequence. Use sparse A
+                    // pulses so this remains regular controller interaction.
+                    bool pulse = (boot_script_gs_frame >= 60 && boot_script_gs_frame < 66) ||
+                                 (boot_script_gs_frame >= 180 && boot_script_gs_frame < 186) ||
+                                 (boot_script_gs_frame >= 360 && boot_script_gs_frame < 366) ||
+                                 (boot_script_gs_frame >= 720 && boot_script_gs_frame < 726) ||
+                                 (boot_script_gs_frame >= 1200 && boot_script_gs_frame < 1206);
+                    if (pulse) {
+                        buttons |= 0x8000; // A
+                        if (boot_script_gs_frame == 60 ||
+                            boot_script_gs_frame == 180 ||
+                            boot_script_gs_frame == 360 ||
+                            boot_script_gs_frame == 720 ||
+                            boot_script_gs_frame == 1200) {
+                            fprintf(stderr, "[AUTO] gs=8 frame %d: A\n", boot_script_gs_frame);
+                        }
+                    }
                 }
 #endif
 

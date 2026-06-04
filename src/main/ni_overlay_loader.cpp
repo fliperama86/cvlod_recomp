@@ -502,29 +502,6 @@ static void lod_install_gs5_ni_trace_wrapper(int pair_index, uint32_t vram) {
 }
 #endif
 
-
-
-// 0x0E overlay pairs (cutscene/textbox) — classified by internal jal targets
-// These are compiled for vram 0x0E000000
-static const int pairs_0e[] = {
-    135, 137, 138, 149, 150, 151, 152, 153, 154, 157,
-    159, 160, 161, 162, 163, 164, 165, 166, 167, 168,
-    169, 170, 171, 172, 173, 175, 176, 177, 178, 179,
-    180, 181, 182, 183, 184, 185, 186, 187, 190, 191,
-    192, 193, 194, 195, 196, 197, 198, 199, 200, 205,
-    208, 209, 210, 211, 212, 213, 214, 215, 216, 217,
-    218, 219, 220, 221, 222, 223, 224, 225, 226, 227,
-    228, 229, 230, 237, 238, 239, 240, 241, 244,
-};
-static constexpr int NUM_0E_PAIRS = sizeof(pairs_0e) / sizeof(pairs_0e[0]);
-
-static bool is_0e_pair(int pair) {
-    for (int i = 0; i < NUM_0E_PAIRS; i++) {
-        if (pairs_0e[i] == pair) return true;
-    }
-    return false;
-}
-
 static int ni_index_to_pair(int ni_index) {
     if (ni_index < NI_TEXT_INDEX_START) return -1;
     int offset = ni_index - NI_TEXT_INDEX_START;
@@ -558,10 +535,15 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
     memcpy(dst, src, size);
 }
 
-static void load_ni_overlay(uint8_t* rdram, int pair_index) {
-    bool is_0e = is_0e_pair(pair_index);
-    uint32_t vram = is_0e ? 0x0E000000 : 0x0F000000;
-    int& loaded_pair = is_0e ? loaded_0e_pair : loaded_0f_pair;
+static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vaddr) {
+    uint32_t vram = mapped_vaddr;
+    int& loaded_pair = (vram == 0x0E000000) ? loaded_0e_pair : loaded_0f_pair;
+
+    // Always keep the actual TLB-mapped segment populated. Use the TLB vaddr as
+    // the source of truth: some overlays generated with 0x0F comments are
+    // executed through 0x0E in-game, and their dispatch tables contain 0x0E
+    // function pointers (for example pair 233).
+    copy_overlay_data_to_segment(rdram, pair_index, mapped_vaddr);
 
     if (pair_index == loaded_pair) return;
 
@@ -571,7 +553,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
 
     const NiOvlData& data = ni_ovl_data[pair_index];
     load_overlays(data.rom_offset, (int32_t)vram, data.full_size);
-    // Copy full overlay data (text+data) from extended ROM to segment region
+    // Copy full overlay data (text+data) from extended ROM to the executable
+    // segment region. This is intentionally after load_overlays as well as
+    // before the early-return path so remaps keep the segment bytes fresh.
     copy_overlay_data_to_segment(rdram, pair_index, vram);
     loaded_pair = pair_index;
 
@@ -592,8 +576,8 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index) {
     static int load_count = 0;
     load_count++;
     if (load_count <= 30 || (load_count % 100) == 0) {
-        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X (rom=0x%08X data=0x%X)\n",
-                load_count, pair_index, vram, data.rom_offset, data.full_size);
+        fprintf(stderr, "[ni_ovl] #%d pair %d → 0x%08X mapped=0x%08X (rom=0x%08X data=0x%X)\n",
+                load_count, pair_index, vram, mapped_vaddr, data.rom_offset, data.full_size);
     }
 }
 
@@ -649,7 +633,7 @@ extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
 
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {
-        load_ni_overlay(rdram, pair);
+        load_ni_overlay(rdram, pair, vaddr);
         return;
     }
 

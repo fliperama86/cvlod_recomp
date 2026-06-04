@@ -37,6 +37,9 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
   - Diagnostic scripted-input run (`/tmp/lod_ni_range_fix_trace_run.log`, 20s) progresses `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`, registers `overlay_system` variants and map overlays, and leaves no stale process.
   - User visual confirmation: the game reached the start/title screen after the NI range-loader fix.
   - User manual new-game attempt reached character select, then transitioned `gs=8 → -3 → 3` after the book-close sequence and stayed visually black while still rendering/polling.
+  - Local debug-input reproduction now reaches the same route automatically. With NI loading keyed to the actual TLB-mapped vaddr, the pair-233 black-screen loop advances through two `gs=3` scene loads and produces non-black CFB snapshots.
+  - User visual confirmation: actual gameplay is reachable by skipping/advancing the intro sequence after character selection; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text.
+  - Caveat: letting the intro sequence play out naturally still crashes later (user reported a `Signal 15`-style crash). Treat intro/cutscene stability as the active blocker, not basic gameplay reachability.
   - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
 
 ## Goal
@@ -45,11 +48,12 @@ Reach actual controllable gameplay through the game's natural state flow, not by
 
 ## Current Active Work Item
 
-### G6-001 — Drive Title/Start Screen to Controllable Gameplay
+### G6-001 — Gameplay Reached; Stabilize Intro/Cutscene Route
 
 Objective:
 
-- Continue from the now-reached title/start screen into actual controllable gameplay.
+- Preserve the now-working route from title/start/new game into actual controllable gameplay.
+- Stabilize the natural intro/cutscene playout path, which still crashes if not skipped.
 - Exercise controller input through the game's natural menu flow; do not permanently force gamestates.
 - Keep overlay registration range-based and avoid generated overlay-ID assumptions.
 
@@ -60,16 +64,19 @@ Current evidence:
 - `gs=5`/NI pair-104 crash is no longer the blocker after range-based NI overlay registration.
 - A diagnostic scripted-input run reached `gs=6`; the user visually confirmed seeing the start/title screen.
 - Manual input can progress through new-game/character-select into the post-book-close transition.
-- The current blocker is `gs=3` after `gs=8 → -3 → 3`: map overlay ROM `0x007A60F0` (`map_ovl_09`) is loaded, `overlay_system_2` ROM `0x0075A570` is registered, and NI pair `233` loops while the visible picture is black.
+- Debug-only input can now reproduce the route locally: `gs=6 → -8 → 8 → -3 → 3`.
+- The old pair-233 `gs=3` black-screen loop was caused by NI overlays being registered at a static guessed segment. NI loading now uses the actual TLB-mapped vaddr (`0x0E`/`0x0F`) as the source of truth.
+- User confirmed actual gameplay is reachable by skipping/advancing the intro sequence after character select.
+- Remaining active blocker: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it still crashes later (reported as `Signal 15`-style). Earlier local automation also saw a late `gs=3` crash (`Signal 10` at `0x380800002`) after `map_ovl_09` and `map_ovl_10`; treat these as the same intro/cutscene stability investigation until separated.
 
 Next action:
 
-1. Add default-off probes for the `gs=3` post-character/book-close path, focused on NI pair `233`, `map_ovl_09` (`ROM 0x007A60F0`), and the `0x8032A490` NI/system state.
-2. Extend internal CFB snapshots to capture `gs=3`, `gs=6`, and `gs=8` so the black-screen state can be distinguished from a rendered-black transition.
-3. Extend or replace the debug-only input script to reproduce the manual new-game route without forcing gamestates.
-4. Identify and name any title/menu/post-selection functions/gamestates encountered on the path to gameplay.
-5. When a playable scene is reached, run bounded stability checks: controller input, renderer output, RSS, no stale process.
-6. After gameplay is reachable, start burning down old default-on PFS/audio overrides one at a time.
+1. Capture/log the natural intro-playout crash precisely: signal number, address, last function lookups, active `gs`, map overlay, and NI pair sequence.
+2. Add a default-off crash-context probe around `func_80011E48` / related scene-task update helpers if the natural intro crash matches the local late `gs=3` crash path.
+3. Use the existing internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before the crash.
+4. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0` and `0x007AB090`.
+5. Run bounded gameplay stability checks on the skip-to-gameplay route: controller input, renderer output, RSS, no stale process.
+6. After intro stability is understood, start burning down old default-on PFS/audio overrides one at a time.
 
 ## Resolved Work Item
 
@@ -216,12 +223,16 @@ Record durable experiments here. Keep entries concise and technical.
 | NI-001 | Range-based NI overlay registration, diagnostic save/title traces and scripted input | 20s | Restored PAK path; progressed `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`; user saw start/title screen | Hard-coded NI overlay IDs were the `gs=4` regression and `gs=5` crash cause after section additions |
 | CLEAN-004 | all debug/input/trace flags off | 12s | Built, codesigned, reached `gs=12`, timed out cleanly; no stale process | Clean baseline is buildable and reaches Expansion Pak screen without diagnostics |
 | G6-001A | manual input from title/start into new game | user run | Character select worked; after book-close transition the state changed `gs=8 → -3 → 3`; `osViBlack active=0`, VI framebuffers continued rotating at 640px, map overlay `ROM 0x007A60F0` loaded, `overlay_system_2` (`ROM 0x0075A570`) registered, and NI pair `233` looped while the picture was black | Start/new-game flow is functional up to post-selection; next blocker is a live `gs=3` black-screen loop, not the old save/title blockers |
+| G6-001B | `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1`, NI loader uses actual TLB `mapped_vaddr` | 85s | Reproduced `gs=6 → -8 → 8 → -3 → 3` locally; pair-233/0x0E dispatch no longer aborts; `gs=3` advances through `map_ovl_09` then `map_ovl_10`; CFB snapshots become non-black; later crashes with `Signal 10` at `0x380800002` | Static 0E/0F NI classification was wrong; mapped-vaddr registration is a real fix. New blocker is a later intro/cutscene stability crash in `gs=3` |
+| G6-001C | manual input, skip/advance intro after character select | user run | User reached actual gameplay; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text | Basic gameplay is reachable. Do not mark recovery complete until natural intro playout crash is characterized and a bounded gameplay stability pass is done |
 
 ## Open Questions
 
-- What does NI pair `233` do in the post-character/book-close `gs=3` path, and why does it loop?
-- Is the `gs=3` black screen a legitimate loading/fade wait, a missing render/CFB issue, or a scheduler/object state stall?
-- What scene/map does `map_ovl_09` (`ROM 0x007A60F0`) correspond to, and should it lead directly into gameplay?
+- What exact signal/address/function context occurs when the intro sequence is allowed to play naturally?
+- Does the reported natural intro `Signal 15` match the local late `gs=3` `Signal 10`/`0x380800002` crash, or are they separate blockers?
+- Which object/resource pointer path inside `func_80011E48` or its callees produces the invalid `0x380800002` access?
+- What scene/maps do `map_ovl_09` (`ROM 0x007A60F0`) and `map_ovl_10` (`ROM 0x007AB090`) correspond to, and should either lead directly into gameplay?
+- Are remaining black-looking moments in `gs=3` legitimate fades while the non-black CFB snapshots show scene progress?
 - Are remaining default-on PFS/Pak/audio overrides still required once gameplay is reachable?
 - Is the NI pair `53`/`104` alternation in `gs=5` expected intro/title behavior or a sign of a loop that should be broken by normal input?
 
@@ -275,4 +286,4 @@ pgrep -la LodRecomp
 
 ## Current Next Step
 
-Work item `G6-001`: reproduce the manual new-game route with debug-only input, then instrument the `gs=3` post-character/book-close black-screen loop around NI pair `233`, `map_ovl_09`, and internal CFB snapshots. Keep the route bounded and no-skip so the next blocker remains real.
+Work item `G6-001`: preserve the skip-to-gameplay route, then characterize/fix the natural intro-playout crash. First capture the exact signal/address/function context for the intro crash and compare it to the local late `gs=3` `0x380800002` crash; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.

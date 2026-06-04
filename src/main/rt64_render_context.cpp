@@ -465,14 +465,18 @@ void lod::renderer::RT64Context::update_screen() {
         }
         gs_frame++;
 
-        bool interesting_gs = (gs == 1 || gs == 12 || gs == 5);
+        bool interesting_gs = (gs == 1 || gs == 12 || gs == 5 || gs == 6 || gs == 8 || gs == 3);
         bool one_shot = interesting_gs && (gs_frame == 1);
         bool gs5_probe = (gs == 5) &&
                          (gs_frame == 30 || gs_frame == 120 || gs_frame == 300 ||
                           gs_frame == 600 || gs_frame == 1200 || gs_frame == 2400);
+        bool gs3_probe = (gs == 3) &&
+                         (gs_frame == 30 || gs_frame == 120 || gs_frame == 300 ||
+                          gs_frame == 600 || gs_frame == 1200 || gs_frame == 2400);
         bool gs12_probe = (gs == 12) && (gs_frame == 30 || gs_frame == 120);
+        bool menu_probe = (gs == 6 || gs == 8) && (gs_frame == 30 || gs_frame == 120 || gs_frame == 300);
 
-        if (one_shot || gs5_probe || gs12_probe) {
+        if (one_shot || gs5_probe || gs3_probe || gs12_probe || menu_probe) {
             lod_dump_cfb_ppm(app->core.RDRAM, gs, g_dl_n, us_n, last_displayed_cfb, width);
         }
     }
