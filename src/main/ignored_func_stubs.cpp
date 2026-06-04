@@ -39,6 +39,10 @@
 #define LOD_ENABLE_BGSTATE_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_GS3_ANIM_TRACE
+#define LOD_ENABLE_GS3_ANIM_TRACE 0
+#endif
+
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
 #define LOD_ENABLE_BOOT_GS_SKIP 0
 #endif
@@ -102,6 +106,9 @@ static void lod_install_save_state45_trace_wrappers(const char* reason);
 #if LOD_ENABLE_BGSTATE_TRACE
 static void lod_install_bgstate_trace_wrappers(const char* reason);
 #endif
+#if LOD_ENABLE_GS3_ANIM_TRACE
+static void lod_install_gs3_anim_trace_wrappers(const char* reason);
+#endif
 
 // ── Map overlay table: ROM start → full DMA size ────────────────────
 // Built from the game's overlay table at ROM 0xB39E8. Do not hard-code
@@ -129,6 +136,9 @@ static constexpr uint32_t LOD_MAP_OVL_RAM = 0x802E3B70;
 static constexpr uint32_t LOD_MAP_OVL_UNLOAD_SIZE = 0x00200000;
 static constexpr uint32_t LOD_OVLSYS_RAM = 0x801CAEA0;
 static constexpr uint32_t LOD_OVLSYS_UNLOAD_SIZE = 0x00020000;
+static uint32_t lod_current_map_ovl_rom = 0;
+static uint32_t lod_current_map_ovl_size = 0;
+static int lod_map_ovl_load_count = 0;
 
 static bool lod_decode_rdram_phys_addr(uint32_t addr, uint32_t size, uint32_t* phys_out) {
     if (size > 0x800000) {
@@ -223,6 +233,9 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                         }
                     }
                 }
+                lod_map_ovl_load_count++;
+                lod_current_map_ovl_rom = rom_start;
+                lod_current_map_ovl_size = full_size;
 #if LOD_ENABLE_SAVE_HANDLER_TRACE
                 if (rom_start == 0x007EF5E0) {
                     lod_install_save_trace_wrappers("map_ovl_34-load");
@@ -237,10 +250,9 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                 lod_install_bgstate_trace_wrappers("map-overlay-load");
 #endif
 
-                static int load_n = 0; load_n++;
-                if (load_n <= 20 || (load_n % 100) == 0)
+                if (lod_map_ovl_load_count <= 20 || (lod_map_ovl_load_count % 100) == 0)
                     fprintf(stderr, "[MAP_OVL] #%d loaded rom=0x%X size=0x%X (game requested 0x%X)\n",
-                            load_n, rom_start, full_size, size);
+                            lod_map_ovl_load_count, rom_start, full_size, size);
                 ctx->r2 = 0;
                 return;
             }
@@ -625,6 +637,158 @@ static int32_t lod_current_gamestate(uint8_t* rdram) {
 }
 
 static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys);
+
+#if LOD_ENABLE_GS3_ANIM_TRACE
+static recomp_func_t* lod_orig_dmamgr_update_pending_file = nullptr; // 0x80011E48
+static recomp_func_t* lod_orig_dmamgr_romcopy = nullptr;             // 0x8001A42C
+
+static bool lod_trace_dense_dmamgr(int32_t gs) {
+    // The current late-crash reproduction reaches this map overlay before
+    // Signal 10 at 0x380800002. Another repro can happen earlier in gs=8.
+    return gs == 8 || lod_current_map_ovl_rom == 0x007C89A0;
+}
+
+static uint32_t lod_trace_u32_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
+    return ok && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static uint16_t lod_trace_u16_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
+    return ok && lod_rdram_range_ok(phys, 2) ? (uint16_t)lod_rdram_s16(rdram, phys) : 0;
+}
+
+static void lod_trace_dmamgr_update_pending_file(uint8_t* rdram, recomp_context* ctx) {
+    static int count_all = 0;
+    static int count_traced = 0;
+    count_all++;
+
+    int32_t gs = lod_current_gamestate(rdram);
+    uint32_t obj_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = 0;
+    bool obj_ok = lod_decode_rdram_phys_addr(obj_addr, 0x38, &obj_phys);
+
+    uint32_t chunk_addr = obj_ok ? lod_rdram_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t chunk_phys = 0;
+    bool chunk_ok = chunk_addr != 0 && lod_decode_rdram_phys_addr(chunk_addr, 0x988, &chunk_phys);
+
+    uint16_t slot = lod_trace_u16_or_zero(rdram, chunk_phys + 0x844, chunk_ok);
+    uint16_t pending = lod_trace_u16_or_zero(rdram, chunk_phys + 0x846, chunk_ok);
+    bool slot_ok = chunk_ok && slot < 16;
+    uint32_t entry_phys = slot_ok ? (chunk_phys + 0x848 + (uint32_t)slot * 0x14) : 0;
+    uint32_t entry_rom = lod_trace_u32_or_zero(rdram, entry_phys + 0x00, slot_ok);
+    uint32_t entry_ram = lod_trace_u32_or_zero(rdram, entry_phys + 0x04, slot_ok);
+    uint32_t entry_size = lod_trace_u32_or_zero(rdram, entry_phys + 0x08, slot_ok);
+    uint32_t entry_file_id = lod_trace_u32_or_zero(rdram, entry_phys + 0x0C, slot_ok);
+    uint32_t entry_user_ptr = lod_trace_u32_or_zero(rdram, entry_phys + 0x10, slot_ok);
+
+    bool suspicious =
+        !obj_ok || !chunk_ok || !slot_ok || pending == 0 ||
+        (entry_rom >= 0x30000000 && entry_rom < 0x40000000) ||
+        (entry_ram >= 0x30000000 && entry_ram < 0x40000000) ||
+        (entry_user_ptr >= 0x30000000 && entry_user_ptr < 0x40000000);
+
+    if (gs != 0) {
+        count_traced++;
+        bool dense = lod_trace_dense_dmamgr(gs);
+        bool should_log = suspicious || count_traced <= 120 || (count_traced % 240) == 0 || dense;
+        if (should_log) {
+            uint32_t stream = lod_trace_u32_or_zero(rdram, chunk_phys + 0x818, chunk_ok);
+            uint32_t out_rom = lod_trace_u32_or_zero(rdram, chunk_phys + 0x828, chunk_ok);
+            uint32_t out_ram = lod_trace_u32_or_zero(rdram, chunk_phys + 0x82C, chunk_ok);
+            uint32_t out_size = lod_trace_u32_or_zero(rdram, chunk_phys + 0x830, chunk_ok);
+            uint32_t align = lod_trace_u32_or_zero(rdram, chunk_phys + 0x838, chunk_ok);
+            uint32_t file_id = lod_trace_u32_or_zero(rdram, chunk_phys + 0x840, chunk_ok);
+            uint32_t rom_chunk = lod_trace_u32_or_zero(rdram, chunk_phys + 0x800, chunk_ok);
+            uint32_t rom_cur = lod_trace_u32_or_zero(rdram, chunk_phys + 0x804, chunk_ok);
+            uint32_t read_limit = lod_trace_u32_or_zero(rdram, chunk_phys + 0x808, chunk_ok);
+            uint32_t bytes_left = lod_trace_u32_or_zero(rdram, chunk_phys + 0x80C, chunk_ok);
+
+            fprintf(stderr,
+                    "[GS3-DMAMGR] 11E48 all#%d trace#%d gs=%d map#%d rom=0x%08X map_size=0x%X "
+                    "a0=0x%08X obj_ok=%d ra=0x%08X sp=0x%08X chunk=0x%08X chunk_ok=%d "
+                    "slot=%u pending=%u entry={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X user=0x%08X} "
+                    "cur={stream=0x%08X rom=0x%08X ram=0x%08X size=0x%08X align=0x%08X file=0x%08X "
+                    "rom_chunk=0x%08X rom_cur=0x%08X read_limit=0x%08X bytes_left=0x%08X} suspicious=%d\n",
+                    count_all, count_traced, gs, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+                    lod_current_map_ovl_size, obj_addr, obj_ok ? 1 : 0, (uint32_t)ctx->r31,
+                    (uint32_t)ctx->r29, chunk_addr, chunk_ok ? 1 : 0, slot, pending,
+                    entry_rom, entry_ram, entry_size, entry_file_id, entry_user_ptr,
+                    stream, out_rom, out_ram, out_size, align, file_id,
+                    rom_chunk, rom_cur, read_limit, bytes_left, suspicious ? 1 : 0);
+        }
+    }
+
+    if (lod_orig_dmamgr_update_pending_file != nullptr) {
+        lod_orig_dmamgr_update_pending_file(rdram, ctx);
+    }
+}
+
+static void lod_trace_dmamgr_romcopy(uint8_t* rdram, recomp_context* ctx) {
+    static int count_trace_size8 = 0;
+
+    int32_t gs = lod_current_gamestate(rdram);
+    uint32_t rom = (uint32_t)ctx->r4;
+    uint32_t dest = (uint32_t)ctx->r5;
+    uint32_t size = (uint32_t)ctx->r6;
+    uint32_t ra = (uint32_t)ctx->r31;
+
+    if (lod_orig_dmamgr_romcopy != nullptr) {
+        lod_orig_dmamgr_romcopy(rdram, ctx);
+    }
+
+    if (gs != 0 && size == 8) {
+        count_trace_size8++;
+        uint32_t dest_phys = 0;
+        bool dest_ok = lod_decode_rdram_phys_addr(dest, 8, &dest_phys);
+        uint32_t word0 = dest_ok ? lod_rdram_u32(rdram, dest_phys) : 0;
+        uint32_t word1 = dest_ok ? lod_rdram_u32(rdram, dest_phys + 4) : 0;
+        bool suspicious =
+            !dest_ok ||
+            (rom >= 0x30000000 && rom < 0x40000000) ||
+            (word0 >= 0x30000000 && word0 < 0x40000000) ||
+            (word1 >= 0x30000000 && word1 < 0x40000000);
+        bool dense = lod_trace_dense_dmamgr(gs);
+        bool should_log = suspicious || count_trace_size8 <= 120 || (count_trace_size8 % 240) == 0 || dense;
+        if (should_log) {
+            fprintf(stderr,
+                    "[GS3-DMAMGR] 1A42C size8#%d gs=%d map#%d rom=0x%08X src=0x%08X dest=0x%08X "
+                    "dest_ok=%d out={0x%08X,0x%08X} ra=0x%08X suspicious=%d\n",
+                    count_trace_size8, gs, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+                    rom, dest, dest_ok ? 1 : 0, word0, word1, ra, suspicious ? 1 : 0);
+        }
+    }
+}
+
+static void lod_install_gs3_anim_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                               recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_gs3_anim_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_gs3_anim_trace_wrapper(0x80011E48, lod_trace_dmamgr_update_pending_file,
+        &lod_orig_dmamgr_update_pending_file);
+    lod_install_gs3_anim_trace_wrapper(0x8001A42C, lod_trace_dmamgr_romcopy,
+        &lod_orig_dmamgr_romcopy);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+                "[GS3-DMAMGR] installed wrappers #%d reason=%s update=%p romcopy=%p\n",
+                install_count, reason,
+                (void*)lod_orig_dmamgr_update_pending_file,
+                (void*)lod_orig_dmamgr_romcopy);
+    }
+}
+
+extern "C" void lod_install_gs3_anim_trace_wrappers_early() {
+    lod_install_gs3_anim_trace_wrappers("lod-on-init");
+}
+#endif
 
 #if LOD_ENABLE_BGSTATE_TRACE
 static recomp_func_t* lod_orig_bgstate_driver = nullptr;     // 0x80145AF0

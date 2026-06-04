@@ -19,6 +19,9 @@
 #if LOD_ENABLE_BGSTATE_TRACE
 extern "C" void lod_install_bgstate_trace_wrappers_early();
 #endif
+#if LOD_ENABLE_GS3_ANIM_TRACE
+extern "C" void lod_install_gs3_anim_trace_wrappers_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -319,9 +322,27 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // === KSEK0 RDRAM mirror ===
     // Map 8MB at rdram+0x80000000 so KSEK0 addresses (0x80XXXXXX) resolve.
     {
-        int ret = mprotect(rdram + 0x80000000, 8 * 1024 * 1024, PROT_READ | PROT_WRITE);
+        constexpr size_t rdram_mirror_size = 8 * 1024 * 1024;
+        int ret = mprotect(rdram + 0x80000000, rdram_mirror_size, PROT_READ | PROT_WRITE);
         fprintf(stderr, "[mprotect] KSEK0 RDRAM mirror: rdram+0x80000000 (8 MB) %s\n",
                 ret == 0 ? "OK" : "FAILED");
+        // Guard the first page just past 8MB. The gameplay/intro route can
+        // probe 0x80800002 (rdram+0x80800002), which real hardware would not
+        // turn into a host SIGBUS. Keep this zero-filled and small so it does
+        // not mask broad out-of-range writes while we trace the caller.
+        {
+            uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+            uint8_t* guard = rdram + 0x80000000 + rdram_mirror_size;
+            size_t guard_size = 0x10000;
+            uint8_t* aligned = (uint8_t*)((uintptr_t)guard & ~page_mask);
+            size_t aligned_size = (guard + guard_size - aligned + page_mask) & ~page_mask;
+            int guard_ret = mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
+            fprintf(stderr, "[mprotect] KSEK0 post-RDRAM guard: rdram+0x80800000 size=0x%zX %s\n",
+                    guard_size, guard_ret == 0 ? "OK" : "FAILED");
+            if (guard_ret == 0) {
+                memset(guard, 0, guard_size);
+            }
+        }
         // Set osMemSize so game knows RDRAM size without probing.
         *(uint32_t*)(rdram + 0x318) = 0x00800000; // 8MB
         fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x00800000 (8MB)\n");
@@ -421,5 +442,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Install after section/common overlays are loaded but before game code runs,
     // so startup scene/background state callbacks are captured.
     lod_install_bgstate_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_GS3_ANIM_TRACE
+    // Install after section/common overlays are loaded but before game code runs.
+    // These wrappers only log DMAMgr/animation resource state in gs=3.
+    lod_install_gs3_anim_trace_wrappers_early();
 #endif
 }

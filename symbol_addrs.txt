@@ -173,6 +173,9 @@ object_execute             = 0x80010DD4; // type:func  // dispatches object's st
 
 // NI (Nisitenma-Ichigo) system
 ni_system_dispatcher       = 0x800113EC; // type:func  // template 3 / NI file system per-frame dispatcher
+DMAMgr_updatePendingFileLoad = 0x80011E48; // type:func  // DMAMgr state handler; processes queued DMAChunkMgr file_info slot
+DMA_readWrite              = 0x8001A374; // type:func  // CV64 DMA_readWrite equivalent
+DMA_ROMCopy                = 0x8001A42C; // type:func  // CV64 DMA_ROMCopy equivalent
 ni_figure_process          = 0x800448FC; // type:func  // NI figure bitmask processing
 poolObject_create          = 0x80040524; // type:func  // creates pooled NI object
 poolObject_attachChild     = 0x80040628; // type:func  // attaches child to pool object

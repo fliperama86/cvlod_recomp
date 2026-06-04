@@ -68,18 +68,20 @@ Current evidence:
 - Debug-only input can now reproduce the route locally: `gs=6 → -8 → 8 → -3 → 3`.
 - The old pair-233 `gs=3` black-screen loop was caused by NI overlays being registered at a static guessed segment. NI loading now uses the actual TLB-mapped vaddr (`0x0E`/`0x0F`) as the source of truth.
 - User confirmed actual gameplay is reachable by skipping/advancing the intro sequence after character select.
-- Remaining active blocker: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it still crashes later (reported as `Signal 15`-style). Earlier local automation and a user gameplay-idle run both saw a late `gs=3` crash (`Signal 10` at `0x380800002`) after `map_ovl_09` and `map_ovl_10`; treat these as the same intro/cutscene/gameplay stability investigation until separated.
+- Remaining active risk: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it previously crashed later (reported as `Signal 15`-style; local/user logs later clarified the actionable fault as `Signal 10` at `0x380800002`). A bounded local route now survives that exact fault after adding a small post-8MB KSEG0 guard, but this still needs manual/natural-intro confirmation.
 - The user idle-crash log showed repeated NI/TLB maps where `0x0F00A000` was skipped as NI overlay copy, but `0x0F012000` was not. Extending the skip window to the actual loaded NI overlay size fixed that symptom in local automation: `0x0F012000` now logs `(NI skip copy)`.
 - New `gs=3` stability progress: local automation gets past the previous `0x8F00AB8C` missing-function abort and the later `0x3880006d0` crash when base NI TLB maps with no fingerprint match are handled by preserving the registered overlay functions while allowing the normal TLB copy for that base page.
 - A 190s scripted `gs=3` route reached later map overlay `ROM 0x00835D10`, cycled multiple NI pairs (`3`, `20`, `28`, `57`, `67`, `74`, `95`, `130`, `131`), produced non-black CFB snapshots, and ended only by timeout.
+- The repeated `0x380800002` crash decoded to the runtime RDRAM base `0x300000000` plus `0x80800002`: a KSEG0 access two bytes past the 8MB Expansion Pak mirror. A small zero-filled guard at `rdram+0x80800000` lets this behave as a bounded open/guard read instead of host SIGBUS. With the guard, the same scripted route reached `map_ovl_09` (`ROM 0x00835D10`) and ended only by timeout (`exit=124`) after 180s.
+- CV64 cross-reference confirms the fault path is the engine `DMAMgr` / `DMAChunkMgr_t`; `0x8001A42C` is the CV64-equivalent `DMA_ROMCopy`, and `0x80011E48` is now named `DMAMgr_updatePendingFileLoad`.
 
 Next action:
 
-1. Re-run the scripted route and/or user skip-to-gameplay route with a longer bounded idle time; compare crash signature, RSS, and last lookups.
-2. Capture/log the natural intro-playout crash precisely: signal number, address, last function lookups, active `gs`, map overlay, and NI pair sequence, now that the automated route survives the previously observed `0x380800002`, `0x8F00AB8C`, and `0x3880006d0` failures.
-3. Use the existing internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
-4. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0`, `0x007AB090`, `0x007CDDE0`, and `0x00835D10`.
-5. After intro/gameplay stability is understood, start burning down old default-on PFS/audio overrides one at a time. Do not enable audio yet; it would add noise before the CPU overlay dispatch route is stable.
+1. Repeat a longer bounded scripted route with only boot input + CFB snapshots enabled, without the heavy DMAMgr trace.
+2. Ask for/compare a manual natural-intro playthrough on the clean baseline: if it still crashes, capture signal/address/last lookups and whether the address is still `rdram+0x80800002`-style.
+3. Use internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
+4. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0`, `0x007AB090`, `0x007CDDE0`, `0x00835D10`, and the newly observed `0x007B1F60`/`0x007C89A0` path.
+5. After a clean no-trace route is stable, consider audio separately. Audio should stay off until CPU/TLB/DMAMgr stability is confirmed because it adds noise and currently has a default-on hard no-op override.
 
 ## Resolved Work Item
 
@@ -232,6 +234,8 @@ Record durable experiments here. Keep entries concise and technical.
 | G6-001E | NI TLB skip window extended to actual loaded overlay size; `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1` | 140s | Default-off smoke still reached `gs=12`. Scripted route reached `gs=3`; `0x0F012000` now logs `ni_span=0x14000 (NI skip copy)` instead of normal-copy; previous `0x380800002` crash was not reproduced. Run later failed at `get_function(0x8F00AB8C)`, with loaded section `ram=0x0F000000 size=0xDD30`. | Skip-window fix is progress and exposed the next bug: NI dispatch can use the `0x8F...` CPU/MEM_W mirror of a loaded `0x0F...` function address. |
 | G6-001F | NI CPU mirror aliases registered for `0x8F`/`0x8E`; `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1` | 170s | Route survived past the previous `get_function(0x8F00AB8C)` abort. It advanced through additional `gs=3` transitions and map overlay `ROM 0x007CDDE0`, then crashed with `Signal 10` at `0x3880006d0`. Last lookups included `0x80011060`, `0x0F0004E0`, `0x0F000554`, and final `0x0F000858`. Just before the crash, `ni_overlay_on_tlb_map` warned that paddr `0x003A9000` was zero-filled and paddr `0x0038E000` did not match any known NI fingerprint. | Mirror aliasing is progress. Next blocker is no-match TLB map handling or missing NI fingerprint/variant, not the old `0x8F00AB8C` lookup failure. |
 | G6-001G | Base NI no-match maps preserve registered functions but fall through to normal TLB copy; `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1` | 190s | Default-off smoke reached `gs=12`. Scripted route reached and stayed in `gs=3` through the previous no-match map area, loaded later map overlay `ROM 0x00835D10`, cycled NI pairs including `3`, `20`, `28`, `57`, `67`, `74`, `95`, `130`, and `131`, produced non-black CFB snapshots, and exited only due to the bounded `timeout` (`exit=124`). No `[CRASH]`, missing-function abort, or stale process. | Correct no-match behavior appears to be “normal-copy the base TLB page, but keep current NI function registrations unless a new fingerprinted overlay is loaded.” This removes the known automated `gs=3` crash signatures. |
+| G6-001H | `LOD_ENABLE_GS3_ANIM_TRACE=1`, CV64 DMAMgr cross-reference, then KSEG0 post-8MB guard | 180s | Widened DMAMgr trace showed repeated `DMAMgr_updatePendingFileLoad` calls on `DMAChunkMgr_t` with `pending=0` before the old `Signal 10` at `0x380800002`. The fault address decoded as `rdram=0x300000000` + `0x80800002`, i.e. a KSEG0 access two bytes beyond the 8MB RDRAM mirror. Adding a zero-filled 64KB guard at `rdram+0x80800000` let the same route pass the old crash, advance through map overlays `0x007B1F60`, `0x007C89A0`, `0x007CDDE0`, and `0x00835D10`, produce non-black CFB snapshots, and exit only due to timeout. | The old `0x380800002` fault is not a missing function; it is an out-of-range KSEG0/open-bus-style read. Keep the guard small and documented while tracing the exact caller. |
+| G6-001I | all debug/input/trace flags off, post-RDRAM guard present | 20s | Clean/default build reached `gs=12`; no `[CRASH]` or missing-function abort. The bounded `timeout` delivered SIGTERM (`Signal 15`). A concurrent/manual `LodRecomp` process was mistakenly treated as stale and killed; do not treat that as app behavior. | Default baseline remains buildable with the guard. Longer no-heavy-trace scripted route still needs confirmation before asking for manual natural-intro retest. Never kill a visible `LodRecomp` unless it is proven to be the process just launched by the test command. |
 
 ## Open Questions
 
@@ -240,7 +244,7 @@ Record durable experiments here. Keep entries concise and technical.
 - Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the currently loaded overlay span?
 - Are `0x8E...`/`0x8F...` dispatch targets always safe to canonicalize/register as aliases for `0x0E...`/`0x0F...` NI overlays?
 - For no-match base NI TLB maps, is normal-copying only the base entry enough, or should subsequent non-base pages in the same no-match sequence also bypass NI skip?
-- Which object/resource pointer path inside `func_80011E48` or its callees produces the invalid `0x380800002` access?
+- What exact caller/source produces the `0x80800002` KSEG0 access? Is it a legitimate open-bus/end-of-RDRAM probe or an upstream object/resource pointer bug?
 - What scene/maps do `map_ovl_09` (`ROM 0x007A60F0`) and `map_ovl_10` (`ROM 0x007AB090`) correspond to, and should either lead directly into gameplay?
 - Are remaining black-looking moments in `gs=3` legitimate fades while the non-black CFB snapshots show scene progress?
 - Are remaining default-on PFS/Pak/audio overrides still required once gameplay is reachable?
@@ -293,7 +297,8 @@ pgrep -la LodRecomp
 - Reintroducing concatenated `overlay_system` copies/restores as a baseline fix.
 - Running N64Recomp directly instead of `./tools/regen_recomp.sh`.
 - Long unbounded runs during leak-prone experiments.
+- Killing `LodRecomp` just because `pgrep` finds it. A user/manual run may be active; only terminate a process that is proven to belong to the just-launched bounded test, or when explicitly asked.
 
 ## Current Next Step
 
-Work item `G6-001`: preserve the skip-to-gameplay route, then stabilize intro/gameplay `gs=3`. The NI TLB skip-window bug, `0x8E`/`0x8F` mirror dispatch miss, and base no-match stale-data crash are fixed locally; next run longer bounded gameplay/intro routes and compare any remaining crash to the repeated `Signal 10` at `0x380800002`; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.
+Work item `G6-001`: preserve the skip-to-gameplay route, then stabilize intro/gameplay `gs=3`. The NI TLB skip-window bug, `0x8E`/`0x8F` mirror dispatch miss, base no-match stale-data crash, and `rdram+0x80800002` SIGBUS are fixed locally; next verify a no-heavy-trace scripted route, then ask for a manual natural-intro confirmation. Keep debug-only input/CFB snapshots as test harnesses, avoid gamestate skips as permanent fixes, and keep audio disabled until the CPU/TLB/DMAMgr route is stable.
