@@ -69,17 +69,18 @@ Current evidence:
 - The old pair-233 `gs=3` black-screen loop was caused by NI overlays being registered at a static guessed segment. NI loading now uses the actual TLB-mapped vaddr (`0x0E`/`0x0F`) as the source of truth.
 - User confirmed actual gameplay is reachable by skipping/advancing the intro sequence after character select.
 - Remaining active blocker: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it still crashes later (reported as `Signal 15`-style). Earlier local automation and a user gameplay-idle run both saw a late `gs=3` crash (`Signal 10` at `0x380800002`) after `map_ovl_09` and `map_ovl_10`; treat these as the same intro/cutscene/gameplay stability investigation until separated.
-- The user idle-crash log shows repeated NI/TLB maps where `0x0F00A000` is skipped as NI overlay copy, but `0x0F012000` is not. This suggests the current 64KB NI TLB skip window may be too narrow for larger NI overlays.
+- The user idle-crash log showed repeated NI/TLB maps where `0x0F00A000` was skipped as NI overlay copy, but `0x0F012000` was not. Extending the skip window to the actual loaded NI overlay size fixed that symptom in local automation: `0x0F012000` now logs `(NI skip copy)`.
+- New active blocker after the NI skip-window fix: a later dispatch asks for `get_function(0x8F00AB8C)` while the loaded NI section is at `0x0F000000`. This is likely the CPU/MEM_W mirror of the same NI segment and should be resolved without editing the runtime submodule.
 
 Next action:
 
-1. Fix/test the suspected too-narrow NI TLB skip window so high offsets such as `0x0F012000` do not fall through the normal TLB copy path when the NI loader already copied the full overlay segment.
+1. Add/test mirror function registration for NI CPU segment addresses (`0x8F...` for `0x0F...`, likely `0x8E...` for `0x0E...`) so computed dispatch through the MEM_W segment can resolve to the currently loaded NI section.
 2. Re-run the scripted route and/or user skip-to-gameplay route with bounded idle time; compare crash signature, RSS, and last lookups.
 3. Capture/log the natural intro-playout crash precisely: signal number, address, last function lookups, active `gs`, map overlay, and NI pair sequence.
-4. Add a default-off crash-context probe around `func_80011E48` / related scene-task update helpers if the crash persists after the TLB skip-window fix.
+4. Add a default-off crash-context probe around `func_80011E48` / related scene-task update helpers if the crash persists after the mirror/skip-window fixes.
 5. Use the existing internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
 6. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0` and `0x007AB090`.
-7. After intro/gameplay stability is understood, start burning down old default-on PFS/audio overrides one at a time.
+7. After intro/gameplay stability is understood, start burning down old default-on PFS/audio overrides one at a time. Do not enable audio yet; it would add noise before the CPU overlay dispatch route is stable.
 
 ## Resolved Work Item
 
@@ -229,12 +230,14 @@ Record durable experiments here. Keep entries concise and technical.
 | G6-001B | `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1`, NI loader uses actual TLB `mapped_vaddr` | 85s | Reproduced `gs=6 → -8 → 8 → -3 → 3` locally; pair-233/0x0E dispatch no longer aborts; `gs=3` advances through `map_ovl_09` then `map_ovl_10`; CFB snapshots become non-black; later crashes with `Signal 10` at `0x380800002` | Static 0E/0F NI classification was wrong; mapped-vaddr registration is a real fix. New blocker is a later intro/cutscene stability crash in `gs=3` |
 | G6-001C | manual input, skip/advance intro after character select | user run | User reached actual gameplay; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text | Basic gameplay is reachable. Do not mark recovery complete until natural intro playout crash is characterized and a bounded gameplay stability pass is done |
 | G6-001D | manual skip-to-gameplay, then idle | user run | After several minutes in `gs=3`, crashed with `Signal 10` at `0x380800002`. Last lookups were mostly `0x80043768`, then `createGraphicTasks_overlay`/`ni_system_dispatcher`/`func_80011D10`/`func_80011E48`. Log alternated NI skip-copy maps at `0x0F00A000` with normal-copy maps at `0x0F012000`. | Gameplay route is real but not yet stable. The `0x0F012000` normal-copy path is a concrete suspect because it lies beyond the current 64KB NI skip range while larger NI overlays can exceed that size. |
+| G6-001E | NI TLB skip window extended to actual loaded overlay size; `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1` | 140s | Default-off smoke still reached `gs=12`. Scripted route reached `gs=3`; `0x0F012000` now logs `ni_span=0x14000 (NI skip copy)` instead of normal-copy; previous `0x380800002` crash was not reproduced. Run later failed at `get_function(0x8F00AB8C)`, with loaded section `ram=0x0F000000 size=0xDD30`. | Skip-window fix is progress and exposed the next bug: NI dispatch can use the `0x8F...` CPU/MEM_W mirror of a loaded `0x0F...` function address. |
 
 ## Open Questions
 
 - What exact signal/address/function context occurs when the intro sequence is allowed to play naturally?
 - Does the reported natural intro `Signal 15` match the repeated late `gs=3` `Signal 10`/`0x380800002` crash, or are they separate blockers?
-- Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the first 64KB?
+- Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the currently loaded overlay span?
+- Are `0x8E...`/`0x8F...` dispatch targets always safe to canonicalize/register as aliases for `0x0E...`/`0x0F...` NI overlays?
 - Which object/resource pointer path inside `func_80011E48` or its callees produces the invalid `0x380800002` access?
 - What scene/maps do `map_ovl_09` (`ROM 0x007A60F0`) and `map_ovl_10` (`ROM 0x007AB090`) correspond to, and should either lead directly into gameplay?
 - Are remaining black-looking moments in `gs=3` legitimate fades while the non-black CFB snapshots show scene progress?
@@ -291,4 +294,4 @@ pgrep -la LodRecomp
 
 ## Current Next Step
 
-Work item `G6-001`: preserve the skip-to-gameplay route, then stabilize intro/gameplay `gs=3`. First test the suspected NI TLB skip-window bug exposed by `0x0F012000` normal-copy maps, then rerun bounded gameplay/intro routes and compare any remaining crash to the repeated `Signal 10` at `0x380800002`; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.
+Work item `G6-001`: preserve the skip-to-gameplay route, then stabilize intro/gameplay `gs=3`. The NI TLB skip-window bug exposed by `0x0F012000` normal-copy maps is fixed locally; next add/test `0x8E`/`0x8F` mirror registration for NI dispatch, then rerun bounded gameplay/intro routes and compare any remaining crash to the repeated `Signal 10` at `0x380800002`; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.

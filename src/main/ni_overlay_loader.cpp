@@ -47,6 +47,22 @@ static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
+extern "C" uint32_t ni_overlay_loaded_span(uint32_t vram) {
+    int loaded_pair = -1;
+    if (vram == 0x0F000000) {
+        loaded_pair = loaded_0f_pair;
+    } else if (vram == 0x0E000000) {
+        loaded_pair = loaded_0e_pair;
+    } else {
+        return 0;
+    }
+
+    if (loaded_pair < 0 || loaded_pair >= NI_OVL_COUNT) {
+        return 0;
+    }
+    return ni_ovl_data[loaded_pair].full_size;
+}
+
 #if LOD_FIX_NI_PAIR120_RESULT_LABELS
 static const char* lod_ni_pair120_internal_label_name(uint32_t target) {
     switch (target) {

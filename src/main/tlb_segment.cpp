@@ -34,6 +34,31 @@ static TlbEntry tlb_table[32] = {};
 // NI overlay loader hook
 extern "C" void ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
                                        uint32_t even_paddr, uint32_t odd_paddr);
+extern "C" uint32_t ni_overlay_loaded_span(uint32_t vaddr);
+
+static constexpr uint32_t NI_SEG_0F_BASE = 0x0F000000;
+static constexpr uint32_t NI_SEG_0E_BASE = 0x0E000000;
+static constexpr uint32_t NI_TLB_LEGACY_SKIP_SPAN = 0x00010000;
+static constexpr uint32_t NI_TLB_MAX_SEGMENT_SPAN = 0x00100000;
+
+static uint32_t align_up_u32(uint32_t value, uint32_t alignment) {
+    if (alignment == 0) {
+        return value;
+    }
+    return ((value + alignment - 1) / alignment) * alignment;
+}
+
+static bool ni_segment_base_for_vaddr(uint32_t vaddr, uint32_t* base_out) {
+    if (vaddr >= NI_SEG_0F_BASE && vaddr < NI_SEG_0F_BASE + NI_TLB_MAX_SEGMENT_SPAN) {
+        *base_out = NI_SEG_0F_BASE;
+        return true;
+    }
+    if (vaddr >= NI_SEG_0E_BASE && vaddr < NI_SEG_0E_BASE + NI_TLB_MAX_SEGMENT_SPAN) {
+        *base_out = NI_SEG_0E_BASE;
+        return true;
+    }
+    return false;
+}
 
 // Override the weak RECOMP_FUNC stub in funcs_40.c
 // osMapTLB(index, page_mask, vaddr, even_paddr, odd_paddr, asid)
@@ -45,47 +70,59 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     uint32_t odd_paddr  = MEM_W(0x10, ctx->r29);
 
 
+    uint32_t mask_field = (page_mask >> 13) & 0xFFF;
+    uint32_t page_size  = (mask_field + 1) * 4096;
+    uint32_t entry_size = page_size * 2;
+
     // Hook: load NI overlay when mapping 0x0F000000 or 0x0E000000.
     // This copies full overlay data from extended ROM to the segment region.
     // We must skip the normal TLB copy below to avoid overwriting with the
     // small decompressed blob.
     //
     // Multi-page overlays generate MULTIPLE TLB entries (e.g., 0x0F000000
-    // and 0x0F002000). Only the first entry triggers the overlay loader.
+    // and 0x0F002000). Only the base entry triggers the overlay loader.
     // Subsequent entries within the same region must also skip the normal
     // TLB copy, since copy_overlay_data_to_segment already wrote the full
     // overlay data. Without this, the normal handler overwrites the data
     // section with raw game-decompressed bytes (potentially wrong format).
-    bool is_ovl_0f = (vaddr >= 0x0F000000 && vaddr < 0x0F010000);
-    bool is_ovl_0e = (vaddr >= 0x0E000000 && vaddr < 0x0E010000);
-    if (is_ovl_0f || is_ovl_0e) {
-        // Only trigger overlay load on the base address
-        if (vaddr == 0x0F000000 || vaddr == 0x0E000000) {
+    //
+    // Preserve the old first-64KB skip window for compatibility, but extend it
+    // to the actual loaded NI overlay size when known. Several real NI overlays
+    // are larger than 64KB, and normal-copying later TLB entries such as
+    // 0x0F012000 can corrupt the segment bytes the NI loader already populated.
+    uint32_t ni_base = 0;
+    if (ni_segment_base_for_vaddr(vaddr, &ni_base)) {
+        if (vaddr == ni_base) {
             ni_overlay_on_tlb_map(rdram, vaddr, even_paddr, odd_paddr);
         }
-        // Save mapping info but skip data copy — overlay loader already populated
-        uint32_t mf = (page_mask >> 13) & 0xFFF;
-        uint32_t ps = (mf + 1) * 4096;
-        if (index >= 0 && index < 32) {
-            tlb_table[index] = { vaddr, even_paddr, odd_paddr, ps, true };
+
+        uint32_t skip_span = ni_overlay_loaded_span(ni_base);
+        if (skip_span < NI_TLB_LEGACY_SKIP_SPAN) {
+            skip_span = NI_TLB_LEGACY_SKIP_SPAN;
+        } else if (skip_span > NI_TLB_MAX_SEGMENT_SPAN) {
+            skip_span = NI_TLB_MAX_SEGMENT_SPAN;
         }
-        static int log_count_ni = 0;
-        log_count_ni++;
-        if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
-            fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X (NI skip copy)\n",
-                    log_count_ni, index, vaddr, even_paddr, odd_paddr, ps);
+        skip_span = align_up_u32(skip_span, entry_size);
+
+        if (vaddr < ni_base + skip_span) {
+            // Save mapping info but skip data copy — overlay loader already populated
+            if (index >= 0 && index < 32) {
+                tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
+            }
+            static int log_count_ni = 0;
+            log_count_ni++;
+            if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
+                fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X ni_span=0x%X (NI skip copy)\n",
+                        log_count_ni, index, vaddr, even_paddr, odd_paddr, page_size, skip_span);
+            }
+            return;
         }
-        return;
     }
 
     // Handle osUnmapTLB (index = -1 or vaddr = 0xFFFFFFFF)
     if (index < 0 || index >= 32) {
         return;
     }
-
-    uint32_t mask_field = (page_mask >> 13) & 0xFFF;
-    uint32_t page_size  = (mask_field + 1) * 4096;
-    uint32_t entry_size = page_size * 2;
 
     // Compute rdram offset for this virtual address
     uint64_t rdram_seg_offset = (uint64_t)vaddr + 0x80000000ULL;
