@@ -17,20 +17,26 @@ This is the live, durable tracker for getting Castlevania: Legacy of Darkness re
 
 ## Current Baseline
 
-- Code baseline commit: `18a56c5` (`Sanitize recovery baseline`).
 - Tracker established at: `c5952c1` (`Replace scratchbook with recovery tracker`).
+- Last pre-alignment pushed trace commit: `b1ce215` (`Trace save-screen dispatch state`).
 - Build status: `cmake --build build` succeeds on macOS with SDK include-order sanitation in `CMakeLists.txt`.
 - Launch status: bounded `20s` launch reaches the game without an internal crash; timeout/SIGTERM stops it cleanly.
-- Runtime state observed after baseline:
+- Startup overlay status:
+  - LoD starts naturally in `gs=4`.
+  - Initial map overlay registration and RDRAM bytes are now aligned to `map_ovl_34`
+    (`ROM 0x7EF5E0 → RAM 0x802E3B70`, size `0x16690`).
+  - This replaces the previous mixed startup state where `map_ovl_00` code was registered while
+    `map_ovl_34` data/jump tables were copied.
+- Runtime state observed after alignment:
   - Gamestate remains `gs=4`.
-  - Save object state advances `255 → 1 → 2 → 3`.
-  - NI overlay cycle continues around pairs `105 / 120 / 101`.
-  - Input callback is active.
-  - Max RSS in the latest 20s bounded run was about `861 MB`.
+  - Save object state advances `255 → 1 → 2 → 3` and then polls state `3`.
+  - No `Failed to find function` occurs in validated 20s samples.
+  - Input callback is active; debug auto-input can move the save-screen state machine but does not yet reach gameplay.
 - Clean baseline policy:
   - No local dirty submodule changes.
   - No editor/debug leftovers.
   - No runtime/gameplay skip enabled by default.
+  - Auto-input and handler function-map wrappers are compile-time gated and default off.
 
 ## Goal
 
@@ -47,6 +53,10 @@ Objective:
 Current evidence:
 
 - The fixed parent object at `0x8031AFA4` reaches dispatch state `3`.
+- Startup overlay code/data mismatch was a real precondition bug:
+  - previous startup registered `map_ovl_00` code at `0x802E3B70` but copied `map_ovl_34` data there;
+  - save-screen tables can point at functions such as `0x802EBAF0`, beyond the registered `map_ovl_00` section;
+  - aligning startup to `map_ovl_34` removes that missing-function risk.
 - The save-screen dispatch model has two adjacent tables:
   - outer table `0x802F7170`, used by `save_screen_outer_dispatch`
   - inner table `0x802F71A8`, used by `save_screen_schedule_dispatch`
@@ -57,15 +67,24 @@ Current evidence:
 - `save_screen_outer_state3_update` expects valid object `+0x24` and `+0x34` pointers.
   The fixed parent object currently has both as zero when it reaches outer state `3`.
 - Input callback is active.
+- Temporary auto-input (`Down`, `A`, `A`) is consumed by the screen:
+  - state advances `3 → 4 → 5 → 0`, then loops back through initialization;
+  - PFS lookup/status paths run (`contpak_get_inserted_status`, `osPfsFindFile`);
+  - gamestate still stays `gs=4`.
 - PFS path can initialize/read/write pak image and reports no existing CASTLEVANIA2 file through the current find-file path.
 - The runtime continues cycling NI overlays `105 / 120 / 101`.
 - `exec`, `ni`, `gate`, and `sel` telemetry stayed flat in previous samples.
 
-Latest bounded trace (`G4-001`, 20s, default flags):
+Latest bounded traces (`G4-001`, 20s):
 
-- Build succeeds.
-- Final schedule-aware sample timed out cleanly (`exit=124`) with no stale `LodRecomp` process.
-- One intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced in the final sample.
+- Default sanitized build succeeds.
+- Final sanitized default sample timed out cleanly (`exit=124`) with no stale `LodRecomp` process.
+- Init logs confirm aligned startup overlay:
+  - `Registered and copied map_ovl_34 for initial gs=4 at 0x802E3B70`
+  - `Refreshed initial map_ovl_34 bytes: ROM 0x7EF5E0 → rdram+0x2E3B70 (91792 bytes)`
+- No `Failed to find function`, no `[CRASH]`, no auto-input, no handler-wrapper install in the default sample.
+- Temporary auto-input sample (`LOD_ENABLE_SAVE_AUTO_INPUT=1`) timed out cleanly and proved baked controller input reaches the game.
+- One older intermediate precondition sample hit `SIGBUS` (`exit=138`), not reproduced after final validation.
 - Parent object at `0x8031AFA4`:
   - `state09=3`, `func_id=-1`, `dispatch_state=3`
   - outer handler `0x802ECF4C` / inner handler `0x802ED804`
@@ -80,15 +99,17 @@ Latest bounded trace (`G4-001`, 20s, default flags):
 
 Next action:
 
-1. Determine whether the fixed parent object is supposed to execute
-   `save_screen_outer_state3_update`, or whether `0x8031AFA4` is only a container/sentinel
-   and the real state owner is a nearby child object.
-2. Trace the actual object passed into outer state `2`/`3` handlers:
-   - `save_screen_schedule_dispatch` (`0x802ECA84`)
-   - `save_screen_outer_state3_update` (`0x802ECF4C`)
+1. Trace the actual object execution/dispatch path that advances the save-screen state bytes.
+   Current handler-wrapper probes can be enabled with `LOD_ENABLE_SAVE_HANDLER_TRACE=1`, but
+   previous samples installed the wrappers without observing `handler-entry`; the active path may
+   be the object/GSS slot scheduler rather than the named table handlers directly.
+2. Determine whether fixed parent `0x8031AFA4` is supposed to execute
+   `save_screen_outer_state3_update`, or whether it is only a container/sentinel and the real
+   state owner is a nearby child object.
 3. Identify the writer/initializer for object `+0x24`, `+0x34`, and `+0x70` in the
    save-screen object chain.
-4. Only after the owner/precondition issue is explained, decide whether PFS/input status is
+4. Trace which field/button/PFS result should write the next gamestate after state `5`.
+5. Only after the owner/precondition issue is explained, decide whether PFS/input status is
    blocking the transition or merely a symptom.
 
 ## Milestones
@@ -116,12 +137,12 @@ Questions to answer:
 
 Next recommended experiment:
 
-- Add the narrowest next trace around the actual outer handler owner:
-  - object pointer passed to `save_screen_outer_dispatch`
-  - object pointer passed to `save_screen_schedule_dispatch`
-  - object pointer passed to `save_screen_outer_state3_update`
-  - object `+0x24/+0x34/+0x70` at entry
-  - whether `object_curLevel_goToNextFunc` is requested for states `3` or `9`
+- Add the narrowest next trace around the object/GSS executor path:
+  - object pointer passed through `object_execute` / child-object execution;
+  - state/function slots that drive objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, `0x8031B100`;
+  - object `+0x24/+0x34/+0x70` writes before state `3`;
+  - whether `object_curLevel_goToNextFunc` is requested for save-screen states `3`, `4`, `5`, or `9`;
+  - which PFS/input result is supposed to leave `gs=4`.
 
 ### Milestone 2 — Burn Down or Justify Remaining Overrides
 
@@ -222,7 +243,8 @@ The current baseline keeps several old bring-up overrides default-on to preserve
 | `LOD_OVERRIDE_FUNC_8001C93C` | on | Unknown; Pak validation gate | Build/run with `=0` |
 | `LOD_OVERRIDE_FUNC_8009F400` | on | Unknown; PFS find-file shim | Build/run with `=0` |
 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS` | on | Dedicated compile combo passed with this disabled while `FUNC_8001D398` stayed enabled | Build/run with `=0` |
-| `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; should stay off by default | Use only for explicit input-flow experiments |
+| `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only; tested and confirmed to move the save-screen state machine but not leave `gs=4` | Use only for explicit input-flow experiments |
+| `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe; default-off to avoid hiding dispatch bugs | Enable only for targeted handler-entry confirmation |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; should stay off by default | Use only to compare downstream behavior, never as permanent fix |
 
 ## Experiment Log
@@ -234,13 +256,16 @@ Record durable experiments here. Keep entries concise and technical.
 | BASE-001 | default baseline at `18a56c5` | 20s | Built, launched, reached `gs=4`; save object `255 → 1 → 2 → 3`; NI loop `105 / 120 / 101`; no internal crash; timeout stopped it | Clean baseline is viable; primary blocker is natural transition out of `gs=4` |
 | BUILD-001 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0`, `LOD_OVERRIDE_FUNC_8001D398=1` compile-only check | n/a | `src/main/ignored_func_stubs.cpp` compiled successfully | Review-reported dependent override-gate compile failure is fixed |
 | G4-001A | default flags + schedule-aware save dispatch trace | 20s | Built; final run timed out cleanly; fixed parent `0x8031AFA4` reached outer dispatch state `3` → `save_screen_outer_state3_update` while `+0x24/+0x34/+0x70` were zero; nearby child objects had valid-looking pointers | The state-3 blocker is now an object ownership/precondition problem, not simply "inner table state 3 waiting for input" |
+| G4-001B | default flags + initial `map_ovl_34` code/data alignment | 20s | Built; launched; no `Failed to find function`; save-screen state still reaches/polls parent dispatch state `3` | Overlay alignment is a real precondition fix, not a gameplay skip; remaining blocker is later state/owner/PFS flow |
+| G4-001C | temporary auto-input build (`LOD_ENABLE_SAVE_AUTO_INPUT=1`; handler wrapper probe available as `LOD_ENABLE_SAVE_HANDLER_TRACE=1`) | 20s | Baked `Down`, `A`, `A` fired; state moved `3 → 4 → 5 → 0`; `contpak_get_inserted_status` and `osPfsFindFile` ran; game stayed `gs=4`; no handler-entry wrapper hits | Input is reaching the game; the menu/PFS path loops instead of transitioning, so the next target is the state owner/result that should leave `gs=4` |
+| G4-001D | sanitized default flags after gating auto-input and handler wrappers off | 20s | Build/run clean; init confirms `map_ovl_34`; no auto-input; no handler wrapper install; no missing-function crash; timeout stopped cleanly | Default baseline is clean while retaining optional probes for targeted experiments |
 
 ## Open Questions
 
 - Which object actually owns save-screen outer state `3`: fixed parent `0x8031AFA4` or a nearby child?
 - Why does fixed parent `0x8031AFA4` reach outer state `3` with `+0x24/+0x34/+0x70 == 0`?
 - Which fields represent the current save-screen selection/cursor?
-- Does state `3` expect a button press that is not being delivered/consumed?
+- Which specific state/selection result should follow the consumed `A` press and state `3 → 4 → 5 → 0` loop?
 - Does state `3` consume `osPfsFindFile`/Pak status in a way that keeps it in the loop?
 - Which function should write the next gamestate after a valid selection?
 - Are NI pairs `105 / 120 / 101` the expected idle loop for the save screen, or evidence of an overlay dispatch mismatch?
@@ -257,6 +282,7 @@ Only consider dependency cherry-picks if they directly affect:
 
 ## Current Next Step
 
-Work item `G4-001`: trace the actual object pointer passed to `save_screen_outer_state3_update`
-and identify why the fixed parent reaches outer state `3` with missing `+0x24/+0x34/+0x70`
-preconditions. Do not add a gameplay skip or force a gamestate transition yet.
+Work item `G4-001`: trace the object/GSS executor path that advances the save-screen object chain,
+especially around objects `0x8031AFA4`, `0x8031B018`, `0x8031B08C`, and `0x8031B100`. Identify
+which owner/state/PFS result should leave `gs=4`. Do not add a gameplay skip or force a gamestate
+transition yet.

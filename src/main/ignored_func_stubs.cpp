@@ -10,9 +10,14 @@
 #include "ultramodern/ultra64.h"
 
 #include "recomp.h"
+#include "librecomp/overlays.hpp"
 
 #ifndef LOD_ENABLE_SAVE_AUTO_INPUT
 #define LOD_ENABLE_SAVE_AUTO_INPUT 0
+#endif
+
+#ifndef LOD_ENABLE_SAVE_HANDLER_TRACE
+#define LOD_ENABLE_SAVE_HANDLER_TRACE 0
 #endif
 
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
@@ -61,6 +66,10 @@ extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
 // but LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0.
 extern "C" void contpak_get_inserted_status(uint8_t* rdram, recomp_context* ctx);
 
+#if LOD_ENABLE_SAVE_HANDLER_TRACE
+static void lod_install_save_trace_wrappers(const char* reason);
+#endif
+
 // ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
 // Built from game's overlay table at ROM 0xB39E8 + section_table .index values.
 // overlay_id = section .index + 3 (overlay_sections_by_index offset).
@@ -107,6 +116,11 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                 uint32_t full_size = map_ovl_table[i].full_size;
                 lod_copy_overlay_data(rdram, rom_start, rdram_dst, full_size);
                 load_overlay_by_id(map_ovl_table[i].overlay_id, vram_dest);
+#if LOD_ENABLE_SAVE_HANDLER_TRACE
+                if (rom_start == 0x007EF5E0) {
+                    lod_install_save_trace_wrappers("map_ovl_34-load");
+                }
+#endif
 
                 static int load_n = 0; load_n++;
                 if (load_n <= 20 || (load_n % 100) == 0)
@@ -549,12 +563,104 @@ static void lod_dump_save_object_window(uint8_t* rdram, int si_dma_count, const 
     }
 }
 
+#if LOD_ENABLE_SAVE_HANDLER_TRACE
+static recomp_func_t* lod_orig_save_outer_dispatch = nullptr;
+static recomp_func_t* lod_orig_save_schedule_dispatch = nullptr;
+static recomp_func_t* lod_orig_save_outer_state3_update = nullptr;
+static recomp_func_t* lod_orig_save_inner_state3_update = nullptr;
+
+static void lod_trace_save_handler_entry(uint8_t* rdram, recomp_context* ctx,
+                                         const char* label, uint32_t vram, int* counter) {
+    (*counter)++;
+    uint32_t obj_addr = (uint32_t)ctx->r4;
+    uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    if (*counter <= 24 || (*counter % 120) == 0) {
+        fprintf(stderr, "[G4-001] handler-entry %s #%d vram=0x%08X a0=0x%08X ra=0x%08X sp=0x%08X\n",
+            label, *counter, vram, obj_addr, (uint32_t)ctx->r31, (uint32_t)ctx->r29);
+        lod_dump_save_state_context(rdram, *counter, label, obj_phys, "handler-entry");
+    }
+}
+
+static void lod_trace_save_outer_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_handler_entry(rdram, ctx, "outer_dispatch", 0x802EBAF0, &count);
+    if (lod_orig_save_outer_dispatch != nullptr) {
+        lod_orig_save_outer_dispatch(rdram, ctx);
+    }
+}
+
+static void lod_trace_save_schedule_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_handler_entry(rdram, ctx, "schedule_dispatch", 0x802ECA84, &count);
+    if (lod_orig_save_schedule_dispatch != nullptr) {
+        lod_orig_save_schedule_dispatch(rdram, ctx);
+    }
+}
+
+static void lod_trace_save_outer_state3_update(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_handler_entry(rdram, ctx, "outer_state3", 0x802ECF4C, &count);
+    if (lod_orig_save_outer_state3_update != nullptr) {
+        lod_orig_save_outer_state3_update(rdram, ctx);
+    }
+}
+
+static void lod_trace_save_inner_state3_update(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    lod_trace_save_handler_entry(rdram, ctx, "inner_state3", 0x802ED804, &count);
+    if (lod_orig_save_inner_state3_update != nullptr) {
+        lod_orig_save_inner_state3_update(rdram, ctx);
+    }
+}
+
+static void lod_install_save_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                           recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_save_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_save_trace_wrapper(0x802EBAF0, lod_trace_save_outer_dispatch,
+        &lod_orig_save_outer_dispatch);
+    lod_install_save_trace_wrapper(0x802ECA84, lod_trace_save_schedule_dispatch,
+        &lod_orig_save_schedule_dispatch);
+    lod_install_save_trace_wrapper(0x802ECF4C, lod_trace_save_outer_state3_update,
+        &lod_orig_save_outer_state3_update);
+    lod_install_save_trace_wrapper(0x802ED804, lod_trace_save_inner_state3_update,
+        &lod_orig_save_inner_state3_update);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+            "[G4-001] installed save trace wrappers #%d reason=%s originals outer=%p schedule=%p outer3=%p inner3=%p\n",
+            install_count, reason,
+            (void*)lod_orig_save_outer_dispatch,
+            (void*)lod_orig_save_schedule_dispatch,
+            (void*)lod_orig_save_outer_state3_update,
+            (void*)lod_orig_save_inner_state3_update);
+    }
+}
+
+#endif
+
 void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     int32_t direction = (int32_t)ctx->r4;
     uint32_t dram_addr = (uint32_t)ctx->r5;
 
     // Diagnostic logging
     static int si_dma_count = 0; si_dma_count++;
+#if LOD_ENABLE_SAVE_HANDLER_TRACE
+    static bool save_trace_wrappers_installed = false;
+    if (!save_trace_wrappers_installed) {
+        lod_install_save_trace_wrappers("si-lazy-init");
+        save_trace_wrappers_installed = true;
+    }
+#endif
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;

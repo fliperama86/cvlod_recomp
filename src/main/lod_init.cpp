@@ -94,15 +94,13 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Section 3: overlay_system (ROM 0x745230 → RAM 0x801CAEA0)
     load_overlays(0x745230, 0x801CAEA0, 0x69E0);
     // Map overlays at RAM 0x802E3B70 (shared VRAM, mutually exclusive).
-    // Register map_ovl_00 functions as default (used by gs=1 Konami logo and others).
-    // Copy map_ovl_34 DATA for gs=4 save screen (jump tables, constants).
-    // Function registration stays as map_ovl_00 — safe for gs=1 after skip.
-    // The func_80012ED0 override handles proper overlay swaps when the game's
+    // LoD starts naturally in gs=4, whose save/Controller Pak screen uses
+    // map_ovl_34. Keep startup code registration and RDRAM contents aligned;
+    // the func_80012ED0 override handles later overlay swaps when the game's
     // own overlay loader fires during gamestate transitions.
-    load_overlays(0x76CD00, 0x802E3B70, 0x779510 - 0x76CD00);
-    // Copy map_ovl_34 data to RDRAM (for save screen state machine tables)
+    load_overlays(0x7EF5E0, 0x802E3B70, 0x16690);
     lod_copy_overlay_data(rdram, 0x7EF5E0, 0x802E3B70 - 0x80000000, 0x16690);
-    fprintf(stderr, "[init] Registered map_ovl_00 functions, copied map_ovl_34 data to 0x802E3B70\n");
+    fprintf(stderr, "[init] Registered and copied map_ovl_34 for initial gs=4 at 0x802E3B70\n");
 
     // === Copy main code DATA section (byte-swapped) ===
     // The main code DATA section contains critical tables (section descriptors,
@@ -227,10 +225,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                 overlay_system_cache.size());
     }
 
-    // === Copy section 4 data (byte-swapped) ===
+    // === Refresh initial map_ovl_34 data/code bytes (byte-swapped) ===
     {
-        constexpr uint32_t sec4_rom  = 0x76CD00;
-        constexpr uint32_t sec4_size = 0x779510 - 0x76CD00;
+        constexpr uint32_t sec4_rom  = 0x7EF5E0;
+        constexpr uint32_t sec4_size = 0x16690;
         constexpr uint32_t rdram_dst = 0x802E3B70 - 0x80000000;
         for (uint32_t i = 0; i < sec4_size; i += 4) {
             if (sec4_rom + i + 3 < rom.size()) {
@@ -240,7 +238,7 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                 rdram[rdram_dst + i + 3] = rom[sec4_rom + i + 0];
             }
         }
-        fprintf(stderr, "[init] Copied section 4 data (byte-swapped): ROM 0x%X → rdram+0x%X (%u bytes)\n",
+        fprintf(stderr, "[init] Refreshed initial map_ovl_34 bytes: ROM 0x%X → rdram+0x%X (%u bytes)\n",
                 sec4_rom, rdram_dst, sec4_size);
     }
 
