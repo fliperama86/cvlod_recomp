@@ -40,6 +40,7 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
   - Local debug-input reproduction now reaches the same route automatically. With NI loading keyed to the actual TLB-mapped vaddr, the pair-233 black-screen loop advances through two `gs=3` scene loads and produces non-black CFB snapshots.
   - User visual confirmation: actual gameplay is reachable by skipping/advancing the intro sequence after character selection; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text.
   - Caveat: letting the intro sequence play out naturally still crashes later (user reported a `Signal 15`-style crash). Treat intro/cutscene stability as the active blocker, not basic gameplay reachability.
+  - User idle test in actual gameplay also hit the same late-crash signature seen locally: `Signal 10` at `0x380800002`, after many `gs=3` frames and repeated last lookups through `func_80011E48`.
   - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
 
 ## Goal
@@ -67,16 +68,18 @@ Current evidence:
 - Debug-only input can now reproduce the route locally: `gs=6 → -8 → 8 → -3 → 3`.
 - The old pair-233 `gs=3` black-screen loop was caused by NI overlays being registered at a static guessed segment. NI loading now uses the actual TLB-mapped vaddr (`0x0E`/`0x0F`) as the source of truth.
 - User confirmed actual gameplay is reachable by skipping/advancing the intro sequence after character select.
-- Remaining active blocker: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it still crashes later (reported as `Signal 15`-style). Earlier local automation also saw a late `gs=3` crash (`Signal 10` at `0x380800002`) after `map_ovl_09` and `map_ovl_10`; treat these as the same intro/cutscene stability investigation until separated.
+- Remaining active blocker: if the intro/cutscene sequence is allowed to play naturally instead of being skipped, it still crashes later (reported as `Signal 15`-style). Earlier local automation and a user gameplay-idle run both saw a late `gs=3` crash (`Signal 10` at `0x380800002`) after `map_ovl_09` and `map_ovl_10`; treat these as the same intro/cutscene/gameplay stability investigation until separated.
+- The user idle-crash log shows repeated NI/TLB maps where `0x0F00A000` is skipped as NI overlay copy, but `0x0F012000` is not. This suggests the current 64KB NI TLB skip window may be too narrow for larger NI overlays.
 
 Next action:
 
-1. Capture/log the natural intro-playout crash precisely: signal number, address, last function lookups, active `gs`, map overlay, and NI pair sequence.
-2. Add a default-off crash-context probe around `func_80011E48` / related scene-task update helpers if the natural intro crash matches the local late `gs=3` crash path.
-3. Use the existing internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before the crash.
-4. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0` and `0x007AB090`.
-5. Run bounded gameplay stability checks on the skip-to-gameplay route: controller input, renderer output, RSS, no stale process.
-6. After intro stability is understood, start burning down old default-on PFS/audio overrides one at a time.
+1. Fix/test the suspected too-narrow NI TLB skip window so high offsets such as `0x0F012000` do not fall through the normal TLB copy path when the NI loader already copied the full overlay segment.
+2. Re-run the scripted route and/or user skip-to-gameplay route with bounded idle time; compare crash signature, RSS, and last lookups.
+3. Capture/log the natural intro-playout crash precisely: signal number, address, last function lookups, active `gs`, map overlay, and NI pair sequence.
+4. Add a default-off crash-context probe around `func_80011E48` / related scene-task update helpers if the crash persists after the TLB skip-window fix.
+5. Use the existing internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
+6. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0` and `0x007AB090`.
+7. After intro/gameplay stability is understood, start burning down old default-on PFS/audio overrides one at a time.
 
 ## Resolved Work Item
 
@@ -225,11 +228,13 @@ Record durable experiments here. Keep entries concise and technical.
 | G6-001A | manual input from title/start into new game | user run | Character select worked; after book-close transition the state changed `gs=8 → -3 → 3`; `osViBlack active=0`, VI framebuffers continued rotating at 640px, map overlay `ROM 0x007A60F0` loaded, `overlay_system_2` (`ROM 0x0075A570`) registered, and NI pair `233` looped while the picture was black | Start/new-game flow is functional up to post-selection; next blocker is a live `gs=3` black-screen loop, not the old save/title blockers |
 | G6-001B | `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1`, NI loader uses actual TLB `mapped_vaddr` | 85s | Reproduced `gs=6 → -8 → 8 → -3 → 3` locally; pair-233/0x0E dispatch no longer aborts; `gs=3` advances through `map_ovl_09` then `map_ovl_10`; CFB snapshots become non-black; later crashes with `Signal 10` at `0x380800002` | Static 0E/0F NI classification was wrong; mapped-vaddr registration is a real fix. New blocker is a later intro/cutscene stability crash in `gs=3` |
 | G6-001C | manual input, skip/advance intro after character select | user run | User reached actual gameplay; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text | Basic gameplay is reachable. Do not mark recovery complete until natural intro playout crash is characterized and a bounded gameplay stability pass is done |
+| G6-001D | manual skip-to-gameplay, then idle | user run | After several minutes in `gs=3`, crashed with `Signal 10` at `0x380800002`. Last lookups were mostly `0x80043768`, then `createGraphicTasks_overlay`/`ni_system_dispatcher`/`func_80011D10`/`func_80011E48`. Log alternated NI skip-copy maps at `0x0F00A000` with normal-copy maps at `0x0F012000`. | Gameplay route is real but not yet stable. The `0x0F012000` normal-copy path is a concrete suspect because it lies beyond the current 64KB NI skip range while larger NI overlays can exceed that size. |
 
 ## Open Questions
 
 - What exact signal/address/function context occurs when the intro sequence is allowed to play naturally?
-- Does the reported natural intro `Signal 15` match the local late `gs=3` `Signal 10`/`0x380800002` crash, or are they separate blockers?
+- Does the reported natural intro `Signal 15` match the repeated late `gs=3` `Signal 10`/`0x380800002` crash, or are they separate blockers?
+- Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the first 64KB?
 - Which object/resource pointer path inside `func_80011E48` or its callees produces the invalid `0x380800002` access?
 - What scene/maps do `map_ovl_09` (`ROM 0x007A60F0`) and `map_ovl_10` (`ROM 0x007AB090`) correspond to, and should either lead directly into gameplay?
 - Are remaining black-looking moments in `gs=3` legitimate fades while the non-black CFB snapshots show scene progress?
@@ -286,4 +291,4 @@ pgrep -la LodRecomp
 
 ## Current Next Step
 
-Work item `G6-001`: preserve the skip-to-gameplay route, then characterize/fix the natural intro-playout crash. First capture the exact signal/address/function context for the intro crash and compare it to the local late `gs=3` `0x380800002` crash; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.
+Work item `G6-001`: preserve the skip-to-gameplay route, then stabilize intro/gameplay `gs=3`. First test the suspected NI TLB skip-window bug exposed by `0x0F012000` normal-copy maps, then rerun bounded gameplay/intro routes and compare any remaining crash to the repeated `Signal 10` at `0x380800002`; keep using debug-only input and CFB snapshots, and avoid gamestate skips as permanent fixes.
