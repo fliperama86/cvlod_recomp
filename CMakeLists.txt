@@ -188,6 +188,17 @@ endif()
 
 # ── Link everything ─────────────────────────────────────────────────
 find_package(ZLIB REQUIRED)
+if (APPLE AND CMAKE_OSX_SYSROOT AND TARGET ZLIB::ZLIB)
+    # The macOS SDK's usr/include path is already implied by -isysroot. If the
+    # imported ZLIB target adds it explicitly, clang can search the SDK C headers
+    # before libc++'s wrapper headers and break <cstdio>/<cmath> includes.
+    get_target_property(ZLIB_INTERFACE_INCLUDES ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
+    if (ZLIB_INTERFACE_INCLUDES)
+        list(REMOVE_ITEM ZLIB_INTERFACE_INCLUDES "${CMAKE_OSX_SYSROOT}/usr/include")
+        set_target_properties(ZLIB::ZLIB PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INTERFACE_INCLUDES}")
+    endif()
+endif()
 target_link_libraries(LodRecomp PRIVATE
     RecompiledFuncs
     librecomp

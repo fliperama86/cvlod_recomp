@@ -11,6 +11,39 @@
 
 #include "recomp.h"
 
+#ifndef LOD_ENABLE_SAVE_AUTO_INPUT
+#define LOD_ENABLE_SAVE_AUTO_INPUT 0
+#endif
+
+#ifndef LOD_ENABLE_BOOT_GS_SKIP
+#define LOD_ENABLE_BOOT_GS_SKIP 0
+#endif
+
+// ── PFS/audio override gates ────────────────────────────────────────
+// Each override masks a real runtime/PFS-internal issue. They default
+// to 1 (override active) to preserve current behavior. Set any to 0
+// at build time to drop the override; the linker will then resolve
+// the symbol to the weak RECOMP_FUNC version in RecompiledFuncs/.
+//
+// Cleanup priority (try disabling first — thinnest justification):
+//   * LOD_OVERRIDE_FUNC_8009E480       — audio-chain hard no-op
+//   * LOD_OVERRIDE_FUNC_8001D398       — contpak recheck force-return-2
+#ifndef LOD_OVERRIDE_FUNC_8009E480
+#define LOD_OVERRIDE_FUNC_8009E480 1
+#endif
+#ifndef LOD_OVERRIDE_FUNC_8001D398
+#define LOD_OVERRIDE_FUNC_8001D398 1
+#endif
+#ifndef LOD_OVERRIDE_CONTPAK_INSERTED_STATUS
+#define LOD_OVERRIDE_CONTPAK_INSERTED_STATUS 1
+#endif
+#ifndef LOD_OVERRIDE_FUNC_8001C93C
+#define LOD_OVERRIDE_FUNC_8001C93C 1
+#endif
+#ifndef LOD_OVERRIDE_FUNC_8009F400
+#define LOD_OVERRIDE_FUNC_8009F400 1
+#endif
+
 // Input callback — defined in main.cpp (C++ linkage)
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y);
 
@@ -24,6 +57,9 @@ extern "C" void load_overlay_by_id(uint32_t id, uint32_t ram_addr);
 // Copy overlay data from ROM to RDRAM (byte-swapped) — defined in lod_init.cpp
 extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
                                        uint32_t rdram_dst, uint32_t size);
+// Keep the generated weak symbol callable when LOD_OVERRIDE_FUNC_8001D398=1
+// but LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0.
+extern "C" void contpak_get_inserted_status(uint8_t* rdram, recomp_context* ctx);
 
 // ── Map overlay table: ROM start → {full_size, overlay_id} ──────────
 // Built from game's overlay table at ROM 0xB39E8 + section_table .index values.
@@ -136,7 +172,7 @@ void osPfsInitPak_recomp(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[PAK] osPfsInitPak_recomp #%d → result=%d\n", c, (int)(int32_t)ctx->r2);
 }
 
-// Trace game-level PFS wrappers to see which ones get called during save screen
+#if LOD_OVERRIDE_FUNC_8009F400
 // func_8009F400 (osPfsFindFile): scan directory directly from pak image.
 // The recompiled version goes through PIF but returned a wrong error code.
 void func_8009F400(uint8_t* rdram, recomp_context* ctx) {
@@ -195,6 +231,9 @@ void func_8009F400(uint8_t* rdram, recomp_context* ctx) {
         ctx->r2 = 5; // PFS_ERR_INVALID = file not found
     }
 }
+#endif // LOD_OVERRIDE_FUNC_8009F400
+
+#if LOD_OVERRIDE_CONTPAK_INSERTED_STATUS
 // contpak_get_inserted_status (0x8001CCC0): calls osPfsIsPlug via PIF,
 // then writes pak insertion status to 0x800F2260. Let recompiled run,
 // but trace its result.
@@ -216,16 +255,29 @@ void contpak_get_inserted_status(uint8_t* rdram, recomp_context* ctx) {
         fprintf(stderr, "[PFS] contpak_get_inserted_status #%d pak=[%d,%d,%d,%d]\n", c,
             rdram[0x0F2260^3], rdram[0x0F2261^3], rdram[0x0F2262^3], rdram[0x0F2263^3]);
 }
+#endif // LOD_OVERRIDE_CONTPAK_INSERTED_STATUS
 
-// func_8001D398 (contpak recheck): override to return 2 (found).
-// The recompiled version calls contpak_get_inserted_status which needs
-// full PIF flow. Returning 2 directly is simpler and matches emulator behavior.
-void func_8001D398(uint8_t* rdram, recomp_context* ctx) {
+#if LOD_OVERRIDE_FUNC_8001D398
+static void contpak_check_inserted_err_override_impl(uint8_t* rdram, recomp_context* ctx) {
     // Still run our contpak_get_inserted_status to update pak[] array
     contpak_get_inserted_status(rdram, ctx);
     ctx->r2 = 2;
 }
 
+// func_8001D398 (contpak recheck): override to return 2 (found).
+// The recompiled version calls contpak_get_inserted_status which needs
+// full PIF flow. Returning 2 directly is simpler and matches emulator behavior.
+void func_8001D398(uint8_t* rdram, recomp_context* ctx) {
+    contpak_check_inserted_err_override_impl(rdram, ctx);
+}
+
+// Future-regeneration alias for the same function after symbol sync.
+void contpak_check_inserted_err(uint8_t* rdram, recomp_context* ctx) {
+    contpak_check_inserted_err_override_impl(rdram, ctx);
+}
+#endif // LOD_OVERRIDE_FUNC_8001D398
+
+#if LOD_OVERRIDE_FUNC_8001C93C
 // func_8001C93C (pak detection/validation): trace return value.
 // This is called during save screen boot and gates whether the object
 // enters state 3 (normal) or state 5 (abnormality).
@@ -245,6 +297,7 @@ void func_8001C93C(uint8_t* rdram, recomp_context* ctx) {
         if (c <= 10) fprintf(stderr, "[PFS]   → 0 (present)\n");
     }
 }
+#endif // LOD_OVERRIDE_FUNC_8001C93C
 
 // func_800A16A0 (PFS status gate): logging wrapper that replicates the
 // recompiled logic but adds diagnostics to trace the 4→5 transition.
@@ -280,11 +333,13 @@ void func_800A16A0(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)(int64_t)result;
 }
 
+#if LOD_OVERRIDE_FUNC_8009E480
 // func_8009E480: on the audio task chain, NOT a PFS save function.
 // Crashes without this stub because it calls PFS internals that need full setup.
 void func_8009E480(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = 0;
 }
+#endif // LOD_OVERRIDE_FUNC_8009E480
 
 // Bank select — single 32KB bank, no-op.
 void func_800A4D00(uint8_t* rdram, recomp_context* ctx) {
@@ -409,6 +464,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 float x = 0.0f, y = 0.0f;
                 get_n64_input(0, &buttons, &x, &y);
 
+#if LOD_ENABLE_SAVE_AUTO_INPUT
                 // Auto-press: inject button presses at specific frame counts
                 // A=0x8000, B=0x4000, Start=0x1000, DPad-Up=0x0800, DPad-Down=0x0400
                 static int auto_frame = 0;
@@ -429,6 +485,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                     buttons |= 0x8000;
                     fprintf(stderr, "[AUTO] Frame %d: A again\n", auto_frame);
                 }
+#endif
 
                 uint8_t sx = (uint8_t)(int8_t)(x * 127);
                 uint8_t sy = (uint8_t)(int8_t)(y * 127);
@@ -515,6 +572,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     // Map overlay loading is now done in lod_on_init (before game threads start).
     // See lod_init.cpp for map_ovl_34 loading.
 
+#if LOD_ENABLE_BOOT_GS_SKIP
     // Boot screen skip: force gamestate transitions past screens that
     // require Controller Pak or are irrelevant for PC port.
     // GameStateMgr at 0x8031AC78: +0x24 = current_game_state, +0x28 = exitingGameState
@@ -551,6 +609,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
             }
         }
     }
+#endif
 
     // Watchpoint: monitor save object state byte at 0x8031AFA4+0x09
     if (direction == 0) {

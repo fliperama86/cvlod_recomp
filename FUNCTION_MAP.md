@@ -54,7 +54,22 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 |---------|------|-------------|
 | 0x800195E0 | contpak_init | PADMGR init, calls osContStartReadData |
 | 0x800196DC | contpak_mainLoop | PADMGR loop, reads controllers periodically |
-| 0x8001CCC0 | contpak_statusCheck | Checks CONT_CARD_ON, sets contpak_uninserted |
+| 0x8001CCC0 | contpak_get_inserted_status | Checks CONT_CARD_ON, sets contpak_uninserted |
+| 0x8001CDAC | contpak_init_all | Initializes Controller Pak state for all controller slots |
+| 0x8001CE78 | contpak_init_pak | Initializes Controller Pak state for one controller slot |
+| 0x8001CF0C | contpak_alloc_file | Wrapper around osPfsAllocateFile |
+| 0x8001CFA4 | contpak_delete_file | Wrapper around osPfsDeleteFile-style PFS API |
+| 0x8001D024 | contpak_find_file | Wrapper around osPfsFindFile |
+| 0x8001D0B0 | contpak_get_file_state | Wrapper around osPfsFileState |
+| 0x8001D114 | contpak_get_num_files | Wrapper around osPfsNumFiles |
+| 0x8001D178 | contpak_get_free_blks | Wrapper around osPfsFreeBlocks |
+| 0x8001D1DC | contpak_is_plug | Wrapper around osPfsIsPlug |
+| 0x8001D204 | contpak_read_file | Wrapper around osPfsReadWriteFile(PFS_READ) |
+| 0x8001D288 | contpak_write_file | Wrapper around osPfsReadWriteFile(PFS_WRITE) |
+| 0x8001D30C | contpak_check_rumble_pak | Checks whether inserted pak is a rumble pak |
+| 0x8001D398 | contpak_check_inserted_err | Rechecks insertion and returns new-pack/no-pack style error |
+| 0x8001D3E8 | contpak_backup_pfs_state | Copies live OSPfs slot to backup storage |
+| 0x8001D458 | contpak_restore_pfs_state | Restores live OSPfs slot from backup storage |
 | 0x80098B50 | contpak_readPIF | Low-level PIF SI DMA read/write |
 | 0x80098BD4 | contpak_parsePIF | Parses PIF response, extracts button data |
 | 0x80098C60 | contpak_formatPIF | Formats PIF command buffer for button read |

@@ -193,8 +193,23 @@ mainThread_entrypoint      = 0x800905D8; // type:func  // main game logic thread
 
 // Controller Pak / Input
 contpak_init               = 0x800195E0; // type:func  // PADMGR init, calls osContStartReadData
-contpak_statusCheck        = 0x8001CCC0; // type:func  // checks CONT_CARD_ON, sets contpak_uninserted
 contpak_mainLoop           = 0x800196DC; // type:func  // PADMGR loop, reads controllers periodically
+contpak_get_inserted_status = 0x8001CCC0; // type:func  // checks CONT_CARD_ON, sets contpak_uninserted
+contpak_init_all           = 0x8001CDAC; // type:func  // initializes Controller Pak state for all controller slots
+contpak_init_pak           = 0x8001CE78; // type:func  // initializes Controller Pak state for one controller slot
+contpak_alloc_file         = 0x8001CF0C; // type:func  // wrapper around osPfsAllocateFile
+contpak_delete_file        = 0x8001CFA4; // type:func  // wrapper around osPfsDeleteFile-style PFS API
+contpak_find_file          = 0x8001D024; // type:func  // wrapper around osPfsFindFile
+contpak_get_file_state     = 0x8001D0B0; // type:func  // wrapper around osPfsFileState
+contpak_get_num_files      = 0x8001D114; // type:func  // wrapper around osPfsNumFiles
+contpak_get_free_blks      = 0x8001D178; // type:func  // wrapper around osPfsFreeBlocks
+contpak_is_plug            = 0x8001D1DC; // type:func  // wrapper around osPfsIsPlug
+contpak_read_file          = 0x8001D204; // type:func  // wrapper around osPfsReadWriteFile(PFS_READ)
+contpak_write_file         = 0x8001D288; // type:func  // wrapper around osPfsReadWriteFile(PFS_WRITE)
+contpak_check_rumble_pak   = 0x8001D30C; // type:func  // checks whether inserted pak is a rumble pak
+contpak_check_inserted_err = 0x8001D398; // type:func  // rechecks insertion and returns new-pack/no-pack style error
+contpak_backup_pfs_state   = 0x8001D3E8; // type:func  // copies live OSPfs slot to backup storage
+contpak_restore_pfs_state  = 0x8001D458; // type:func  // restores live OSPfs slot from backup storage
 contpak_readPIF            = 0x80098B50; // type:func  // low-level PIF SI DMA read/write
 contpak_formatPIF          = 0x80098C60; // type:func  // formats PIF command buffer for button read
 contpak_parsePIF           = 0x80098BD4; // type:func  // parses PIF response, extracts button data

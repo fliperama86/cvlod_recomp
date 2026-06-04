@@ -1785,3 +1785,63 @@ Overrides currently needed for the flow to reach FreeBlocks:
 Key finding about `func_800A16A0`: when it returns SUCCESS (0), the overlay takes a completely different code path that skips FreeBlocks. The overlay expects this function to FAIL for the "Create" flow to work. The native func_800A16A0 fails because func_8009C004 (inode validator) fails on our manually-filled OSPfs struct. This is the correct behavior.
 
 Next step: the decision after FreeBlocks returns must check one more condition before showing the confirmation. Need to trace what that condition is — either via lldb breakpoints in the NI overlay code, or by diffing more RDRAM state variables with the emulator save states.
+
+2026-04-24 23:54:40 -0300
+- User requested "clean up the hacks" and approved a narrow first pass after read-only inspection.
+- Default-disabled legacy `tools/apply_patches.py` RecompiledFuncs patches via `LOD_ENABLE_LEGACY_RECOMP_PATCHES=1` opt-in; this prevents regen from reintroducing old GSM bootstrap, save-overlay +0x4C bypass, and NI poolObject tick injection.
+- Added off-by-default compile gates in `src/main/ignored_func_stubs.cpp`: `LOD_ENABLE_SAVE_AUTO_INPUT` for scripted save-screen button presses and `LOD_ENABLE_BOOT_GS_SKIP` for forced gamestate skipping.
+- Left map overlay loading, PIF/Pak emulation, and PFS wrapper shims unchanged for this pass because they remain plausible integration infrastructure rather than confirmed disposable hacks.
+- Verification: `python3 tools/apply_patches.py` reports legacy patches disabled by default; `cmake --build build` succeeded and codesigned `build/LodRecomp`.
+
+2026-06-04 -0300
+- User requested recovery/sanitization plan and approved narrow cleanup pass.
+- Planned scope: fix override-gate build issue, sync confirmed Controller Pak names in symbol files, update session memory, run one default build only.
+- Constraints still active: methodical one-step workflow, no commits unless explicitly requested, no runtime/game run until separately approved.
+
+2026-06-04 -0300
+- Narrow cleanup build reached LodRecomp compile after SDK cache cleanup, but failed at src/main/main.cpp due libc++ C-wrapper headers resolving against the wrong C headers/include order under MacOSX26.5.sdk.
+- No runtime was run; next step is read-only inspection of compile_commands/CMake include paths before proposing a fix.
+
+2026-06-04 -0300
+- User approved macOS CMake sanitation for ZLIB::ZLIB include-order failure.
+- Planned change: remove explicit /usr/include from imported ZLIB::ZLIB interface includes, then reconfigure and rebuild.
+
+2026-06-04 -0300
+- Added macOS CMake sanitation for ZLIB::ZLIB: removed explicit SDK usr/include from imported interface includes to preserve libc++ header order.
+- Reconfigured build with current SDK and verified main.cpp compile command no longer contains explicit SDK usr/include.
+- cmake --build build completed successfully; LodRecomp linked and was ad-hoc codesigned by the existing post-build step. Runtime was not run.
+
+2026-06-04 -0300
+- git diff --check passed after cleanup. Current build is green; remaining work is runtime/gameplay triage, not compile recovery.
+- Recommended next step: before runtime, optionally run a dedicated compile check for the advertised override combo LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0 with LOD_OVERRIDE_FUNC_8001D398=1.
+
+2026-06-04 -0300
+- User approved the next recommended step: dedicated override-combo compile check without code changes.
+- Check: compile src/main/ignored_func_stubs.cpp only with LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0 and LOD_OVERRIDE_FUNC_8001D398=1.
+
+2026-06-04 -0300
+- Dedicated override-combo compile check passed: ignored_func_stubs.cpp compiles with LOD_OVERRIDE_CONTPAK_INSERTED_STATUS=0 and LOD_OVERRIDE_FUNC_8001D398=1.
+- This directly verifies the review-reported build-gate issue is fixed at compile stage.
+
+2026-06-04 -0300
+- User requested compile and launch.
+- Plan: cmake --build build, codesign build/LodRecomp, run bounded launch, then pgrep for stale LodRecomp processes.
+
+2026-06-04 -0300
+- Compile+launch request completed: cmake --build build was green; build/LodRecomp was explicitly codesigned before launch.
+- Bounded 20s launch ran and ended via timeout/SIGTERM, not an internal crash. No stale LodRecomp process remained after pgrep.
+- Runtime observations: still in gs=4; save object advanced 255→1→2→3; NI overlay cycle 105/120/101 continued; max RSS reported about 861 MB.
+
+2026-06-04 -0300
+- User asked how to run LodRecomp manually; provided safe build/codesign/bounded-run commands and stale-process check.
+
+2026-06-04 -0300
+- User asked whether everything is committed; git status still shows multiple modified/untracked items, so answer is no.
+
+2026-06-04 -0300
+- Clean-baseline scope selected: keep root recovery/sanitization changes; remove local editor/debug leftovers; avoid committing dirty N64ModernRuntime submodule edits.
+- To make reset submodule buildable, remove debug-only get_overlay_section_debug_info dependency from ni_overlay_loader.cpp while preserving overlay load/copy behavior.
+
+2026-06-04 -0300
+- Clean-baseline validation: cmake --build build succeeded after resetting N64ModernRuntime and removing debug helper dependency; git diff --check passed.
+- Staging explicit intended files only for commit; untracked debug/editor leftovers were removed.

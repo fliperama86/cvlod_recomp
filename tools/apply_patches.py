@@ -11,6 +11,7 @@ import os
 import sys
 
 FUNC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "RecompiledFuncs")
+ENABLE_LEGACY_RECOMP_PATCHES = os.environ.get("LOD_ENABLE_LEGACY_RECOMP_PATCHES") == "1"
 
 # =============================================================================
 # Patch definitions — each patch targets a specific VRAM address or code pattern
@@ -21,7 +22,8 @@ PATCHES = []
 def patch(description):
     """Decorator to register a patch function."""
     def decorator(fn):
-        PATCHES.append((description, fn))
+        if ENABLE_LEGACY_RECOMP_PATCHES:
+            PATCHES.append((description, fn))
         return fn
     return decorator
 
@@ -218,6 +220,11 @@ def patch_pool_tick_hook():
 # Main
 # =============================================================================
 def main():
+    if not ENABLE_LEGACY_RECOMP_PATCHES:
+        print("  Legacy hand-written RecompiledFuncs patches disabled.")
+        print("  Set LOD_ENABLE_LEGACY_RECOMP_PATCHES=1 to reapply old bring-up patches.")
+        return 0
+
     applied = 0
     for desc, fn in PATCHES:
         if fn():
