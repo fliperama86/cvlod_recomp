@@ -36,6 +36,7 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
   - Clean default-off smoke (`/tmp/lod_clean_default_smoke.log`, 12s) builds, launches, follows save/Pak reads, reaches `gs=12`, times out cleanly, and leaves no stale process.
   - Diagnostic scripted-input run (`/tmp/lod_ni_range_fix_trace_run.log`, 20s) progresses `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`, registers `overlay_system` variants and map overlays, and leaves no stale process.
   - User visual confirmation: the game reached the start/title screen after the NI range-loader fix.
+  - User manual new-game attempt reached character select, then transitioned `gs=8 → -3 → 3` after the book-close sequence and stayed visually black while still rendering/polling.
   - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
 
 ## Goal
@@ -58,15 +59,17 @@ Current evidence:
 - `gs=12` Expansion Pak screen is no longer the blocker.
 - `gs=5`/NI pair-104 crash is no longer the blocker after range-based NI overlay registration.
 - A diagnostic scripted-input run reached `gs=6`; the user visually confirmed seeing the start/title screen.
-- Clean default-off smoke reaches `gs=12`; progressing past `gs=12` still requires either real/manual input or debug-only scripted input.
+- Manual input can progress through new-game/character-select into the post-book-close transition.
+- The current blocker is `gs=3` after `gs=8 → -3 → 3`: map overlay ROM `0x007A60F0` (`map_ovl_09`) is loaded, `overlay_system_2` ROM `0x0075A570` is registered, and NI pair `233` loops while the visible picture is black.
 
 Next action:
 
-1. Extend or replace the debug-only input script to interact with `gs=6` title/start/menu flow, not to skip states.
-2. Use the internal CFB snapshot path for verification when OS-level screenshots are black/unreliable.
-3. Identify and name any title/menu functions/gamestates encountered on the path to gameplay.
-4. When a playable scene is reached, run bounded stability checks: controller input, renderer output, RSS, no stale process.
-5. After gameplay is reachable, start burning down old default-on PFS/audio overrides one at a time.
+1. Add default-off probes for the `gs=3` post-character/book-close path, focused on NI pair `233`, `map_ovl_09` (`ROM 0x007A60F0`), and the `0x8032A490` NI/system state.
+2. Extend internal CFB snapshots to capture `gs=3`, `gs=6`, and `gs=8` so the black-screen state can be distinguished from a rendered-black transition.
+3. Extend or replace the debug-only input script to reproduce the manual new-game route without forcing gamestates.
+4. Identify and name any title/menu/post-selection functions/gamestates encountered on the path to gameplay.
+5. When a playable scene is reached, run bounded stability checks: controller input, renderer output, RSS, no stale process.
+6. After gameplay is reachable, start burning down old default-on PFS/audio overrides one at a time.
 
 ## Resolved Work Item
 
@@ -212,12 +215,13 @@ Record durable experiments here. Keep entries concise and technical.
 | OVLSYS-002 | `LOD_ENABLE_OVLSYS_CONCAT_INIT_COPY=1` A/B diagnostic | 20s | Did not restore PAK path and later hit `Signal 10` | Old concatenated overlay-system copy is unsafe and was removed |
 | NI-001 | Range-based NI overlay registration, diagnostic save/title traces and scripted input | 20s | Restored PAK path; progressed `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`; user saw start/title screen | Hard-coded NI overlay IDs were the `gs=4` regression and `gs=5` crash cause after section additions |
 | CLEAN-004 | all debug/input/trace flags off | 12s | Built, codesigned, reached `gs=12`, timed out cleanly; no stale process | Clean baseline is buildable and reaches Expansion Pak screen without diagnostics |
+| G6-001A | manual input from title/start into new game | user run | Character select worked; after book-close transition the state changed `gs=8 → -3 → 3`; `osViBlack active=0`, VI framebuffers continued rotating at 640px, map overlay `ROM 0x007A60F0` loaded, `overlay_system_2` (`ROM 0x0075A570`) registered, and NI pair `233` looped while the picture was black | Start/new-game flow is functional up to post-selection; next blocker is a live `gs=3` black-screen loop, not the old save/title blockers |
 
 ## Open Questions
 
-- What exact controller sequence is needed from `gs=6` title/start screen to enter actual gameplay?
-- Which gamestates follow `gs=6` on the route to a playable scene, and which map/NI overlays do they load?
-- Does the title/menu path need additional internal CFB snapshots or renderer fixes beyond the existing snapshot hook?
+- What does NI pair `233` do in the post-character/book-close `gs=3` path, and why does it loop?
+- Is the `gs=3` black screen a legitimate loading/fade wait, a missing render/CFB issue, or a scheduler/object state stall?
+- What scene/map does `map_ovl_09` (`ROM 0x007A60F0`) correspond to, and should it lead directly into gameplay?
 - Are remaining default-on PFS/Pak/audio overrides still required once gameplay is reachable?
 - Is the NI pair `53`/`104` alternation in `gs=5` expected intro/title behavior or a sign of a loop that should be broken by normal input?
 
@@ -271,4 +275,4 @@ pgrep -la LodRecomp
 
 ## Current Next Step
 
-Work item `G6-001`: drive the confirmed `gs=6` title/start screen into actual controllable gameplay through normal input. Extend the debug-only controller script only as an interaction aid, pair it with internal CFB snapshots when OS screenshots are black, and keep the route bounded/no-skip so any new blocker is real.
+Work item `G6-001`: reproduce the manual new-game route with debug-only input, then instrument the `gs=3` post-character/book-close black-screen loop around NI pair `233`, `map_ovl_09`, and internal CFB snapshots. Keep the route bounded and no-skip so the next blocker remains real.
