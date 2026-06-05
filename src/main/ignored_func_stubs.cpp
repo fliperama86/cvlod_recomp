@@ -820,6 +820,7 @@ extern "C" void lod_install_gs3_anim_trace_wrappers_early() {
 
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 static recomp_func_t* lod_orig_kseg0_dmamgr_update = nullptr; // 0x80011E48
+static recomp_func_t* lod_orig_kseg0_dmamgr_romcopy = nullptr; // 0x8001A42C
 
 static uint32_t lod_kseg0_trace_u32_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
     return ok && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
@@ -832,6 +833,24 @@ static uint16_t lod_kseg0_trace_u16_or_zero(uint8_t* rdram, uint32_t phys, bool 
 static bool lod_kseg0_trace_ram_span_ok(uint32_t addr, uint32_t size) {
     uint32_t phys = 0;
     return lod_decode_rdram_phys_addr(addr, size != 0 ? size : 1, &phys);
+}
+
+static void lod_kseg0_record_dmamgr_romcopy(uint8_t* rdram, recomp_context* ctx) {
+    LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+    s.magic = 0x4B534730; // "KSG0"
+    s.romcopy_count++;
+    s.romcopy_gs = (uint32_t)lod_current_gamestate(rdram);
+    s.romcopy_rom = (uint32_t)ctx->r4;
+    s.romcopy_ram = (uint32_t)ctx->r5;
+    s.romcopy_size = (uint32_t)ctx->r6;
+    s.romcopy_ra = (uint32_t)ctx->r31;
+    s.romcopy_ram_phys = 0;
+    uint32_t phys = 0;
+    s.romcopy_ram_ok = lod_decode_rdram_phys_addr(
+        s.romcopy_ram, s.romcopy_size != 0 ? s.romcopy_size : 1, &phys) ? 1 : 0;
+    if (s.romcopy_ram_ok != 0) {
+        s.romcopy_ram_phys = phys;
+    }
 }
 
 static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint32_t func_vram) {
@@ -932,6 +951,31 @@ static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
+static void lod_kseg0_trace_dmamgr_romcopy(uint8_t* rdram, recomp_context* ctx) {
+    lod_kseg0_record_dmamgr_romcopy(rdram, ctx);
+    const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+    bool suspicious =
+        s.romcopy_ram_ok == 0 ||
+        s.romcopy_ram >= 0x80800000 ||
+        (s.romcopy_size != 0 && s.romcopy_size > 0x100000);
+    if (suspicious) {
+        static int suspicious_count = 0;
+        suspicious_count++;
+        if (suspicious_count <= 80 || (suspicious_count % 240) == 0) {
+            fprintf(stderr,
+                    "[KSEG0-DMAMGR] romcopy-suspicious#%d call#%u gs=%u map#%d map_rom=0x%08X "
+                    "rom=0x%08X ram=0x%08X size=0x%08X phys=0x%08X ra=0x%08X ram_ok=%u\n",
+                    suspicious_count, s.romcopy_count, s.romcopy_gs,
+                    lod_map_ovl_load_count, lod_current_map_ovl_rom,
+                    s.romcopy_rom, s.romcopy_ram, s.romcopy_size,
+                    s.romcopy_ram_phys, s.romcopy_ra, s.romcopy_ram_ok);
+        }
+    }
+    if (lod_orig_kseg0_dmamgr_romcopy != nullptr) {
+        lod_orig_kseg0_dmamgr_romcopy(rdram, ctx);
+    }
+}
+
 static void lod_install_kseg0_fault_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
                                                   recomp_func_t** original_out) {
     recomp_func_t* current = get_function((int32_t)vram);
@@ -947,12 +991,15 @@ static void lod_install_kseg0_fault_trace_wrappers(const char* reason) {
 
     lod_install_kseg0_fault_trace_wrapper(0x80011E48, lod_kseg0_trace_dmamgr_update,
         &lod_orig_kseg0_dmamgr_update);
+    lod_install_kseg0_fault_trace_wrapper(0x8001A42C, lod_kseg0_trace_dmamgr_romcopy,
+        &lod_orig_kseg0_dmamgr_romcopy);
 
     if (install_count <= 4) {
         fprintf(stderr,
-                "[KSEG0-TRACE] installed wrappers #%d reason=%s dmamgr=%p\n",
+                "[KSEG0-TRACE] installed wrappers #%d reason=%s dmamgr=%p romcopy=%p\n",
                 install_count, reason,
-                (void*)lod_orig_kseg0_dmamgr_update);
+                (void*)lod_orig_kseg0_dmamgr_update,
+                (void*)lod_orig_kseg0_dmamgr_romcopy);
     }
 }
 

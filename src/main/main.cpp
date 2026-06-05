@@ -472,6 +472,14 @@ static void crash_handler(int sig, siginfo_t* info, void* ctx) {
                 "ram_ok=%u active_ram_ok=%u\n",
                 s.cur_rom, s.cur_ram, s.cur_size, s.cur_file_id,
                 s.cur_ram_ok, s.entry_ram_ok);
+        if (s.romcopy_count != 0) {
+            fprintf(stderr,
+                    "  KSEG0 trace last_dma_romcopy#%u gs=%u rom=0x%08X ram=0x%08X "
+                    "size=0x%08X phys=0x%08X ra=0x%08X ram_ok=%u\n",
+                    s.romcopy_count, s.romcopy_gs, s.romcopy_rom, s.romcopy_ram,
+                    s.romcopy_size, s.romcopy_ram_phys, s.romcopy_ra,
+                    s.romcopy_ram_ok);
+        }
     }
     // Print last function calls from trace ring
     int count = trace_total < 32 ? trace_total : 32;
