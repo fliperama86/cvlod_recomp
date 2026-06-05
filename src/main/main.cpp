@@ -456,6 +456,11 @@ static void crash_handler(int sig, siginfo_t* info, void* ctx) {
                 "entry={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X user=0x%08X}\n",
                 s.chunk_addr, s.chunk_phys, s.slot, s.pending,
                 s.entry_rom, s.entry_ram, s.entry_size, s.entry_file_id, s.entry_user_ptr);
+        fprintf(stderr,
+                "  KSEG0 trace cur={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X} "
+                "ram_ok=%u active_ram_ok=%u\n",
+                s.cur_rom, s.cur_ram, s.cur_size, s.cur_file_id,
+                s.cur_ram_ok, s.entry_ram_ok);
     }
     // Print last function calls from trace ring
     int count = trace_total < 32 ? trace_total : 32;

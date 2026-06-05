@@ -38,6 +38,12 @@ struct LodKseg0FaultTraceSnapshot {
     uint32_t entry_size;
     uint32_t entry_file_id;
     uint32_t entry_user_ptr;
+    uint32_t cur_rom;
+    uint32_t cur_ram;
+    uint32_t cur_size;
+    uint32_t cur_file_id;
+    uint32_t entry_ram_ok;
+    uint32_t cur_ram_ok;
 };
 
 extern "C" LodKseg0FaultTraceSnapshot lod_kseg0_fault_trace_snapshot;

@@ -809,6 +809,11 @@ static uint16_t lod_kseg0_trace_u16_or_zero(uint8_t* rdram, uint32_t phys, bool 
     return ok && lod_rdram_range_ok(phys, 2) ? (uint16_t)lod_rdram_s16(rdram, phys) : 0;
 }
 
+static bool lod_kseg0_trace_ram_span_ok(uint32_t addr, uint32_t size) {
+    uint32_t phys = 0;
+    return lod_decode_rdram_phys_addr(addr, size != 0 ? size : 1, &phys);
+}
+
 static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint32_t func_vram) {
     LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
     s.magic = 0x4B534730; // "KSG0"
@@ -847,6 +852,12 @@ static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint3
     s.entry_size = 0;
     s.entry_file_id = 0;
     s.entry_user_ptr = 0;
+    s.cur_rom = 0;
+    s.cur_ram = 0;
+    s.cur_size = 0;
+    s.cur_file_id = 0;
+    s.entry_ram_ok = 1;
+    s.cur_ram_ok = 1;
 
     if (func_vram == 0x80011E48) {
         uint32_t obj_addr = (uint32_t)ctx->r4;
@@ -863,11 +874,39 @@ static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint3
         s.entry_size = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x08, slot_ok);
         s.entry_file_id = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x0C, slot_ok);
         s.entry_user_ptr = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x10, slot_ok);
+
+        s.cur_rom = lod_kseg0_trace_u32_or_zero(rdram, s.chunk_phys + 0x828, chunk_ok);
+        s.cur_ram = lod_kseg0_trace_u32_or_zero(rdram, s.chunk_phys + 0x82C, chunk_ok);
+        s.cur_size = lod_kseg0_trace_u32_or_zero(rdram, s.chunk_phys + 0x830, chunk_ok);
+        s.cur_file_id = lod_kseg0_trace_u32_or_zero(rdram, s.chunk_phys + 0x840, chunk_ok);
+        s.entry_ram_ok = (!slot_ok || (s.entry_ram == 0 && s.entry_size == 0) ||
+                          lod_kseg0_trace_ram_span_ok(s.entry_ram, s.entry_size)) ? 1 : 0;
+        s.cur_ram_ok = (!chunk_ok || (s.cur_ram == 0 && s.cur_size == 0) ||
+                        lod_kseg0_trace_ram_span_ok(s.cur_ram, s.cur_size)) ? 1 : 0;
     }
 }
 
 static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
     lod_kseg0_record_snapshot(rdram, ctx, 0x80011E48);
+    const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+    bool active_bad = s.pending != 0 && s.entry_ram_ok == 0;
+    bool current_bad = s.cur_ram_ok == 0;
+    if (active_bad || current_bad) {
+        static int suspicious_count = 0;
+        suspicious_count++;
+        if (suspicious_count <= 80 || (suspicious_count % 240) == 0) {
+            fprintf(stderr,
+                    "[KSEG0-DMAMGR] suspicious#%d call#%u gs=%u map#%u rom=0x%08X "
+                    "chunk=0x%08X slot=%u pending=%u active={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X} "
+                    "cur={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X} "
+                    "active_bad=%d current_bad=%d\n",
+                    suspicious_count, s.count, s.gs, s.map_load_count, s.map_rom,
+                    s.chunk_addr, s.slot, s.pending,
+                    s.entry_rom, s.entry_ram, s.entry_size, s.entry_file_id,
+                    s.cur_rom, s.cur_ram, s.cur_size, s.cur_file_id,
+                    active_bad ? 1 : 0, current_bad ? 1 : 0);
+        }
+    }
     if (lod_orig_kseg0_dmamgr_update != nullptr) {
         lod_orig_kseg0_dmamgr_update(rdram, ctx);
     }
