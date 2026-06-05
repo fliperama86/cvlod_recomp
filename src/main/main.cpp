@@ -12,6 +12,9 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#if defined(__APPLE__) || defined(__linux__)
+#include <execinfo.h>
+#endif
 
 #include "ultramodern/ultra64.h"
 #include "ultramodern/ultramodern.hpp"
@@ -426,6 +429,14 @@ LodKseg0FaultTraceSnapshot lod_kseg0_fault_trace_snapshot = {};
 static void crash_handler(int sig, siginfo_t* info, void* ctx) {
     fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
             sig, info->si_addr, info->si_code);
+#if defined(__APPLE__) || defined(__linux__)
+    {
+        void* frames[64];
+        int frame_count = backtrace(frames, 64);
+        fprintf(stderr, "  Native backtrace (%d frames):\n", frame_count);
+        backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
+    }
+#endif
     if (rdram_ptr_for_debug != nullptr && info->si_addr != nullptr) {
         uintptr_t fault = reinterpret_cast<uintptr_t>(info->si_addr);
         uintptr_t base = reinterpret_cast<uintptr_t>(rdram_ptr_for_debug);
