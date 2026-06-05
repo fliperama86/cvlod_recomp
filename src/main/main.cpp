@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <cmath>
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #endif
@@ -72,6 +73,42 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
 }
 
 static SDL_Window* window = nullptr;
+static SDL_GameController* game_controller = nullptr;
+static SDL_JoystickID game_controller_instance = -1;
+
+static void open_first_game_controller() {
+    if (game_controller != nullptr) {
+        return;
+    }
+
+    const int joystick_count = SDL_NumJoysticks();
+    for (int i = 0; i < joystick_count; i++) {
+        if (!SDL_IsGameController(i)) {
+            continue;
+        }
+
+        SDL_GameController* opened = SDL_GameControllerOpen(i);
+        if (opened == nullptr) {
+            fprintf(stderr, "[INPUT] failed to open game controller %d: %s\n", i, SDL_GetError());
+            continue;
+        }
+
+        SDL_Joystick* joystick = SDL_GameControllerGetJoystick(opened);
+        game_controller = opened;
+        game_controller_instance = joystick != nullptr ? SDL_JoystickInstanceID(joystick) : -1;
+        fprintf(stderr, "[INPUT] opened game controller: %s\n", SDL_GameControllerName(opened));
+        return;
+    }
+}
+
+static void close_game_controller() {
+    if (game_controller != nullptr) {
+        fprintf(stderr, "[INPUT] closed game controller\n");
+        SDL_GameControllerClose(game_controller);
+        game_controller = nullptr;
+        game_controller_instance = -1;
+    }
+}
 
 ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::gfx_data_t) {
     uint32_t flags = SDL_WINDOW_RESIZABLE;
@@ -112,6 +149,15 @@ void update_gfx(void*) {
             case SDL_QUIT:
                 ultramodern::quit();
                 return;
+            case SDL_CONTROLLERDEVICEADDED:
+                open_first_game_controller();
+                break;
+            case SDL_CONTROLLERDEVICEREMOVED:
+                if (event.cdevice.which == game_controller_instance) {
+                    close_game_controller();
+                    open_first_game_controller();
+                }
+                break;
         }
     }
 }
@@ -296,7 +342,24 @@ RspUcodeFunc* get_rsp_microcode(const OSTask* task) {
 // ── Input (minimal stubs) ───────────────────────────────────────────
 
 void poll_inputs() {
-    // SDL event polling happens in update_gfx
+    // SDL event polling happens in update_gfx. Lazily open here too so a
+    // controller already connected before boot is available immediately.
+    open_first_game_controller();
+}
+
+static float normalize_axis(Sint16 value) {
+    constexpr float deadzone = 8000.0f;
+    const float v = static_cast<float>(value);
+    const float abs_v = std::fabs(v);
+    if (abs_v <= deadzone) {
+        return 0.0f;
+    }
+
+    float normalized = (abs_v - deadzone) / (32767.0f - deadzone);
+    if (normalized > 1.0f) {
+        normalized = 1.0f;
+    }
+    return v < 0.0f ? -normalized : normalized;
 }
 
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
@@ -328,15 +391,64 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_A]) *x -= 1.0f;
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
+    if (game_controller != nullptr) {
+        // Face-button aliases: keep the direct N64 A/B mapping, but also map
+        // the left/top face buttons to the main action buttons so Xbox and
+        // PlayStation layouts have obvious jump/attack buttons during testing.
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_A) ||
+            SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_Y)) {
+            *buttons |= 0x8000; // N64 A / jump
+        }
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_B) ||
+            SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_X)) {
+            *buttons |= 0x4000; // N64 B / attack
+        }
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_START))         *buttons |= 0x1000; // Start
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_UP))       *buttons |= 0x0800; // D-Up
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN))     *buttons |= 0x0400; // D-Down
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT))     *buttons |= 0x0200; // D-Left
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    *buttons |= 0x0100; // D-Right
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  *buttons |= 0x0020; // L
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) *buttons |= 0x0010; // R
+
+        // N64 Z: natural on modern triggers.
+        if (SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 12000 ||
+            SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) {
+            *buttons |= 0x2000;
+        }
+
+        // N64 C-buttons on right stick.
+        const float c_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX));
+        const float c_y = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY));
+        if (c_y < -0.5f) *buttons |= 0x0008; // C-Up
+        if (c_y >  0.5f) *buttons |= 0x0004; // C-Down
+        if (c_x < -0.5f) *buttons |= 0x0002; // C-Left
+        if (c_x >  0.5f) *buttons |= 0x0001; // C-Right
+
+        const float pad_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTX));
+        const float pad_y = -normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTY));
+        if (std::fabs(pad_x) > std::fabs(*x)) {
+            *x = pad_x;
+        }
+        if (std::fabs(pad_y) > std::fabs(*y)) {
+            *y = pad_y;
+        }
+    }
 
     return true;
 }
 
-void set_rumble(int, bool) {}
+void set_rumble(int controller_num, bool rumble) {
+    if (controller_num != 0 || game_controller == nullptr) {
+        return;
+    }
+
+    SDL_GameControllerRumble(game_controller, rumble ? 0x6000 : 0, rumble ? 0xFFFF : 0, rumble ? 200 : 0);
+}
 
 ultramodern::input::connected_device_info_t get_connected_device_info(int controller_num) {
     if (controller_num == 0) {
-        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::None };
+        return { ultramodern::input::Device::Controller, ultramodern::input::Pak::ControllerPak };
     }
     return { ultramodern::input::Device::None, ultramodern::input::Pak::None };
 }

@@ -104,6 +104,29 @@ Run from the repository root so relative `resources/...` paths resolve:
 
 If using a single-config generator such as Ninja, the executable is typically under `build-win\LodRecomp.exe` instead.
 
+## Controls
+
+Keyboard input remains available:
+
+- Enter = N64 A
+- Right Shift = N64 B
+- Z = N64 Z
+- Space = Start
+- Arrow keys = D-pad
+- WASD = analog stick
+
+SDL game controllers are also supported. Xbox controllers and DualSense/DualShock controllers should be detected through SDL's standard GameController mappings:
+
+- A / Cross or Y / Triangle = N64 A / jump
+- B / Circle or X / Square = N64 B / attack
+- Start / Options = Start
+- Left stick = analog stick
+- D-pad = N64 D-pad
+- Left bumper = N64 L
+- Right bumper = N64 R
+- Left or right trigger = N64 Z
+- Right stick = N64 C-buttons
+
 ## Crash/test reports
 
 When reporting a crash or regression, include:

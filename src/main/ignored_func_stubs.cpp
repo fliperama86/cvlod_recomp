@@ -53,6 +53,10 @@
 #define LOD_ENABLE_KSEG0_FAULT_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_INPUT_TRACE
+#define LOD_ENABLE_INPUT_TRACE 0
+#endif
+
 #ifndef LOD_ENABLE_AUDIO_PULL_TRACE
 #define LOD_ENABLE_AUDIO_PULL_TRACE 0
 #endif
@@ -133,6 +137,9 @@ static void lod_install_gs3_anim_trace_wrappers(const char* reason);
 #endif
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 static void lod_install_kseg0_fault_trace_wrappers(const char* reason);
+#endif
+#if LOD_ENABLE_INPUT_TRACE
+extern "C" void lod_install_input_action_trace_wrappers_early();
 #endif
 
 // ── Map overlay table: ROM start → full DMA size ────────────────────
@@ -2058,6 +2065,131 @@ extern "C" void lod_install_kseg0_fault_trace_wrappers_early() {
 }
 #endif
 
+#if LOD_ENABLE_INPUT_TRACE
+static recomp_func_t* lod_orig_input_action_8002D6E8 = nullptr;
+static recomp_func_t* lod_orig_input_action_80031470 = nullptr;
+static recomp_func_t* lod_orig_input_action_800332C4 = nullptr;
+
+static void lod_trace_input_action_candidate(uint8_t* rdram, recomp_context* ctx,
+                                             const char* label, uint32_t vram,
+                                             recomp_func_t* original,
+                                             uint32_t* counter) {
+    (*counter)++;
+
+    constexpr uint32_t PLAYER_CONT_DATA_PHYS = 0x000F35F0; // 0x800F35F0
+    constexpr uint32_t PLAYER_CONT_CUR = PLAYER_CONT_DATA_PHYS + 0x04;
+    const uint16_t held = lod_rdram_range_ok(PLAYER_CONT_CUR + 0x02, 0x02)
+        ? (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x02) : 0;
+    const uint16_t pressed = lod_rdram_range_ok(PLAYER_CONT_CUR + 0x04, 0x02)
+        ? (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x04) : 0;
+    const bool action_active = ((held | pressed) & 0xC000) != 0;
+    const int32_t gs = lod_current_gamestate(rdram);
+    const bool log_this = (*counter <= 4) || (gs == 3 && action_active);
+
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    const uint32_t obj_phys = obj_addr & 0x1FFFFFFF;
+    const bool obj_ok = lod_rdram_range_ok(obj_phys, 0x38);
+    const uint8_t obj_state09_before = obj_ok ? lod_rdram_u8(rdram, obj_phys + 0x09) : 255;
+    const int16_t obj_func_before = obj_ok ? lod_rdram_s16(rdram, obj_phys + 0x0E) : 0;
+    const uint32_t actor_addr = obj_ok ? lod_rdram_u32(rdram, obj_phys + 0x34) : 0;
+    const uint32_t actor_phys = actor_addr & 0x1FFFFFFF;
+    const bool actor_ok = actor_addr != 0 && lod_rdram_range_ok(actor_phys, 0x100);
+    const uint32_t actor_flags0_before = actor_ok ? lod_rdram_u32(rdram, actor_phys + 0x00) : 0;
+    const uint32_t actor_flags8_before = actor_ok ? lod_rdram_u32(rdram, actor_phys + 0x08) : 0;
+    const int16_t actor_gate_f8_before = actor_ok ? lod_rdram_s16(rdram, actor_phys + 0xF8) : 0;
+
+    if (log_this) {
+        fprintf(stderr,
+                "[INPUT_ACTION] enter %s#%u vram=0x%08X gs=%d a0=0x%08X "
+                "ctrl={held=0x%04X pressed=0x%04X} "
+                "obj={ok=%d state09=%u func=%d} "
+                "actor=0x%08X {ok=%d flags0=0x%08X flags8=0x%08X gateF8=%d} ra=0x%08X orig=%p\n",
+                label, *counter, vram, gs, obj_addr,
+                held, pressed,
+                obj_ok ? 1 : 0, obj_state09_before, obj_func_before,
+                actor_addr, actor_ok ? 1 : 0,
+                actor_flags0_before, actor_flags8_before, actor_gate_f8_before,
+                (uint32_t)ctx->r31, (void*)original);
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    if (log_this) {
+        const uint16_t held_after = lod_rdram_range_ok(PLAYER_CONT_CUR + 0x02, 0x02)
+            ? (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x02) : 0;
+        const uint16_t pressed_after = lod_rdram_range_ok(PLAYER_CONT_CUR + 0x04, 0x02)
+            ? (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x04) : 0;
+        const uint8_t obj_state09_after = obj_ok ? lod_rdram_u8(rdram, obj_phys + 0x09) : 255;
+        const int16_t obj_func_after = obj_ok ? lod_rdram_s16(rdram, obj_phys + 0x0E) : 0;
+        const uint32_t actor_flags0_after = actor_ok ? lod_rdram_u32(rdram, actor_phys + 0x00) : 0;
+        const uint32_t actor_flags8_after = actor_ok ? lod_rdram_u32(rdram, actor_phys + 0x08) : 0;
+        const int16_t actor_gate_f8_after = actor_ok ? lod_rdram_s16(rdram, actor_phys + 0xF8) : 0;
+        fprintf(stderr,
+                "[INPUT_ACTION] exit  %s#%u vram=0x%08X gs=%d v0=0x%08X "
+                "ctrl={held=0x%04X pressed=0x%04X -> held=0x%04X pressed=0x%04X} "
+                "obj={state09=%u->%u func=%d->%d} "
+                "actor={flags0=0x%08X->0x%08X flags8=0x%08X->0x%08X gateF8=%d->%d}\n",
+                label, *counter, vram, lod_current_gamestate(rdram), (uint32_t)ctx->r2,
+                held, pressed, held_after, pressed_after,
+                obj_state09_before, obj_state09_after, obj_func_before, obj_func_after,
+                actor_flags0_before, actor_flags0_after,
+                actor_flags8_before, actor_flags8_after,
+                actor_gate_f8_before, actor_gate_f8_after);
+    }
+}
+
+static void lod_trace_input_action_8002D6E8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_input_action_candidate(rdram, ctx, "act_8002D6E8", 0x8002D6E8,
+                                     lod_orig_input_action_8002D6E8, &count);
+}
+
+static void lod_trace_input_action_80031470(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_input_action_candidate(rdram, ctx, "act_80031470", 0x80031470,
+                                     lod_orig_input_action_80031470, &count);
+}
+
+static void lod_trace_input_action_800332C4(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_input_action_candidate(rdram, ctx, "act_800332C4", 0x800332C4,
+                                     lod_orig_input_action_800332C4, &count);
+}
+
+static void lod_install_input_action_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                   recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+extern "C" void lod_install_input_action_trace_wrappers_early() {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_input_action_trace_wrapper(0x8002D6E8, lod_trace_input_action_8002D6E8,
+        &lod_orig_input_action_8002D6E8);
+    lod_install_input_action_trace_wrapper(0x80031470, lod_trace_input_action_80031470,
+        &lod_orig_input_action_80031470);
+    lod_install_input_action_trace_wrapper(0x800332C4, lod_trace_input_action_800332C4,
+        &lod_orig_input_action_800332C4);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+                "[INPUT_ACTION] installed wrappers #%d originals "
+                "8002D6E8=%p 80031470=%p 800332C4=%p\n",
+                install_count,
+                (void*)lod_orig_input_action_8002D6E8,
+                (void*)lod_orig_input_action_80031470,
+                (void*)lod_orig_input_action_800332C4);
+    }
+}
+#endif
+
 #if LOD_ENABLE_BGSTATE_TRACE
 static recomp_func_t* lod_orig_bgstate_driver = nullptr;     // 0x80145AF0
 static recomp_func_t* lod_orig_bgstate_bootstrap = nullptr;  // 0x80145B60
@@ -3787,6 +3919,82 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 WR_MEM_B(pif, response_start + 1, buttons & 0xFF);
                 WR_MEM_B(pif, response_start + 2, sx);
                 WR_MEM_B(pif, response_start + 3, sy);
+
+#if LOD_ENABLE_INPUT_TRACE
+                {
+                    const int32_t input_trace_gs = lod_current_gamestate(rdram);
+                    const bool action_pressed = (buttons & 0xC000) != 0; // A/B
+                    if (input_trace_gs == 3 && action_pressed) {
+                        static uint32_t input_trace_count = 0;
+                        input_trace_count++;
+                        if (input_trace_count <= 80 || (input_trace_count % 30) == 0) {
+                            // func_80020A0C copies sys.controllers[controller]
+                            // from 0x801C87F4 + controller*0xE into the
+                            // gameplay/player-control path. The previous
+                            // trace accidentally started at +4, so `pressed`
+                            // was mislabeled as `conn`.
+                            constexpr uint32_t SYS_CONT0_PHYS = 0x001C87F4;
+                            constexpr uint32_t SYS_CONTROL_MODE_PHYS = 0x001CAB2C; // 0x801C82C0 + 0x286C
+                            constexpr uint32_t PLAYER_CONT_DATA_PHYS = 0x000F35F0; // 0x800F35F0
+                            constexpr uint32_t PLAYER_CONT_CUR = PLAYER_CONT_DATA_PHYS + 0x04;
+                            constexpr uint32_t PLAYER_CONT_PREV = PLAYER_CONT_DATA_PHYS + 0x12;
+                            int16_t sys_control_mode = 0;
+                            uint16_t sys_connected = 0;
+                            uint16_t sys_held = 0;
+                            uint16_t sys_pressed = 0;
+                            int16_t sys_joy_x = 0;
+                            int16_t sys_joy_y = 0;
+                            int16_t sys_joy_ang = 0;
+                            int16_t sys_joy_held = 0;
+                            if (lod_rdram_range_ok(SYS_CONTROL_MODE_PHYS, 0x02)) {
+                                sys_control_mode = lod_rdram_s16(rdram, SYS_CONTROL_MODE_PHYS);
+                            }
+                            if (lod_rdram_range_ok(SYS_CONT0_PHYS, 0x0E)) {
+                                sys_connected = (uint16_t)lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x00);
+                                sys_held = (uint16_t)lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x02);
+                                sys_pressed = (uint16_t)lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x04);
+                                sys_joy_x = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x06);
+                                sys_joy_y = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x08);
+                                sys_joy_ang = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x0A);
+                                sys_joy_held = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x0C);
+                            }
+                            uint16_t player_connected = 0;
+                            uint16_t player_held = 0;
+                            uint16_t player_pressed = 0;
+                            int16_t player_joy_x = 0;
+                            int16_t player_joy_y = 0;
+                            uint16_t player_prev_held = 0;
+                            uint16_t player_prev_pressed = 0;
+                            if (lod_rdram_range_ok(PLAYER_CONT_CUR, 0x0E) &&
+                                lod_rdram_range_ok(PLAYER_CONT_PREV, 0x0E)) {
+                                player_connected = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x00);
+                                player_held = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x02);
+                                player_pressed = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x04);
+                                player_joy_x = lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x06);
+                                player_joy_y = lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x08);
+                                player_prev_held = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_PREV + 0x02);
+                                player_prev_pressed = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_PREV + 0x04);
+                            }
+                            fprintf(stderr,
+                                    "[INPUT_TRACE] #%u gs=%d pif_btn=0x%04X sx=%d sy=%d "
+                                    "mode=%d "
+                                    "sys@1C87F4={conn=0x%04X held=0x%04X pressed=0x%04X "
+                                    "joy=(%d,%d) ang=%d joyheld=%d} "
+                                    "player@0F35F0={conn=0x%04X held=0x%04X pressed=0x%04X "
+                                    "joy=(%d,%d) prev_held=0x%04X prev_pressed=0x%04X}\n",
+                                    input_trace_count, input_trace_gs, buttons,
+                                    (int)(int8_t)sx, (int)(int8_t)sy,
+                                    (int)sys_control_mode,
+                                    sys_connected, sys_held, sys_pressed,
+                                    (int)sys_joy_x, (int)sys_joy_y,
+                                    (int)sys_joy_ang, (int)sys_joy_held,
+                                    player_connected, player_held, player_pressed,
+                                    (int)player_joy_x, (int)player_joy_y,
+                                    player_prev_held, player_prev_pressed);
+                        }
+                    }
+                }
+#endif
             } else if (cmd == 0x02) {
                 // Controller Pak READ
                 uint8_t addr_hi = RD_MEM_B(pif, pos + 3);

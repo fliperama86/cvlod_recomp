@@ -89,7 +89,8 @@ alSynAllocFx            = 0x800A7110; // type:func
 alSynStopVoice          = 0x800A71B0; // type:func
 
 // OS Serial Interface
-osContInit        = 0x800994C0; // type:func
+osContInit        = 0x80098600; // type:func
+osInitialize      = 0x800994C0; // type:func
 __osSiDeviceBusy  = 0x800A17B0; // type:func
 __osSiRawReadIo   = 0x80099C40; // type:func
 __osSiRawWriteIo  = 0x800A6600; // type:func
@@ -236,7 +237,7 @@ audioTask_build            = 0x80090744; // type:func  // audio task builder, ca
 mainThread_entrypoint      = 0x800905D8; // type:func  // main game logic thread
 
 // Controller Pak / Input
-contpak_init               = 0x800195E0; // type:func  // PADMGR init, calls osContStartReadData
+contpak_init               = 0x800195E0; // type:func  // PADMGR init, calls osContInit
 contpak_mainLoop           = 0x800196DC; // type:func  // PADMGR loop, reads controllers periodically
 contpak_get_inserted_status = 0x8001CCC0; // type:func  // checks CONT_CARD_ON, sets contpak_uninserted
 contpak_init_all           = 0x8001CDAC; // type:func  // initializes Controller Pak state for all controller slots

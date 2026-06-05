@@ -2590,7 +2590,7 @@ RECOMP_FUNC void game_main(uint8_t* rdram, recomp_context* ctx) {
     // 0x800177E8: jal         0x800994C0
     // 0x800177EC: nop
 
-    osContInit_recomp(rdram, ctx);
+    osInitialize_recomp(rdram, ctx);
         goto after_0;
     // 0x800177EC: nop
 

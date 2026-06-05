@@ -32,6 +32,9 @@ extern "C" void lod_install_kseg0_fault_trace_wrappers_early();
 #if LOD_ENABLE_AUDIO_PULL_TRACE
 extern "C" void lod_install_audio_pull_trace_wrappers_early();
 #endif
+#if LOD_ENABLE_INPUT_TRACE
+extern "C" void lod_install_input_action_trace_wrappers_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -466,5 +469,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Debug-only CPU audio pull-chain wrappers. These only log/interpose
     // indirect pull calls via get_function(), and are disabled by default.
     lod_install_audio_pull_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_INPUT_TRACE
+    // Debug-only player action callback wrappers. These only log when A/B are
+    // active in gameplay, and are disabled by default.
+    lod_install_input_action_trace_wrappers_early();
 #endif
 }
