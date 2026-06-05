@@ -13,6 +13,7 @@
 #include "ultramodern/ultra64.h"
 
 #include "recomp.h"
+#include "lod/lod_fault_trace.hpp"
 #include "librecomp/overlays.hpp"
 
 #ifndef LOD_ENABLE_SAVE_AUTO_INPUT
@@ -41,6 +42,10 @@
 
 #ifndef LOD_ENABLE_GS3_ANIM_TRACE
 #define LOD_ENABLE_GS3_ANIM_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_KSEG0_FAULT_TRACE
+#define LOD_ENABLE_KSEG0_FAULT_TRACE 0
 #endif
 
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
@@ -108,6 +113,9 @@ static void lod_install_bgstate_trace_wrappers(const char* reason);
 #endif
 #if LOD_ENABLE_GS3_ANIM_TRACE
 static void lod_install_gs3_anim_trace_wrappers(const char* reason);
+#endif
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
+static void lod_install_kseg0_fault_trace_wrappers(const char* reason);
 #endif
 
 // ── Map overlay table: ROM start → full DMA size ────────────────────
@@ -787,6 +795,121 @@ static void lod_install_gs3_anim_trace_wrappers(const char* reason) {
 
 extern "C" void lod_install_gs3_anim_trace_wrappers_early() {
     lod_install_gs3_anim_trace_wrappers("lod-on-init");
+}
+#endif
+
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
+static recomp_func_t* lod_orig_kseg0_dmamgr_update = nullptr; // 0x80011E48
+static recomp_func_t* lod_orig_kseg0_gfx_helper = nullptr;    // 0x80043768
+
+static uint32_t lod_kseg0_trace_u32_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
+    return ok && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static uint16_t lod_kseg0_trace_u16_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
+    return ok && lod_rdram_range_ok(phys, 2) ? (uint16_t)lod_rdram_s16(rdram, phys) : 0;
+}
+
+static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint32_t func_vram) {
+    LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+    s.magic = 0x4B534730; // "KSG0"
+    s.count++;
+    s.func_vram = func_vram;
+    s.gs = (uint32_t)lod_current_gamestate(rdram);
+    s.map_load_count = (uint32_t)lod_map_ovl_load_count;
+    s.map_rom = lod_current_map_ovl_rom;
+    s.map_size = lod_current_map_ovl_size;
+    s.ra = (uint32_t)ctx->r31;
+    s.sp = (uint32_t)ctx->r29;
+    s.a0 = (uint32_t)ctx->r4;
+    s.a1 = (uint32_t)ctx->r5;
+    s.a2 = (uint32_t)ctx->r6;
+    s.a3 = (uint32_t)ctx->r7;
+    s.v0 = (uint32_t)ctx->r2;
+    s.v1 = (uint32_t)ctx->r3;
+    s.s0 = (uint32_t)ctx->r16;
+    s.t0 = (uint32_t)ctx->r8;
+    s.t1 = (uint32_t)ctx->r9;
+    s.t2 = (uint32_t)ctx->r10;
+    s.t3 = (uint32_t)ctx->r11;
+    s.t4 = (uint32_t)ctx->r12;
+    s.t5 = (uint32_t)ctx->r13;
+    s.t6 = (uint32_t)ctx->r14;
+    s.t7 = (uint32_t)ctx->r15;
+    s.t8 = (uint32_t)ctx->r24;
+    s.t9 = (uint32_t)ctx->r25;
+
+    s.chunk_addr = 0;
+    s.chunk_phys = 0;
+    s.slot = 0xFFFFFFFF;
+    s.pending = 0xFFFFFFFF;
+    s.entry_rom = 0;
+    s.entry_ram = 0;
+    s.entry_size = 0;
+    s.entry_file_id = 0;
+    s.entry_user_ptr = 0;
+
+    if (func_vram == 0x80011E48) {
+        uint32_t obj_addr = (uint32_t)ctx->r4;
+        uint32_t obj_phys = 0;
+        bool obj_ok = lod_decode_rdram_phys_addr(obj_addr, 0x38, &obj_phys);
+        s.chunk_addr = obj_ok ? lod_rdram_u32(rdram, obj_phys + 0x34) : 0;
+        bool chunk_ok = s.chunk_addr != 0 && lod_decode_rdram_phys_addr(s.chunk_addr, 0x988, &s.chunk_phys);
+        s.slot = lod_kseg0_trace_u16_or_zero(rdram, s.chunk_phys + 0x844, chunk_ok);
+        s.pending = lod_kseg0_trace_u16_or_zero(rdram, s.chunk_phys + 0x846, chunk_ok);
+        bool slot_ok = chunk_ok && s.slot < 16;
+        uint32_t entry_phys = slot_ok ? (s.chunk_phys + 0x848 + s.slot * 0x14) : 0;
+        s.entry_rom = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x00, slot_ok);
+        s.entry_ram = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x04, slot_ok);
+        s.entry_size = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x08, slot_ok);
+        s.entry_file_id = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x0C, slot_ok);
+        s.entry_user_ptr = lod_kseg0_trace_u32_or_zero(rdram, entry_phys + 0x10, slot_ok);
+    }
+}
+
+static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
+    lod_kseg0_record_snapshot(rdram, ctx, 0x80011E48);
+    if (lod_orig_kseg0_dmamgr_update != nullptr) {
+        lod_orig_kseg0_dmamgr_update(rdram, ctx);
+    }
+}
+
+static void lod_kseg0_trace_gfx_helper(uint8_t* rdram, recomp_context* ctx) {
+    lod_kseg0_record_snapshot(rdram, ctx, 0x80043768);
+    if (lod_orig_kseg0_gfx_helper != nullptr) {
+        lod_orig_kseg0_gfx_helper(rdram, ctx);
+    }
+}
+
+static void lod_install_kseg0_fault_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                  recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_kseg0_fault_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_kseg0_fault_trace_wrapper(0x80011E48, lod_kseg0_trace_dmamgr_update,
+        &lod_orig_kseg0_dmamgr_update);
+    lod_install_kseg0_fault_trace_wrapper(0x80043768, lod_kseg0_trace_gfx_helper,
+        &lod_orig_kseg0_gfx_helper);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+                "[KSEG0-TRACE] installed wrappers #%d reason=%s dmamgr=%p gfx=%p\n",
+                install_count, reason,
+                (void*)lod_orig_kseg0_dmamgr_update,
+                (void*)lod_orig_kseg0_gfx_helper);
+    }
+}
+
+extern "C" void lod_install_kseg0_fault_trace_wrappers_early() {
+    lod_install_kseg0_fault_trace_wrappers("lod-on-init");
 }
 #endif
 

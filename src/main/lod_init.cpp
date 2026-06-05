@@ -22,6 +22,9 @@ extern "C" void lod_install_bgstate_trace_wrappers_early();
 #if LOD_ENABLE_GS3_ANIM_TRACE
 extern "C" void lod_install_gs3_anim_trace_wrappers_early();
 #endif
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
+extern "C" void lod_install_kseg0_fault_trace_wrappers_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -447,5 +450,9 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Install after section/common overlays are loaded but before game code runs.
     // These wrappers only log DMAMgr/animation resource state in gs=3.
     lod_install_gs3_anim_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
+    // Lightweight crash-context snapshots for post-RDRAM/KSEG0 faults.
+    lod_install_kseg0_fault_trace_wrappers_early();
 #endif
 }

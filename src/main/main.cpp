@@ -31,6 +31,7 @@
 
 #include "lod/lod_render.h"
 #include "lod/lod_support.h"
+#include "lod/lod_fault_trace.hpp"
 #include "lod/target_rom.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
@@ -416,10 +417,46 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
 extern uint32_t trace_ring[];
 extern int trace_ring_pos;
 extern int trace_total;
+extern uint8_t* rdram_ptr_for_debug;
+
+extern "C" {
+LodKseg0FaultTraceSnapshot lod_kseg0_fault_trace_snapshot = {};
+}
 
 static void crash_handler(int sig, siginfo_t* info, void* ctx) {
     fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
             sig, info->si_addr, info->si_code);
+    if (rdram_ptr_for_debug != nullptr && info->si_addr != nullptr) {
+        uintptr_t fault = reinterpret_cast<uintptr_t>(info->si_addr);
+        uintptr_t base = reinterpret_cast<uintptr_t>(rdram_ptr_for_debug);
+        if (fault >= base) {
+            uint64_t off = static_cast<uint64_t>(fault - base);
+            fprintf(stderr, "  Fault offset from rdram base: 0x%llX\n",
+                    static_cast<unsigned long long>(off));
+            if (off >= 0x80000000ULL && off < 0x90000000ULL) {
+                uint64_t kseg0_phys = off - 0x80000000ULL;
+                fprintf(stderr, "  KSEG0 mirror access: host_off=0x%llX phys=0x%llX%s\n",
+                        static_cast<unsigned long long>(off),
+                        static_cast<unsigned long long>(kseg0_phys),
+                        kseg0_phys >= 0x800000ULL ? " (past 8MB RDRAM)" : "");
+            }
+        }
+    }
+    if (lod_kseg0_fault_trace_snapshot.magic == 0x4B534730) {
+        const auto& s = lod_kseg0_fault_trace_snapshot;
+        fprintf(stderr,
+                "  KSEG0 trace #%u func=0x%08X gs=%u map#%u rom=0x%08X size=0x%X "
+                "ra=0x%08X sp=0x%08X a={0x%08X,0x%08X,0x%08X,0x%08X} "
+                "v={0x%08X,0x%08X} s0=0x%08X t={0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X}\n",
+                s.count, s.func_vram, s.gs, s.map_load_count, s.map_rom, s.map_size,
+                s.ra, s.sp, s.a0, s.a1, s.a2, s.a3, s.v0, s.v1, s.s0,
+                s.t0, s.t1, s.t2, s.t3, s.t4, s.t5, s.t6, s.t7, s.t8, s.t9);
+        fprintf(stderr,
+                "  KSEG0 trace chunk=0x%08X phys=0x%08X slot=%u pending=%u "
+                "entry={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X user=0x%08X}\n",
+                s.chunk_addr, s.chunk_phys, s.slot, s.pending,
+                s.entry_rom, s.entry_ram, s.entry_size, s.entry_file_id, s.entry_user_ptr);
+    }
     // Print last function calls from trace ring
     int count = trace_total < 32 ? trace_total : 32;
     if (count > 0) {
