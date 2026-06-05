@@ -47,6 +47,34 @@ static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
+static bool lod_ni_telemetry_range_ok(uint32_t phys, uint32_t size) {
+    return size <= 0x800000 && phys <= (0x800000 - size);
+}
+
+static uint32_t lod_ni_telemetry_u32(uint8_t* rdram, uint32_t phys) {
+    return lod_ni_telemetry_range_ok(phys, 4) ? *(uint32_t*)(rdram + phys) : 0;
+}
+
+static int32_t lod_ni_telemetry_gamestate(uint8_t* rdram) {
+    constexpr uint32_t GSM_PTR_PHYS = 0x0C1520;
+    uint32_t gsm_addr = lod_ni_telemetry_u32(rdram, GSM_PTR_PHYS);
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_addr == 0 || !lod_ni_telemetry_range_ok(gsm_phys + 0x24, 4)) {
+        return 0;
+    }
+    return (int32_t)lod_ni_telemetry_u32(rdram, gsm_phys + 0x24);
+}
+
+static uint32_t lod_ni_telemetry_exec_flags(uint8_t* rdram) {
+    constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
+    return lod_ni_telemetry_u32(rdram, EXEC_FLAGS_PHYS);
+}
+
+static uint32_t lod_ni_telemetry_ni_sys_ptr(uint8_t* rdram) {
+    constexpr uint32_t NI_SYS_PTR_PHYS = 0x001CAC1C;
+    return lod_ni_telemetry_u32(rdram, NI_SYS_PTR_PHYS);
+}
+
 static uint32_t ni_overlay_cpu_mirror(uint32_t vram) {
     if (vram == 0x0F000000) return 0x8F000000;
     if (vram == 0x0E000000) return 0x8E000000;
@@ -684,8 +712,22 @@ extern "C" bool ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
     static int miss_count = 0;
     miss_count++;
     if (miss_count <= 10) {
-        fprintf(stderr, "[ni_ovl] WARNING: TLB map 0x%08X paddr=0x%08X — no matching overlay\n",
-                vaddr, even_paddr);
+        int loaded_pair = (vaddr == 0x0F000000) ? loaded_0f_pair : loaded_0e_pair;
+        uint32_t loaded_rom = 0;
+        uint32_t loaded_size = 0;
+        if (loaded_pair >= 0 && loaded_pair < NI_OVL_COUNT) {
+            loaded_rom = ni_ovl_data[loaded_pair].rom_offset;
+            loaded_size = ni_ovl_data[loaded_pair].full_size;
+        }
+        fprintf(stderr,
+                "[ni_ovl] WARNING: miss#%d TLB map 0x%08X even=0x%08X odd=0x%08X — no matching overlay; "
+                "loaded_pair=%d loaded_rom=0x%08X loaded_size=0x%X loaded0f=%d loaded0e=%d "
+                "gs=%d exec=0x%08X ni=0x%08X\n",
+                miss_count, vaddr, even_paddr, odd_paddr,
+                loaded_pair, loaded_rom, loaded_size, loaded_0f_pair, loaded_0e_pair,
+                lod_ni_telemetry_gamestate(rdram),
+                lod_ni_telemetry_exec_flags(rdram),
+                lod_ni_telemetry_ni_sys_ptr(rdram));
         // Debug: dump first 32 bytes at paddr in both byte orders
         if (even_paddr + 32 <= 0x00800000) {
             const uint32_t* p = (const uint32_t*)(rdram + even_paddr);
