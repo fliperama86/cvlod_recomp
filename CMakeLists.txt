@@ -76,6 +76,8 @@ option(LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT "Enable debug-only aggressive contr
 if (LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT=1)
 endif()
+set(LOD_POST_RDRAM_GUARD_SIZE "0x10000" CACHE STRING "Size of zero-filled post-RDRAM diagnostic/compatibility guard at rdram+0x80800000")
+target_compile_definitions(LodRecomp PRIVATE LOD_POST_RDRAM_GUARD_SIZE=${LOD_POST_RDRAM_GUARD_SIZE})
 option(LOD_ENABLE_SAVE_AUTO_INPUT "Enable debug-only save-screen controller input for recovery tests" OFF)
 if (LOD_ENABLE_SAVE_AUTO_INPUT)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_SAVE_AUTO_INPUT=1)

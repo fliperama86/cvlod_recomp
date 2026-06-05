@@ -16,6 +16,10 @@
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 
+#ifndef LOD_POST_RDRAM_GUARD_SIZE
+#define LOD_POST_RDRAM_GUARD_SIZE 0x10000
+#endif
+
 #if LOD_ENABLE_BGSTATE_TRACE
 extern "C" void lod_install_bgstate_trace_wrappers_early();
 #endif
@@ -336,7 +340,7 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         {
             uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
             uint8_t* guard = rdram + 0x80000000 + rdram_mirror_size;
-            size_t guard_size = 0x10000;
+            size_t guard_size = LOD_POST_RDRAM_GUARD_SIZE;
             uint8_t* aligned = (uint8_t*)((uintptr_t)guard & ~page_mask);
             size_t aligned_size = (guard + guard_size - aligned + page_mask) & ~page_mask;
             int guard_ret = mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
