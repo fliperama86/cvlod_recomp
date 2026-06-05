@@ -29,6 +29,9 @@ extern "C" void lod_install_gs3_anim_trace_wrappers_early();
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 extern "C" void lod_install_kseg0_fault_trace_wrappers_early();
 #endif
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+extern "C" void lod_install_audio_pull_trace_wrappers_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -458,5 +461,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
     // Lightweight crash-context snapshots for post-RDRAM/KSEG0 faults.
     lod_install_kseg0_fault_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+    // Debug-only CPU audio pull-chain wrappers. These only log/interpose
+    // indirect pull calls via get_function(), and are disabled by default.
+    lod_install_audio_pull_trace_wrappers_early();
 #endif
 }

@@ -44,6 +44,10 @@
 #define LOD_ENABLE_AUDIO_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_AUDIO_RAW_DUMP
+#define LOD_ENABLE_AUDIO_RAW_DUMP 0
+#endif
+
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
     ((void)fprintf(stderr, str, args), ...);
@@ -149,7 +153,8 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
             if (audio_data[i] != 0) nonzero_count++;
         }
     }
-    bool should_log = queue_count <= 40 || (queue_count % 120) == 0 || nonzero_count == 0;
+    bool should_log = queue_count <= 40 || (queue_count % 120) == 0 || nonzero_count == 0 ||
+                      min_sample < -100 || max_sample > 100;
     if (should_log) {
         fprintf(stderr,
                 "[AUDIO] queue_samples#%u samples=%zu frames=%zu freq=%u out=%u "
@@ -157,6 +162,19 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
                 queue_count, sample_count, sample_count / input_channels,
                 sample_rate, output_sample_rate, (int)min_sample, (int)max_sample,
                 nonzero_count, SDL_GetQueuedAudioSize(audio_device), audio_device);
+    }
+#endif
+
+#if LOD_ENABLE_AUDIO_RAW_DUMP
+    {
+        static FILE* raw_dump = []() -> FILE* {
+            (void)std::remove("/tmp/lod_audio_queue_s16le.raw");
+            return std::fopen("/tmp/lod_audio_queue_s16le.raw", "ab");
+        }();
+        if (raw_dump != nullptr && sample_count > 0) {
+            std::fwrite(audio_data, sizeof(int16_t), sample_count, raw_dump);
+            std::fflush(raw_dump);
+        }
     }
 #endif
 

@@ -110,6 +110,23 @@ option(LOD_ENABLE_AUDIO_TRACE "Enable debug-only audio callback tracing" OFF)
 if (LOD_ENABLE_AUDIO_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_AUDIO_TRACE=1)
 endif()
+option(LOD_ENABLE_AUDIO_RAW_DUMP "Enable debug-only raw AI queue dump to /tmp/lod_audio_queue_s16le.raw" OFF)
+if (LOD_ENABLE_AUDIO_RAW_DUMP)
+    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_AUDIO_RAW_DUMP=1)
+endif()
+option(LOD_ENABLE_RSP_AUDIO_TRACE "Enable debug-only RSP audio task tracing and first-ucode dump" OFF)
+if (LOD_ENABLE_RSP_AUDIO_TRACE)
+    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_RSP_AUDIO_TRACE=1)
+endif()
+option(LOD_ENABLE_AUDIO_PULL_TRACE "Enable debug-only CPU audio pull-chain tracing" OFF)
+if (LOD_ENABLE_AUDIO_PULL_TRACE)
+    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_AUDIO_PULL_TRACE=1)
+    target_compile_definitions(RecompiledFuncs PRIVATE LOD_ENABLE_AUDIO_PULL_TRACE=1)
+endif()
+option(LOD_USE_RECOMPILED_AUDIO_RSP "Use experimental generated audio RSP microcode instead of the timing-only stub" OFF)
+if (LOD_USE_RECOMPILED_AUDIO_RSP)
+    target_compile_definitions(LodRecomp PRIVATE LOD_USE_RECOMPILED_AUDIO_RSP=1)
+endif()
 option(LOD_ENABLE_GS5_NI_TRACE "Enable debug-only NI pair 53/104/149 scheduler tracing for gs=5 recovery" OFF)
 if (LOD_ENABLE_GS5_NI_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_GS5_NI_TRACE=1)
@@ -118,6 +135,11 @@ option(LOD_ENABLE_BGSTATE_TRACE "Enable debug-only background-state tracing for 
 if (LOD_ENABLE_BGSTATE_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_BGSTATE_TRACE=1)
 endif()
+set(LOD_AUDIO_RSP_SOURCE ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp)
+if (LOD_USE_RECOMPILED_AUDIO_RSP)
+    set(LOD_AUDIO_RSP_SOURCE ${CMAKE_SOURCE_DIR}/rsp/aspMain_audio_recomp.cpp)
+endif()
+
 set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/main.cpp
     ${CMAKE_SOURCE_DIR}/src/main/support.cpp
@@ -127,7 +149,7 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
     ${CMAKE_SOURCE_DIR}/src/main/lod_init.cpp
     ${CMAKE_SOURCE_DIR}/src/main/ni_overlay_loader.cpp
-    ${CMAKE_SOURCE_DIR}/rsp/aspMain.cpp
+    ${LOD_AUDIO_RSP_SOURCE}
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
 )

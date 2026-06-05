@@ -1,7 +1,8 @@
-// Stubs for N64 OS functions that are in N64Recomp's ignored_funcs list.
+// Stubs/shims for N64 OS functions that are in N64Recomp's ignored_funcs list.
 // The recompiler doesn't generate code for these, but other recompiled OS
-// internal functions still reference them via _recomp suffix.
-// These are all handled natively by ultramodern, so empty stubs are safe.
+// internal functions still reference them via _recomp suffix. Most are handled
+// natively by ultramodern, but verify each symbol before leaving it empty:
+// some LoD functions have misleading libultra names and still mutate game data.
 
 #include <cstdint>
 #include <cstdio>
@@ -50,6 +51,10 @@
 
 #ifndef LOD_ENABLE_KSEG0_FAULT_TRACE
 #define LOD_ENABLE_KSEG0_FAULT_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_AUDIO_PULL_TRACE
+#define LOD_ENABLE_AUDIO_PULL_TRACE 0
 #endif
 
 #ifndef LOD_ENABLE_BOOT_GS_SKIP
@@ -358,10 +363,86 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = 0;
 }
 
-// ── OS thread/interrupt stubs (ignored by N64Recomp, handled by ultramodern) ──
+// ── OS thread/interrupt stubs and verified ignored-function shims ────────────
 
-void __osDequeueThread_recomp(uint8_t* rdram, recomp_context* ctx) {}
-void __osEnqueueThread_recomp(uint8_t* rdram, recomp_context* ctx) {}
+static bool lod_recomp_list_addr_ok(uint32_t addr) {
+    uint32_t phys = 0;
+    return lod_decode_rdram_phys_addr(addr, 8, &phys);
+}
+
+void __osDequeueThread_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // LoD's 0x80096EC0 implementation is the libultra doubly-linked-list
+    // unlink helper used by the audio synth (ALLink/PVoice queues), despite
+    // the symbol name. Leaving this empty prevents alSynNew from ever
+    // maintaining synth voice lists, so alSynAllocVoice always fails.
+    gpr node = ctx->r4;
+    uint32_t node_addr = (uint32_t)node;
+    if (node_addr == 0 || !lod_recomp_list_addr_ok(node_addr)) {
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+        static unsigned bad_dequeue_count = 0;
+        if (++bad_dequeue_count <= 16) {
+            fprintf(stderr, "[OS_LIST] dequeue skipped invalid node=0x%08X\n", node_addr);
+        }
+#endif
+        return;
+    }
+
+    gpr next = (gpr)(int32_t)MEM_W(0x0, node);
+    gpr prev = (gpr)(int32_t)MEM_W(0x4, node);
+
+    if ((uint32_t)next != 0 && lod_recomp_list_addr_ok((uint32_t)next)) {
+        MEM_W(0x4, next) = (int32_t)prev;
+    }
+    if ((uint32_t)prev != 0 && lod_recomp_list_addr_ok((uint32_t)prev)) {
+        MEM_W(0x0, prev) = (int32_t)next;
+    }
+
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+    static unsigned dequeue_count = 0;
+    if (++dequeue_count <= 40 || (dequeue_count % 500) == 0) {
+        fprintf(stderr, "[OS_LIST] dequeue#%u node=0x%08X next=0x%08X prev=0x%08X\n",
+                dequeue_count, node_addr, (uint32_t)next, (uint32_t)prev);
+    }
+#endif
+}
+
+void __osEnqueueThread_recomp(uint8_t* rdram, recomp_context* ctx) {
+    // Original 0x80096EF0:
+    //   old = *head; node->prev = head; node->next = old;
+    //   if (old) old->prev = node; *head = node;
+    gpr node = ctx->r4;
+    gpr head = ctx->r5;
+    uint32_t node_addr = (uint32_t)node;
+    uint32_t head_addr = (uint32_t)head;
+    if (node_addr == 0 || head_addr == 0 ||
+        !lod_recomp_list_addr_ok(node_addr) ||
+        !lod_recomp_list_addr_ok(head_addr)) {
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+        static unsigned bad_enqueue_count = 0;
+        if (++bad_enqueue_count <= 16) {
+            fprintf(stderr, "[OS_LIST] enqueue skipped invalid node=0x%08X head=0x%08X\n",
+                    node_addr, head_addr);
+        }
+#endif
+        return;
+    }
+
+    gpr old = (gpr)(int32_t)MEM_W(0x0, head);
+    MEM_W(0x4, node) = (int32_t)head;
+    MEM_W(0x0, node) = (int32_t)old;
+    if ((uint32_t)old != 0 && lod_recomp_list_addr_ok((uint32_t)old)) {
+        MEM_W(0x4, old) = (int32_t)node;
+    }
+    MEM_W(0x0, head) = (int32_t)node;
+
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+    static unsigned enqueue_count = 0;
+    if (++enqueue_count <= 40 || (enqueue_count % 500) == 0) {
+        fprintf(stderr, "[OS_LIST] enqueue#%u node=0x%08X head=0x%08X old=0x%08X newHead=0x%08X\n",
+                enqueue_count, node_addr, head_addr, (uint32_t)old, (uint32_t)MEM_W(0x0, head));
+    }
+#endif
+}
 void __osDispatchThread_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osViSwapContext_recomp(uint8_t* rdram, recomp_context* ctx) {}
 void __osSpDeviceBusy_recomp(uint8_t* rdram, recomp_context* ctx) {}
@@ -610,6 +691,143 @@ void func_8009E480(uint8_t* rdram, recomp_context* ctx) {
     alEnvmixerPull_noop(ctx);
 }
 #endif // LOD_OVERRIDE_ALENVMIXERPULL
+
+#if LOD_ENABLE_AUDIO_PULL_TRACE
+static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size);
+static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys);
+
+static recomp_func_t* lod_orig_audio_main_bus_pull = nullptr;   // 0x8009D5F0
+static recomp_func_t* lod_orig_audio_fx_pull = nullptr;         // 0x8009D710
+static recomp_func_t* lod_orig_audio_aux_bus_pull = nullptr;    // 0x8009E3A0
+static recomp_func_t* lod_orig_audio_envmixer_pull = nullptr;   // 0x8009E480
+static recomp_func_t* lod_orig_audio_envmixer_param = nullptr;  // 0x8009E988
+static recomp_func_t* lod_orig_audio_resample_pull = nullptr;   // 0x8009F1EC
+static recomp_func_t* lod_orig_audio_raw16_pull = nullptr;      // 0x8009F7A4
+static recomp_func_t* lod_orig_audio_adpcm_pull = nullptr;      // 0x8009FC7C
+
+static void lod_audio_pull_trace_common(uint8_t* rdram, recomp_context* ctx,
+                                        const char* name, uint32_t vram,
+                                        recomp_func_t* original, uint32_t* counter) {
+    (*counter)++;
+    uint32_t count = *counter;
+    uint32_t in_a0 = (uint32_t)ctx->r4;
+    uint32_t in_a1 = (uint32_t)ctx->r5;
+    uint32_t in_a2 = (uint32_t)ctx->r6;
+    uint32_t in_a3 = (uint32_t)ctx->r7;
+    uint32_t node_func = 0;
+    uint32_t node_phys = in_a0 & 0x1FFFFFFF;
+    if (in_a0 != 0 && lod_rdram_range_ok(node_phys, 0x10)) {
+        node_func = lod_rdram_u32(rdram, node_phys + 0x08);
+    }
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    uint32_t out_v0 = (uint32_t)ctx->r2;
+    int32_t cmd_delta = (int32_t)(out_v0 - in_a2);
+    bool high_volume = std::strcmp(name, "envmixerPull") == 0;
+    uint32_t sample_period = high_volume ? 5000 : 250;
+    if (count <= 40 || (count % sample_period) == 0) {
+        fprintf(stderr,
+                "[AUDIO_PULL] %s#%u vram=0x%08X a0=0x%08X node_fn=0x%08X "
+                "a1=0x%08X a2=0x%08X a3=0x%08X -> v0=0x%08X delta=%d\n",
+                name, count, vram, in_a0, node_func, in_a1, in_a2, in_a3,
+                out_v0, cmd_delta);
+    }
+}
+
+#define LOD_AUDIO_PULL_WRAPPER(wrapper_name, label, vram_value, original_var) \
+    static void wrapper_name(uint8_t* rdram, recomp_context* ctx) { \
+        static uint32_t count = 0; \
+        lod_audio_pull_trace_common(rdram, ctx, label, vram_value, original_var, &count); \
+    }
+
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_main_bus_pull, "mainBusPull", 0x8009D5F0, lod_orig_audio_main_bus_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_fx_pull, "fxPull", 0x8009D710, lod_orig_audio_fx_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_aux_bus_pull, "auxBusPull", 0x8009E3A0, lod_orig_audio_aux_bus_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_envmixer_pull, "envmixerPull", 0x8009E480, lod_orig_audio_envmixer_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_resample_pull, "resamplePull", 0x8009F1EC, lod_orig_audio_resample_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_raw16_pull, "raw16Pull", 0x8009F7A4, lod_orig_audio_raw16_pull)
+LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_adpcm_pull, "adpcmPull", 0x8009FC7C, lod_orig_audio_adpcm_pull)
+
+#undef LOD_AUDIO_PULL_WRAPPER
+
+static void lod_trace_audio_envmixer_param(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+
+    uint32_t node = (uint32_t)ctx->r4;
+    uint32_t param_id = (uint32_t)ctx->r5;
+    uint32_t param_value = (uint32_t)ctx->r6;
+    uint32_t node_phys = node & 0x1FFFFFFF;
+    bool node_ok = node != 0 && lod_rdram_range_ok(node_phys, 0x4C);
+    uint32_t source_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x00) : 0;
+    uint32_t state38_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x38) : 0;
+    uint32_t state48_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x48) : 0;
+
+    if (lod_orig_audio_envmixer_param != nullptr) {
+        lod_orig_audio_envmixer_param(rdram, ctx);
+    }
+
+    uint32_t source_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x00) : 0;
+    uint32_t state38_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x38) : 0;
+    uint32_t state48_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x48) : 0;
+    bool important_param = param_id == 4 || param_id == 9;
+    bool changed = state38_before != state38_after ||
+                   state48_before != state48_after ||
+                   source_before != source_after;
+    if (count <= 80 || important_param || changed || (count % 1000) == 0) {
+        fprintf(stderr,
+                "[AUDIO_PARAM] envmixerParam#%u a0=0x%08X id=%u value=0x%08X "
+                "source 0x%08X->0x%08X state38 0x%08X->0x%08X "
+                "state48 0x%08X->0x%08X v0=0x%08X\n",
+                count, node, param_id, param_value,
+                source_before, source_after, state38_before, state38_after,
+                state48_before, state48_after, (uint32_t)ctx->r2);
+    }
+}
+
+static void lod_install_audio_pull_trace_wrapper(uint32_t vram, const char* name,
+                                                 recomp_func_t* wrapper,
+                                                 recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current == wrapper) {
+        return;
+    }
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    fprintf(stderr, "[AUDIO_PULL] installed %s wrapper vram=0x%08X original=%p wrapper=%p\n",
+            name, vram, (void*)current, (void*)wrapper);
+}
+
+extern "C" void lod_install_audio_pull_trace_wrappers_early() {
+    lod_install_audio_pull_trace_wrapper(0x8009D5F0, "mainBusPull",
+                                         lod_trace_audio_main_bus_pull,
+                                         &lod_orig_audio_main_bus_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009D710, "fxPull",
+                                         lod_trace_audio_fx_pull,
+                                         &lod_orig_audio_fx_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009E3A0, "auxBusPull",
+                                         lod_trace_audio_aux_bus_pull,
+                                         &lod_orig_audio_aux_bus_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009E480, "envmixerPull",
+                                         lod_trace_audio_envmixer_pull,
+                                         &lod_orig_audio_envmixer_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009E988, "envmixerParam",
+                                         lod_trace_audio_envmixer_param,
+                                         &lod_orig_audio_envmixer_param);
+    lod_install_audio_pull_trace_wrapper(0x8009F1EC, "resamplePull",
+                                         lod_trace_audio_resample_pull,
+                                         &lod_orig_audio_resample_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009F7A4, "raw16Pull",
+                                         lod_trace_audio_raw16_pull,
+                                         &lod_orig_audio_raw16_pull);
+    lod_install_audio_pull_trace_wrapper(0x8009FC7C, "adpcmPull",
+                                         lod_trace_audio_adpcm_pull,
+                                         &lod_orig_audio_adpcm_pull);
+}
+#endif // LOD_ENABLE_AUDIO_PULL_TRACE
 
 // Bank select — single 32KB bank, no-op.
 void func_800A4D00(uint8_t* rdram, recomp_context* ctx) {
