@@ -131,6 +131,165 @@ static inline void lod_rsp_trace_dmem_i16_range(const char* tag, uint32_t call, 
     }
 }
 
+static inline int32_t lod_rsp_abs_i32(int32_t value) {
+    return value < 0 ? -value : value;
+}
+
+static inline int32_t lod_rsp_summary_absmax(const LodRspDmemI16Summary& summary) {
+    const int32_t min_abs = lod_rsp_abs_i32(summary.min);
+    const int32_t max_abs = lod_rsp_abs_i32(summary.max);
+    return min_abs > max_abs ? min_abs : max_abs;
+}
+
+static inline uint32_t lod_rsp_state_u16(uint32_t base, uint32_t off) {
+    return RSP_MEM_HU_LOAD(off, base) & 0xFFFF;
+}
+
+static inline int32_t lod_rsp_state_i16(uint32_t base, uint32_t off) {
+    return (int32_t)(int16_t)lod_rsp_state_u16(base, off);
+}
+
+static inline void lod_rsp_dump_u16x8(uint32_t base) {
+    for (uint32_t off = 0; off < 16; off += 2) {
+        fprintf(stderr, " %04" PRIX32, lod_rsp_state_u16(base, off));
+    }
+}
+
+static inline void lod_rsp_trace_setvol_state(uint32_t cmd_w0, uint32_t cmd_w1,
+                                              uint32_t cmd_state_addr) {
+    static uint32_t setvol_count = 0;
+    setvol_count++;
+
+    const uint32_t flags = (cmd_w0 >> 16) & 0xFF;
+    const bool important = (cmd_w0 & 0xFFFF) != 0 || cmd_w1 != 0 || (flags & 0x08) != 0;
+    if (setvol_count <= 160 || (important && setvol_count <= 1000) ||
+        (setvol_count % 5000) == 0) {
+        fprintf(stderr,
+                "[RSP_AUDIO_SETVOL] #%u flags=0x%02" PRIX32 " w0=%08" PRIX32
+                " w1=%08" PRIX32
+                " slots06/08=%d/%d left10/12/14=%d/%d/0x%04" PRIX32
+                " right16/18/1A=%d/%d/0x%04" PRIX32
+                " aux1C/1E=%d/%d state10:",
+                setvol_count, flags, cmd_w0, cmd_w1,
+                lod_rsp_state_i16(cmd_state_addr, 0x06),
+                lod_rsp_state_i16(cmd_state_addr, 0x08),
+                lod_rsp_state_i16(cmd_state_addr, 0x10),
+                lod_rsp_state_i16(cmd_state_addr, 0x12),
+                lod_rsp_state_u16(cmd_state_addr, 0x14),
+                lod_rsp_state_i16(cmd_state_addr, 0x16),
+                lod_rsp_state_i16(cmd_state_addr, 0x18),
+                lod_rsp_state_u16(cmd_state_addr, 0x1A),
+                lod_rsp_state_i16(cmd_state_addr, 0x1C),
+                lod_rsp_state_i16(cmd_state_addr, 0x1E));
+        lod_rsp_dump_u16x8(cmd_state_addr + 0x10);
+        fprintf(stderr, "\n");
+    }
+}
+
+static inline void lod_rsp_trace_envmixer_enter(uint32_t cmd_w0, uint32_t cmd_w1,
+                                                uint32_t cmd_state_addr,
+                                                uint32_t scratch_state_addr,
+                                                bool state_from_dram) {
+    static uint32_t enter_count = 0;
+    enter_count++;
+
+    const uint32_t flags = (cmd_w0 >> 16) & 0xFF;
+    const bool is_init = (flags & 0x01) != 0;
+    if (enter_count <= 120 || is_init || (enter_count % 5000) == 0) {
+        const uint32_t v24_addr = state_from_dram ? scratch_state_addr + 0x40
+                                                  : cmd_state_addr + 0x10;
+        fprintf(stderr,
+                "[RSP_AUDIO_ENVMIXER] enter#%u flags=0x%02" PRIX32
+                " state_src=%s w0=%08" PRIX32 " w1=%08" PRIX32
+                " buffers in=0x%03" PRIX32 " main=0x%03" PRIX32
+                " count=0x%04" PRIX32 " aux=0x%03" PRIX32 "/0x%03" PRIX32
+                "/0x%03" PRIX32
+                " cmd10:",
+                enter_count, flags, state_from_dram ? "dram" : "cmd",
+                cmd_w0, cmd_w1,
+                lod_rsp_state_u16(cmd_state_addr, 0x00),
+                lod_rsp_state_u16(cmd_state_addr, 0x02),
+                lod_rsp_state_u16(cmd_state_addr, 0x04),
+                lod_rsp_state_u16(cmd_state_addr, 0x0A),
+                lod_rsp_state_u16(cmd_state_addr, 0x0C),
+                lod_rsp_state_u16(cmd_state_addr, 0x0E));
+        lod_rsp_dump_u16x8(cmd_state_addr + 0x10);
+        fprintf(stderr, " v24:");
+        lod_rsp_dump_u16x8(v24_addr);
+        fprintf(stderr, "\n");
+    }
+}
+
+static inline void lod_rsp_trace_envmixer_exit(uint32_t cmd_w0, uint32_t cmd_w1,
+                                               uint32_t cmd_state_addr,
+                                               uint32_t scratch_state_addr,
+                                               const LodRspDmemI16Summary& input,
+                                               const LodRspDmemI16Summary& main,
+                                               const LodRspDmemI16Summary& aux0) {
+    static uint32_t exit_count = 0;
+    exit_count++;
+
+    const int32_t input_abs = lod_rsp_summary_absmax(input);
+    const int32_t main_abs = lod_rsp_summary_absmax(main);
+    const int32_t aux0_abs = lod_rsp_summary_absmax(aux0);
+    const bool collapse = input_abs >= 128 && main_abs * 32 < input_abs &&
+                          aux0_abs * 32 < input_abs;
+    if (exit_count <= 120 || collapse || (exit_count % 5000) == 0) {
+        const uint32_t flags = (cmd_w0 >> 16) & 0xFF;
+        fprintf(stderr,
+                "[RSP_AUDIO_ENVMIXER] exit#%u%s flags=0x%02" PRIX32
+                " w0=%08" PRIX32 " w1=%08" PRIX32
+                " abs in/main/aux0=%" PRId32 "/%" PRId32 "/%" PRId32
+                " nz in/main/aux0=%u/%u/%u count=0x%04" PRIX32
+                " cmd10:",
+                exit_count, collapse ? " COLLAPSE" : "", flags, cmd_w0, cmd_w1,
+                input_abs, main_abs, aux0_abs,
+                input.nonzero, main.nonzero, aux0.nonzero,
+                lod_rsp_state_u16(cmd_state_addr, 0x04));
+        lod_rsp_dump_u16x8(cmd_state_addr + 0x10);
+        fprintf(stderr, " saved20:");
+        lod_rsp_dump_u16x8(scratch_state_addr + 0x20);
+        fprintf(stderr, " saved30:");
+        lod_rsp_dump_u16x8(scratch_state_addr + 0x30);
+        fprintf(stderr, " saved40:");
+        lod_rsp_dump_u16x8(scratch_state_addr + 0x40);
+        fprintf(stderr, "\n");
+    }
+}
+
+static inline uint32_t lod_rsp_segmented_addr(uint32_t cmd_addr) {
+    const uint32_t segment = (cmd_addr >> 24) & 0xFF;
+    const uint32_t base = RSP_MEM_W_LOAD(0x320, segment * 4);
+    return (cmd_addr & 0x00FFFFFF) + base;
+}
+
+static inline void lod_rsp_trace_loadbuff(uint8_t* rdram, uint32_t cmd_w0,
+                                          uint32_t cmd_w1, uint32_t cmd_state_addr) {
+    static uint32_t loadbuff_count = 0;
+    loadbuff_count++;
+
+    const uint32_t dmem_addr = lod_rsp_state_u16(cmd_state_addr, 0x00);
+    const uint32_t len = lod_rsp_state_u16(cmd_state_addr, 0x04);
+    const uint32_t dram_addr = lod_rsp_segmented_addr(cmd_w1);
+    const uint32_t dmem_nonzero = lod_rsp_count_nonzero_dmem(dmem_addr, len);
+    const uint32_t rdram_nonzero = lod_rsp_count_nonzero_rdram(rdram, dram_addr, len);
+    const LodRspDmemI16Summary summary = lod_rsp_summarize_dmem_i16(dmem_addr, len);
+    if (loadbuff_count <= 120 ||
+        (dmem_nonzero != 0 && (loadbuff_count <= 500 || (loadbuff_count % 60) == 0)) ||
+        (loadbuff_count % 1000) == 0) {
+        fprintf(stderr,
+                "[RSP_AUDIO_LOADBUFF] #%u w0=%08" PRIX32 " w1=%08" PRIX32
+                " dram=0x%08" PRIX32 " dmem=0x%03" PRIX32 " len=0x%X"
+                " rdram_nonzero=%u dmem_nonzero=%u"
+                " i16_min=%" PRId32 " i16_max=%" PRId32 " i16_nonzero=%u/%u head:",
+                loadbuff_count, cmd_w0, cmd_w1, dram_addr, dmem_addr, len,
+                rdram_nonzero, dmem_nonzero, summary.min, summary.max,
+                summary.nonzero, summary.samples);
+        lod_rsp_dump_dmem_head(dmem_addr, len);
+        fprintf(stderr, "\n");
+    }
+}
+
 #define LOD_RSP_TRACE_CONCAT_INNER(a, b) a##b
 #define LOD_RSP_TRACE_CONCAT(a, b) LOD_RSP_TRACE_CONCAT_INNER(a, b)
 #define LOD_RSP_TRACE_DMEM_I16(tag, dmem_addr, len)                                             \
@@ -594,8 +753,7 @@ L_1240:
     // j           L_1118
     // mtc0        $zero, SP_SEMAPHORE
 #if LOD_ENABLE_RSP_AUDIO_TRACE
-    LOD_RSP_TRACE_DMEM_I16("loadbuff.out", RSP_MEM_HU_LOAD(0X0, r24),
-                           RSP_MEM_HU_LOAD(0X4, r24));
+    lod_rsp_trace_loadbuff(rdram, r26, r25, r24);
 #endif
     goto L_1118;
     // mtc0        $zero, SP_SEMAPHORE
@@ -758,6 +916,9 @@ L_1328:
     // j           L_1118
     // sh          $25, 0x1E($24)
     RSP_MEM_H_STORE(0X1E, r24, r25);
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_setvol_state(r26, r25, r24);
+#endif
     goto L_1118;
     // sh          $25, 0x1E($24)
     RSP_MEM_H_STORE(0X1E, r24, r25);
@@ -781,6 +942,9 @@ L_1344:
     // j           L_1118
     // sh          $26, 0x6($24)
     RSP_MEM_H_STORE(0X6, r24, r26);
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_setvol_state(r26, r25, r24);
+#endif
     goto L_1118;
     // sh          $26, 0x6($24)
     RSP_MEM_H_STORE(0X6, r24, r26);
@@ -788,6 +952,9 @@ L_135C:
     // j           L_1118
     // sh          $26, 0x8($24)
     RSP_MEM_H_STORE(0X8, r24, r26);
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_setvol_state(r26, r25, r24);
+#endif
     goto L_1118;
     // sh          $26, 0x8($24)
     RSP_MEM_H_STORE(0X8, r24, r26);
@@ -807,6 +974,9 @@ L_1364:
     // j           L_1118
     // sh          $25, 0x14($24)
     RSP_MEM_H_STORE(0X14, r24, r25);
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_setvol_state(r26, r25, r24);
+#endif
     goto L_1118;
     // sh          $25, 0x14($24)
     RSP_MEM_H_STORE(0X14, r24, r25);
@@ -818,6 +988,9 @@ L_137C:
     // j           L_1118
     // sh          $25, 0x1A($24)
     RSP_MEM_H_STORE(0X1A, r24, r25);
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_setvol_state(r26, r25, r24);
+#endif
     goto L_1118;
     // sh          $25, 0x1A($24)
     RSP_MEM_H_STORE(0X1A, r24, r25);
@@ -2045,6 +2218,9 @@ L_1B8C:
     // lqv         $v24[0], 0x40($23)
     rsp.LQV<0>(rsp.vpu.r[24], r23, 0X4);
 L_1BB0:
+#if LOD_ENABLE_RSP_AUDIO_TRACE
+    lod_rsp_trace_envmixer_enter(r26, r25, r24, r23, r10 == 0);
+#endif
     // lh          $13, 0x0($24)
     r13 = RSP_MEM_H_LOAD(0X0, r24);
     // lh          $19, 0x2($24)
@@ -2418,6 +2594,14 @@ L_1E10:
 #if LOD_ENABLE_RSP_AUDIO_TRACE
     {
         const uint32_t lod_count = RSP_MEM_HU_LOAD(0X4, r24);
+        const LodRspDmemI16Summary lod_input_summary =
+            lod_rsp_summarize_dmem_i16(RSP_MEM_HU_LOAD(0X0, r24), lod_count);
+        const LodRspDmemI16Summary lod_main_summary =
+            lod_rsp_summarize_dmem_i16(RSP_MEM_HU_LOAD(0X2, r24), lod_count);
+        const LodRspDmemI16Summary lod_aux0_summary =
+            lod_rsp_summarize_dmem_i16(RSP_MEM_HU_LOAD(0XA, r24), lod_count);
+        lod_rsp_trace_envmixer_exit(r26, r25, r24, r23, lod_input_summary,
+                                    lod_main_summary, lod_aux0_summary);
         LOD_RSP_TRACE_DMEM_I16("envmixer.in", RSP_MEM_HU_LOAD(0X0, r24), lod_count);
         LOD_RSP_TRACE_DMEM_I16("envmixer.main", RSP_MEM_HU_LOAD(0X2, r24), lod_count);
         LOD_RSP_TRACE_DMEM_I16("envmixer.aux0", RSP_MEM_HU_LOAD(0XA, r24), lod_count);

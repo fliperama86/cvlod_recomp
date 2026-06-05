@@ -48,6 +48,7 @@ viMgrMain                  = 0x800A6440; // type:func
 
 // OS Peripheral Interface (PI)
 osCreatePiManager    = 0x8009B2F0; // type:func
+osPiStartDma         = 0x8009C560; // type:func
 osEPiStartDma        = 0x800A1220; // type:func
 __osEPiRawStartDma   = 0x800A21D0; // type:func
 osEPiLinkHandle      = 0x800A3C70; // type:func
@@ -67,6 +68,25 @@ osAiSetFrequency  = 0x800A2A30; // type:func
 osAiGetLength     = 0x800A4CF0; // type:func
 osAiGetStatus     = 0x800A72F0; // type:func
 osAiSetNextBuffer = 0x800A7240; // type:func
+
+// Audio synthesis (CV64 fingerprint matches, LoD addresses)
+alSynSetVol             = 0x800973A0; // type:func
+alSynAllocVoice         = 0x80099278; // type:func
+alSynSetFXParam         = 0x80099930; // type:func
+alSynStartVoice         = 0x800999B0; // type:func
+alSynSetPitch           = 0x8009B1A0; // type:func
+alSynSetPan             = 0x8009B940; // type:func
+alSynNew                = 0x8009C790; // type:func
+alAudioFrame            = 0x8009CA90; // type:func
+alEnvmixerNew           = 0x8009D2EC; // type:func
+alEnvmixerPull          = 0x8009E480; // type:func
+alEnvmixerParam         = 0x8009E988; // type:func
+alSynSetFXMix           = 0x800A1540; // type:func
+alSynGetFXRef           = 0x800A1700; // type:func
+alSynAddPlayer          = 0x800A3AF0; // type:func
+alSynStartVoiceParams   = 0x800A4DF0; // type:func
+alSynAllocFx            = 0x800A7110; // type:func
+alSynStopVoice          = 0x800A71B0; // type:func
 
 // OS Serial Interface
 osContInit        = 0x800994C0; // type:func

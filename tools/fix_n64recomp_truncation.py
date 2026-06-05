@@ -17,6 +17,20 @@ import sys
 FUNC_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "RecompiledFuncs")
 
 
+def find_file_with_function(vram_hex):
+    """Find which funcs_*.c file contains a RECOMP_FUNC/comment for a given VRAM address."""
+    pattern = f"// 0x{vram_hex}:"
+    for fname in sorted(os.listdir(FUNC_DIR)):
+        if not (fname.startswith("funcs_") and fname.endswith(".c")):
+            continue
+        path = os.path.join(FUNC_DIR, fname)
+        with open(path) as f:
+            content = f.read()
+        if pattern in content:
+            return path, content
+    return None, None
+
+
 def _repair_funcs_h_partial_declarations(content):
     """Complete/drop declarations that were cut mid-line before appending fixes."""
     lines = content.rstrip().split('\n')
@@ -231,6 +245,24 @@ def fix_truncated_c_files():
             content = f.read()
 
         lines = content.rstrip().split('\n')
+        existing_patch_idx = next(
+            (i for i, line in enumerate(lines)
+             if "// PATCH: rest of function truncated by N64Recomp overlay_system output bug" in line),
+            None,
+        )
+        if existing_patch_idx is not None and existing_patch_idx > 0:
+            tail = lines[existing_patch_idx - 1].rstrip()
+            stripped = tail.strip()
+            if (stripped and not stripped.startswith("//") and
+                    not stripped.endswith((";", ":", "{", "}"))):
+                print(f"  Fixing {fname} (incomplete tail before existing truncation patch)")
+                print("    Dropped 1 incomplete tail line")
+                del lines[existing_patch_idx - 1]
+                with open(path, 'w') as f:
+                    f.write("\n".join(lines).rstrip() + "\n")
+                fixed = True
+                continue
+
         if lines and lines[-1].strip().endswith(';}'):
             continue  # already complete
 
@@ -247,6 +279,18 @@ def fix_truncated_c_files():
         if missing_labels:
             print(f"    Adding {len(missing_labels)} missing label(s): {', '.join(missing_labels)}")
 
+        dropped_tail_lines = []
+        while lines:
+            tail = lines[-1].rstrip()
+            stripped = tail.strip()
+            if (not stripped or stripped.startswith("//") or
+                    stripped.endswith((";", ":", "{", "}"))):
+                break
+            dropped_tail_lines.append(lines.pop())
+
+        if dropped_tail_lines:
+            print(f"    Dropped {len(dropped_tail_lines)} incomplete tail line(s)")
+
         stub_lines = [
             "",
             "    // PATCH: rest of function truncated by N64Recomp overlay_system output bug",
@@ -258,23 +302,28 @@ def fix_truncated_c_files():
             ";}",
         ])
 
-        with open(path, 'a') as f:
+        with open(path, 'w') as f:
+            f.write("\n".join(lines).rstrip() + "\n")
             f.write("\n".join(stub_lines) + "\n")
         fixed = True
 
     return fixed
 
 
-def fix_static_276_split():
+def fix_static_0e0037a0_split():
     """Split a function body that N64Recomp emits without a RECOMP_FUNC header."""
-    path = os.path.join(FUNC_DIR, "funcs_225.c")
-    if not os.path.exists(path):
-        return False
+    function_name = None
+    for fname in sorted(os.listdir(FUNC_DIR)):
+        if not (fname.startswith("funcs_") and fname.endswith(".c")):
+            continue
+        with open(os.path.join(FUNC_DIR, fname)) as f:
+            content = f.read()
+        match = re.search(r'\b(static_\d+_0E0037A0)\(rdram, ctx\);', content)
+        if match:
+            function_name = match.group(1)
+            break
 
-    with open(path) as f:
-        content = f.read()
-
-    if "RECOMP_FUNC void static_276_0E0037A0" in content:
+    if function_name is None:
         return False
 
     needle = (
@@ -289,18 +338,86 @@ def fix_static_276_split():
         "    // 0x0E00379C: addiu       $sp, $sp, 0x78\n"
         "    ctx->r29 = ADD32(ctx->r29, 0X78);\n"
         ";}\n"
-        "RECOMP_FUNC void static_276_0E0037A0(uint8_t* rdram, recomp_context* ctx) {\n"
+        f"RECOMP_FUNC void {function_name}(uint8_t* rdram, recomp_context* ctx) {{\n"
         "    uint64_t hi = 0, lo = 0, result = 0;\n"
         "    int c1cs = 0;\n"
         "    // 0x0E0037A0: lw          $v0, 0x34($a0)\n"
     )
 
-    content = content.replace(needle, replacement, 1)
-    with open(path, 'w') as f:
-        f.write(content)
+    for fname in sorted(os.listdir(FUNC_DIR)):
+        if not (fname.startswith("funcs_") and fname.endswith(".c")):
+            continue
 
-    print("  Fixed missing RECOMP_FUNC split for static_276_0E0037A0 in funcs_225.c")
-    return True
+        path = os.path.join(FUNC_DIR, fname)
+        with open(path) as f:
+            content = f.read()
+
+        if f"RECOMP_FUNC void {function_name}" in content:
+            return False
+        if needle not in content:
+            continue
+
+        content = content.replace(needle, replacement, 1)
+        with open(path, 'w') as f:
+            f.write(content)
+
+        print(f"  Fixed missing RECOMP_FUNC split for {function_name} in {fname}")
+        return True
+
+    return False
+
+
+def fix_audio_task_ai_buffer_wrapper():
+    """Route LoD's audioTask_build AI queue call through the local address-normalizing wrapper."""
+    path, content = find_file_with_function("80090744")
+    if not path:
+        return False
+
+    changed = False
+    old_call = (
+        "    // 0x8009077C: jal         0x800A7240\n"
+        "    // 0x80090780: sll         $a1, $a1, 2\n"
+        "    ctx->r5 = S32(ctx->r5 << 2);\n"
+        "    osAiSetNextBuffer_recomp(rdram, ctx);\n"
+    )
+    new_call = (
+        "    // 0x8009077C: jal         0x800A7240\n"
+        "    // PATCH: normalize LoD physical AI buffer pointers before queueing.\n"
+        "    // 0x80090780: sll         $a1, $a1, 2\n"
+        "    ctx->r5 = S32(ctx->r5 << 2);\n"
+        "    lod_osAiSetNextBuffer_recomp(rdram, ctx);\n"
+    )
+
+    if "lod_osAiSetNextBuffer_recomp(rdram, ctx);" not in content:
+        if old_call not in content:
+            print("  WARNING: Cannot find audioTask_build osAiSetNextBuffer call site")
+        else:
+            content = content.replace(old_call, new_call, 1)
+            with open(path, "w") as f:
+                f.write(content)
+            print(f"  Patched audioTask_build AI buffer queue wrapper in {os.path.basename(path)}")
+            changed = True
+
+    header_path = os.path.join(FUNC_DIR, "funcs.h")
+    with open(header_path) as f:
+        header = f.read()
+    declaration = "void lod_osAiSetNextBuffer_recomp(uint8_t* rdram, recomp_context* ctx);\n"
+    if declaration not in header:
+        marker = "void osAiSetNextBuffer_recomp(uint8_t* rdram, recomp_context* ctx);\n"
+        if marker in header:
+            header = header.replace(marker, marker + declaration, 1)
+        else:
+            trailer = "\n#ifdef __cplusplus\n}\n#endif\n"
+            if trailer in header:
+                header = header.replace(trailer, "\n" + declaration + trailer, 1)
+            else:
+                header += "\n" + declaration
+        with open(header_path, "w") as f:
+            f.write(header)
+        print("  Added lod_osAiSetNextBuffer_recomp declaration to funcs.h")
+        changed = True
+
+    return changed
 
 
 def main():
@@ -309,11 +426,16 @@ def main():
         fixes += 1
     if fix_truncated_c_files():
         fixes += 1
-    if fix_static_276_split():
+    if fix_static_0e0037a0_split():
         fixes += 1
     # Keep header repair last so it sees definitions created by the C-file
     # split/truncation repairs above.
     if fix_funcs_h():
+        fixes += 1
+    # This is a LoD-specific generated-code repair rather than a truncation
+    # fix, but keeping it in this post-regeneration step prevents dangling edits
+    # to ignored RecompiledFuncs files.
+    if fix_audio_task_ai_buffer_wrapper():
         fixes += 1
 
     if fixes == 0:

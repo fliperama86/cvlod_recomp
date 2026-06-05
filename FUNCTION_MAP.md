@@ -60,6 +60,27 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80018E30 | scheduler_taskDispatch | Sends task to scheduler cmdQ via osJamMesg |
 | 0x80019034 | createGraphicTasks | Builds GFX task struct, submits to scheduler |
 
+## Audio / libaudio
+| Address | Name | Description |
+|---------|------|-------------|
+| 0x800973A0 | alSynSetVol | libaudio voice volume event scheduler; CV64 fingerprint match |
+| 0x80099278 | alSynAllocVoice | libaudio voice allocator; CV64 fingerprint match |
+| 0x80099930 | alSynSetFXParam | libaudio FX parameter setter; CV64 fingerprint match |
+| 0x800999B0 | alSynStartVoice | libaudio voice start helper; CV64 fingerprint match |
+| 0x8009B1A0 | alSynSetPitch | libaudio voice pitch setter; CV64 fingerprint match |
+| 0x8009B940 | alSynSetPan | libaudio voice pan setter; CV64 fingerprint match |
+| 0x8009C790 | alSynNew | libaudio synthesizer init; CV64 fingerprint match |
+| 0x8009CA90 | alAudioFrame | libaudio frame/alist builder; CV64 fingerprint match |
+| 0x8009D2EC | alEnvmixerNew | envmixer node initializer; CV64 fingerprint match |
+| 0x8009E480 | alEnvmixerPull | envmixer pull callback; emits SETVOL/ENVMIXER RSP commands |
+| 0x8009E988 | alEnvmixerParam | envmixer param/event callback; manages source pointer and queued envelope events |
+| 0x800A1540 | alSynSetFXMix | libaudio voice FX mix setter; CV64 fingerprint match |
+| 0x800A1700 | alSynGetFXRef | libaudio FX reference getter; CV64 fingerprint match |
+| 0x800A3AF0 | alSynAddPlayer | libaudio player registration; CV64 fingerprint match |
+| 0x800A4DF0 | alSynStartVoiceParams | libaudio combined voice start/vol/pan/fx/pitch helper; CV64 fingerprint match |
+| 0x800A7110 | alSynAllocFx | libaudio FX allocator; CV64 fingerprint match |
+| 0x800A71B0 | alSynStopVoice | libaudio voice stop helper; CV64 fingerprint match |
+
 ## Gamestate IDs
 | ID | Name | Notes |
 |----|------|-------|

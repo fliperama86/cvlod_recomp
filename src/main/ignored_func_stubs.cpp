@@ -694,8 +694,16 @@ void func_8009E480(uint8_t* rdram, recomp_context* ctx) {
 
 #if LOD_ENABLE_AUDIO_PULL_TRACE
 static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size);
+static inline uint8_t lod_rdram_u8(uint8_t* rdram, uint32_t phys);
+static inline int16_t lod_rdram_s16(uint8_t* rdram, uint32_t phys);
 static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys);
 
+static recomp_func_t* lod_orig_audio_al_syn_set_vol = nullptr;            // 0x800973A0
+static recomp_func_t* lod_orig_audio_al_syn_alloc_voice = nullptr;        // 0x80099278
+static recomp_func_t* lod_orig_audio_al_syn_start_voice = nullptr;        // 0x800999B0
+static recomp_func_t* lod_orig_audio_al_syn_set_pitch = nullptr;          // 0x8009B1A0
+static recomp_func_t* lod_orig_audio_al_syn_set_pan = nullptr;            // 0x8009B940
+static recomp_func_t* lod_orig_audio_dma_callback = nullptr;              // 0x8009092C
 static recomp_func_t* lod_orig_audio_main_bus_pull = nullptr;   // 0x8009D5F0
 static recomp_func_t* lod_orig_audio_fx_pull = nullptr;         // 0x8009D710
 static recomp_func_t* lod_orig_audio_aux_bus_pull = nullptr;    // 0x8009E3A0
@@ -704,6 +712,655 @@ static recomp_func_t* lod_orig_audio_envmixer_param = nullptr;  // 0x8009E988
 static recomp_func_t* lod_orig_audio_resample_pull = nullptr;   // 0x8009F1EC
 static recomp_func_t* lod_orig_audio_raw16_pull = nullptr;      // 0x8009F7A4
 static recomp_func_t* lod_orig_audio_adpcm_pull = nullptr;      // 0x8009FC7C
+static recomp_func_t* lod_orig_audio_al_syn_set_fx_mix = nullptr;         // 0x800A1540
+static recomp_func_t* lod_orig_audio_al_syn_start_voice_params = nullptr; // 0x800A4DF0
+static recomp_func_t* lod_orig_audio_al_syn_stop_voice = nullptr;         // 0x800A71B0
+
+static inline uint32_t lod_audio_phys(uint32_t addr) {
+    return addr & 0x1FFFFFFF;
+}
+
+static inline bool lod_audio_addr_ok(uint32_t addr, uint32_t size) {
+    return addr != 0 && lod_rdram_range_ok(lod_audio_phys(addr), size);
+}
+
+static uint32_t lod_audio_u32(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_audio_phys(addr) + off;
+    return (addr != 0 && lod_rdram_range_ok(phys, 4)) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static int16_t lod_audio_s16(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_audio_phys(addr) + off;
+    return (addr != 0 && lod_rdram_range_ok(phys, 2)) ? lod_rdram_s16(rdram, phys) : 0;
+}
+
+static uint16_t lod_audio_u16(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    return (uint16_t)lod_audio_s16(rdram, addr, off);
+}
+
+static uint8_t lod_audio_u8(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_audio_phys(addr) + off;
+    return (addr != 0 && lod_rdram_range_ok(phys, 1)) ? lod_rdram_u8(rdram, phys) : 0;
+}
+
+static uint32_t lod_audio_min_u32(uint32_t a, uint32_t b) {
+    return a < b ? a : b;
+}
+
+static uint32_t lod_audio_count_nonzero_phys(uint8_t* rdram, uint32_t phys, uint32_t size) {
+    if (!lod_rdram_range_ok(phys, size)) {
+        return 0;
+    }
+
+    uint32_t nonzero = 0;
+    for (uint32_t i = 0; i < size; i++) {
+        if (lod_rdram_u8(rdram, phys + i) != 0) {
+            nonzero++;
+        }
+    }
+    return nonzero;
+}
+
+static void lod_audio_dump_head_phys(uint8_t* rdram, uint32_t phys, uint32_t size) {
+    const uint32_t n = lod_audio_min_u32(size, 16);
+    if (!lod_rdram_range_ok(phys, n)) {
+        fprintf(stderr, " <bad>");
+        return;
+    }
+    for (uint32_t i = 0; i < n; i++) {
+        fprintf(stderr, " %02X", lod_rdram_u8(rdram, phys + i));
+    }
+}
+
+struct LodAudioDmaCacheEntry {
+    bool ok = false;
+    uint32_t entry = 0;
+    uint32_t next = 0;
+    uint32_t prev = 0;
+    uint32_t base = 0;
+    uint32_t age = 0;
+    uint32_t buffer = 0;
+};
+
+static LodAudioDmaCacheEntry lod_audio_dma_find_cache_entry(uint8_t* rdram,
+                                                            uint32_t head,
+                                                            uint32_t addr,
+                                                            uint32_t size) {
+    LodAudioDmaCacheEntry found{};
+    uint32_t node = head;
+    const uint32_t end = addr + size;
+    const bool wrapped = end < addr;
+    for (uint32_t guard = 0; node != 0 && guard < 64; guard++) {
+        if (!lod_audio_addr_ok(node, 0x14)) {
+            break;
+        }
+
+        LodAudioDmaCacheEntry entry{};
+        entry.ok = true;
+        entry.entry = node;
+        entry.next = lod_audio_u32(rdram, node, 0x00);
+        entry.prev = lod_audio_u32(rdram, node, 0x04);
+        entry.base = lod_audio_u32(rdram, node, 0x08);
+        entry.age = lod_audio_u32(rdram, node, 0x0C);
+        entry.buffer = lod_audio_u32(rdram, node, 0x10);
+
+        if (!wrapped && addr >= entry.base && end <= entry.base + 0xA00) {
+            return entry;
+        }
+        node = entry.next;
+    }
+    return found;
+}
+
+struct LodAudioDmaMessage {
+    bool ok = false;
+    uint16_t type = 0;
+    uint8_t subtype = 0;
+    uint32_t ret_queue = 0;
+    uint32_t dst = 0;
+    uint32_t src = 0;
+    uint32_t size = 0;
+    uint32_t unk14 = 0;
+};
+
+static LodAudioDmaMessage lod_audio_dma_message(uint8_t* rdram, uint32_t msg) {
+    LodAudioDmaMessage out{};
+    if (!lod_audio_addr_ok(msg, 0x18)) {
+        return out;
+    }
+    out.ok = true;
+    out.type = lod_audio_u16(rdram, msg, 0x00);
+    out.subtype = lod_audio_u8(rdram, msg, 0x02);
+    out.ret_queue = lod_audio_u32(rdram, msg, 0x04);
+    out.dst = lod_audio_u32(rdram, msg, 0x08);
+    out.src = lod_audio_u32(rdram, msg, 0x0C);
+    out.size = lod_audio_u32(rdram, msg, 0x10);
+    out.unk14 = lod_audio_u32(rdram, msg, 0x14);
+    return out;
+}
+
+struct LodAudioVoiceState {
+    uint32_t pvoice = 0;
+    uint32_t source = 0;
+    uint32_t filter = 0;
+    uint32_t handler = 0;
+    uint32_t pos = 0;
+    int16_t state = 0;
+    int16_t priority = 0;
+    int16_t pan = 0;
+    int16_t fxmix = 0;
+};
+
+static LodAudioVoiceState lod_audio_voice_state(uint8_t* rdram, uint32_t voice) {
+    LodAudioVoiceState state{};
+    if (!lod_audio_addr_ok(voice, 0x1C)) {
+        return state;
+    }
+
+    state.pvoice = lod_audio_u32(rdram, voice, 0x08);
+    state.state = lod_audio_s16(rdram, voice, 0x14);
+    state.priority = lod_audio_s16(rdram, voice, 0x16);
+    state.pan = lod_audio_s16(rdram, voice, 0x18);
+    state.fxmix = lod_audio_s16(rdram, voice, 0x1A);
+
+    if (lod_audio_addr_ok(state.pvoice, 0xDC)) {
+        state.source = lod_audio_u32(rdram, state.pvoice, 0x08);
+        state.filter = lod_audio_u32(rdram, state.pvoice, 0x0C);
+        state.pos = lod_audio_u32(rdram, state.pvoice, 0xD8);
+        if (lod_audio_addr_ok(state.filter, 0x0C)) {
+            state.handler = lod_audio_u32(rdram, state.filter, 0x08);
+        }
+    }
+
+    return state;
+}
+
+struct LodAudioEventState {
+    bool ok = false;
+    uint32_t next = 0;
+    uint32_t time = 0;
+    uint16_t type = 0;
+    uint32_t d0c = 0;
+    uint32_t d10 = 0;
+    uint32_t d14 = 0;
+    uint32_t d18 = 0;
+};
+
+static LodAudioEventState lod_audio_event_state(uint8_t* rdram, uint32_t event) {
+    LodAudioEventState state{};
+    if (!lod_audio_addr_ok(event, 0x1C)) {
+        return state;
+    }
+    state.ok = true;
+    state.next = lod_audio_u32(rdram, event, 0x00);
+    state.time = lod_audio_u32(rdram, event, 0x04);
+    state.type = (uint16_t)lod_audio_s16(rdram, event, 0x08);
+    state.d0c = lod_audio_u32(rdram, event, 0x0C);
+    state.d10 = lod_audio_u32(rdram, event, 0x10);
+    state.d14 = lod_audio_u32(rdram, event, 0x14);
+    state.d18 = lod_audio_u32(rdram, event, 0x18);
+    return state;
+}
+
+struct LodAudioEnvmixerState {
+    uint32_t source = 0;
+    uint32_t handler = 0;
+    uint32_t state_ptr = 0;
+    uint32_t state_phys = 0;
+    uint32_t event = 0;
+    uint32_t event_tail = 0;
+    uint32_t dirty = 0;
+    uint32_t aux_active = 0;
+    uint32_t pos = 0;
+    uint32_t target = 0;
+    int16_t vol_idx = 0;
+    int16_t env_gain = 0;
+    int16_t left = 0;
+    int16_t right = 0;
+    int16_t left_next = 0;
+    int16_t right_next = 0;
+    uint16_t left_rate = 0;
+    uint16_t right_rate = 0;
+    int16_t left_step = 0;
+    int16_t right_step = 0;
+    uint16_t state20[8] = {};
+    uint16_t state40[8] = {};
+    LodAudioEventState event_state{};
+};
+
+static LodAudioEnvmixerState lod_audio_envmixer_state(uint8_t* rdram, uint32_t node) {
+    LodAudioEnvmixerState state{};
+    if (!lod_audio_addr_ok(node, 0x4C)) {
+        return state;
+    }
+
+    state.source = lod_audio_u32(rdram, node, 0x00);
+    state.handler = lod_audio_u32(rdram, node, 0x08);
+    state.state_ptr = lod_audio_u32(rdram, node, 0x14);
+    state.state_phys = lod_audio_phys(state.state_ptr);
+    state.vol_idx = lod_audio_s16(rdram, node, 0x18);
+    state.env_gain = lod_audio_s16(rdram, node, 0x1A);
+    state.left = lod_audio_s16(rdram, node, 0x1C);
+    state.right = lod_audio_s16(rdram, node, 0x1E);
+    state.left_next = lod_audio_s16(rdram, node, 0x28);
+    state.right_next = lod_audio_s16(rdram, node, 0x2E);
+    state.left_rate = lod_audio_u16(rdram, node, 0x24);
+    state.left_step = lod_audio_s16(rdram, node, 0x26);
+    state.right_rate = lod_audio_u16(rdram, node, 0x2A);
+    state.right_step = lod_audio_s16(rdram, node, 0x2C);
+    state.pos = lod_audio_u32(rdram, node, 0x30);
+    state.target = lod_audio_u32(rdram, node, 0x34);
+    state.dirty = lod_audio_u32(rdram, node, 0x38);
+    state.event = lod_audio_u32(rdram, node, 0x3C);
+    state.event_tail = lod_audio_u32(rdram, node, 0x40);
+    state.aux_active = lod_audio_u32(rdram, node, 0x48);
+    state.event_state = lod_audio_event_state(rdram, state.event);
+
+    if (lod_audio_addr_ok(state.state_ptr, 0x50)) {
+        for (uint32_t i = 0; i < 8; i++) {
+            state.state20[i] = lod_audio_u16(rdram, state.state_ptr, 0x20 + i * 2);
+            state.state40[i] = lod_audio_u16(rdram, state.state_ptr, 0x40 + i * 2);
+        }
+    }
+
+    return state;
+}
+
+static void lod_audio_log_voice(const char* tag, uint32_t count,
+                                uint32_t synth, uint32_t voice,
+                                const LodAudioVoiceState& before,
+                                const LodAudioVoiceState& after,
+                                const char* extra) {
+    fprintf(stderr,
+            "[AUDIO_VOICE] %s#%u synth=0x%08X voice=0x%08X"
+            " pvoice 0x%08X->0x%08X state %d->%d pri %d->%d"
+            " pan %d->%d fx %d->%d source 0x%08X->0x%08X"
+            " filter 0x%08X->0x%08X handler 0x%08X->0x%08X"
+            " pos 0x%08X->0x%08X%s%s\n",
+            tag, count, synth, voice,
+            before.pvoice, after.pvoice,
+            before.state, after.state,
+            before.priority, after.priority,
+            before.pan, after.pan,
+            before.fxmix, after.fxmix,
+            before.source, after.source,
+            before.filter, after.filter,
+            before.handler, after.handler,
+            before.pos, after.pos,
+            (extra != nullptr && extra[0] != '\0') ? " " : "",
+            extra != nullptr ? extra : "");
+}
+
+static void lod_audio_log_event(const char* tag, uint32_t count,
+                                const LodAudioEventState& event) {
+    if (!event.ok) {
+        return;
+    }
+    fprintf(stderr,
+            "[AUDIO_EVENT] %s#%u event{next=0x%08X time=%u type=0x%X"
+            " d0c=0x%08X d10=0x%08X d14=0x%08X d18=0x%08X}\n",
+            tag, count, event.next, event.time, event.type,
+            event.d0c, event.d10, event.d14, event.d18);
+}
+
+static void lod_audio_log_envmixer_state_piece(const char* label,
+                                               const LodAudioEnvmixerState& state) {
+    fprintf(stderr,
+            "%s{src=0x%08X handler=0x%08X state=0x%08X phys=0x%08X"
+            " ev=0x%08X tail=0x%08X evtype=0x%X evtime=%u"
+            " dirty=%u aux=%u pos=%u target=%u"
+            " volidx=%d gain=%d lr=%d/%d next=%d/%d"
+            " rate=%u/%u step=%d/%d st20:",
+            label, state.source, state.handler, state.state_ptr, state.state_phys,
+            state.event, state.event_tail, state.event_state.type,
+            state.event_state.time, state.dirty, state.aux_active,
+            state.pos, state.target, state.vol_idx, state.env_gain,
+            state.left, state.right, state.left_next, state.right_next,
+            state.left_rate, state.right_rate, state.left_step, state.right_step);
+    for (uint16_t value : state.state20) {
+        fprintf(stderr, " %04X", value);
+    }
+    fprintf(stderr, " st40:");
+    for (uint16_t value : state.state40) {
+        fprintf(stderr, " %04X", value);
+    }
+    fprintf(stderr, "}");
+}
+
+static bool lod_audio_envmixer_state_tiny(const LodAudioEnvmixerState& state) {
+    return state.state20[0] <= 0x0140 || state.state20[1] <= 0x0140 ||
+           state.left == 0 || state.right == 0 || state.left_next == 0 ||
+           state.right_next == 0;
+}
+
+static bool lod_audio_envmixer_state_changed(const LodAudioEnvmixerState& before,
+                                             const LodAudioEnvmixerState& after) {
+    return before.event != after.event || before.event_tail != after.event_tail ||
+           before.dirty != after.dirty || before.aux_active != after.aux_active ||
+           before.pos != after.pos || before.target != after.target ||
+           before.vol_idx != after.vol_idx || before.env_gain != after.env_gain ||
+           before.left != after.left || before.right != after.right ||
+           before.left_next != after.left_next || before.right_next != after.right_next ||
+           before.left_step != after.left_step || before.right_step != after.right_step;
+}
+
+struct LodAudioEnvmixerTraceCounter {
+    uint32_t state_phys = 0;
+    uint32_t count = 0;
+};
+
+static uint32_t lod_audio_envmixer_state_pull_count(uint32_t state_phys) {
+    if (state_phys == 0) {
+        return 0;
+    }
+
+    static LodAudioEnvmixerTraceCounter counters[64];
+    for (LodAudioEnvmixerTraceCounter& counter : counters) {
+        if (counter.state_phys == state_phys) {
+            return ++counter.count;
+        }
+    }
+    for (LodAudioEnvmixerTraceCounter& counter : counters) {
+        if (counter.state_phys == 0) {
+            counter.state_phys = state_phys;
+            counter.count = 1;
+            return counter.count;
+        }
+    }
+
+    return 0;
+}
+
+static bool lod_audio_envmixer_hot_state(uint32_t state_phys) {
+    switch (state_phys) {
+        // States observed near sparse-output/collapse traces. Keep this as
+        // telemetry-only; it only changes trace density under AUDIO_PULL_TRACE.
+        case 0x00106180:
+        case 0x001062E0:
+        case 0x00106390:
+        case 0x00106700:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static void lod_trace_audio_al_syn_set_vol(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const int16_t vol = (int16_t)(uint16_t)ctx->r6;
+    const uint32_t delta = (uint32_t)ctx->r7;
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (lod_orig_audio_al_syn_set_vol != nullptr) {
+        lod_orig_audio_al_syn_set_vol(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    const bool changed = before.pvoice != after.pvoice || before.state != after.state ||
+                         before.pos != after.pos || before.source != after.source;
+    if (count <= 120 || (vol != 0 && count <= 2500) || changed ||
+        (count % 1000) == 0) {
+        char extra[96];
+        snprintf(extra, sizeof(extra), "vol=%d delta=%u v0=0x%08X",
+                 vol, delta, (uint32_t)ctx->r2);
+        lod_audio_log_voice("alSynSetVol", count, synth, voice, before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_alloc_voice(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const uint32_t config = (uint32_t)ctx->r6;
+    const int16_t cfg_priority = lod_audio_s16(rdram, config, 0x00);
+    const int16_t cfg_pan = lod_audio_s16(rdram, config, 0x02);
+    const uint8_t cfg_fx = lod_audio_u8(rdram, config, 0x04);
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (lod_orig_audio_al_syn_alloc_voice != nullptr) {
+        lod_orig_audio_al_syn_alloc_voice(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    if (count <= 120 || (uint32_t)ctx->r2 == 0 || (count % 500) == 0) {
+        char extra[128];
+        snprintf(extra, sizeof(extra),
+                 "config=0x%08X cfg{pri=%d pan=%d fx=%u} result=%u",
+                 config, cfg_priority, cfg_pan, cfg_fx, (uint32_t)ctx->r2);
+        lod_audio_log_voice("alSynAllocVoice", count, synth, voice, before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_start_voice(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const uint32_t wave = (uint32_t)ctx->r6;
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (lod_orig_audio_al_syn_start_voice != nullptr) {
+        lod_orig_audio_al_syn_start_voice(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    if (count <= 120 || before.pvoice != after.pvoice || before.pos != after.pos ||
+        (count % 500) == 0) {
+        char extra[96];
+        snprintf(extra, sizeof(extra), "wave=0x%08X v0=0x%08X", wave, (uint32_t)ctx->r2);
+        lod_audio_log_voice("alSynStartVoice", count, synth, voice, before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_start_voice_params(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const uint32_t wave = (uint32_t)ctx->r6;
+    const uint32_t pitch_bits = (uint32_t)ctx->r7;
+    const uint32_t sp = (uint32_t)ctx->r29;
+    const int16_t vol = (int16_t)MEM_H(0x12, (gpr)(int32_t)sp);
+    const uint8_t pan = (uint8_t)MEM_BU(0x17, (gpr)(int32_t)sp);
+    const uint8_t fxmix = (uint8_t)MEM_BU(0x1B, (gpr)(int32_t)sp);
+    const uint32_t delta = (uint32_t)MEM_W(0x1C, (gpr)(int32_t)sp);
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (lod_orig_audio_al_syn_start_voice_params != nullptr) {
+        lod_orig_audio_al_syn_start_voice_params(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    if (count <= 120 || vol != 0 || before.pvoice != after.pvoice ||
+        before.pos != after.pos || (count % 500) == 0) {
+        char extra[160];
+        snprintf(extra, sizeof(extra),
+                 "wave=0x%08X pitch=0x%08X vol=%d pan=%u fx=%u delta=%u v0=0x%08X",
+                 wave, pitch_bits, vol, pan, fxmix, delta, (uint32_t)ctx->r2);
+        lod_audio_log_voice("alSynStartVoiceParams", count, synth, voice,
+                            before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_stop_voice(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (lod_orig_audio_al_syn_stop_voice != nullptr) {
+        lod_orig_audio_al_syn_stop_voice(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    if (count <= 120 || before.pvoice != after.pvoice || before.state != after.state ||
+        (count % 500) == 0) {
+        char extra[64];
+        snprintf(extra, sizeof(extra), "v0=0x%08X", (uint32_t)ctx->r2);
+        lod_audio_log_voice("alSynStopVoice", count, synth, voice, before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_simple_param(uint8_t* rdram, recomp_context* ctx,
+                                                const char* tag, recomp_func_t* original,
+                                                uint32_t* counter) {
+    (*counter)++;
+    const uint32_t count = *counter;
+    const uint32_t synth = (uint32_t)ctx->r4;
+    const uint32_t voice = (uint32_t)ctx->r5;
+    const uint32_t value = (uint32_t)ctx->r6;
+    const LodAudioVoiceState before = lod_audio_voice_state(rdram, voice);
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    const LodAudioVoiceState after = lod_audio_voice_state(rdram, voice);
+    if (count <= 80 || value != 0 || before.pan != after.pan ||
+        before.fxmix != after.fxmix || before.pos != after.pos ||
+        (count % 1000) == 0) {
+        char extra[96];
+        snprintf(extra, sizeof(extra), "value=0x%08X v0=0x%08X", value, (uint32_t)ctx->r2);
+        lod_audio_log_voice(tag, count, synth, voice, before, after, extra);
+    }
+}
+
+static void lod_trace_audio_al_syn_set_pitch(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_audio_al_syn_simple_param(rdram, ctx, "alSynSetPitch",
+                                        lod_orig_audio_al_syn_set_pitch, &count);
+}
+
+static void lod_trace_audio_al_syn_set_pan(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_audio_al_syn_simple_param(rdram, ctx, "alSynSetPan",
+                                        lod_orig_audio_al_syn_set_pan, &count);
+}
+
+static void lod_trace_audio_al_syn_set_fx_mix(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    lod_trace_audio_al_syn_simple_param(rdram, ctx, "alSynSetFXMix",
+                                        lod_orig_audio_al_syn_set_fx_mix, &count);
+}
+
+static void lod_trace_audio_dma_callback(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+
+    constexpr uint32_t DMA_STATE = 0x800FDDE0;
+    constexpr uint32_t DMA_MSG_BASE = 0x800FE1E8;
+    constexpr uint32_t DMA_MSG_INDEX = 0x800B86E4;
+    constexpr uint32_t DMA_AGE_COUNTER = 0x800B86E0;
+    constexpr uint32_t DMA_ASYNC_ENABLED = 0x800BB500;
+    constexpr uint32_t DMA_ASYNC_QUEUE = 0x800BB508;
+
+    const uint32_t req_addr = (uint32_t)ctx->r4;
+    const uint32_t req_len = (uint32_t)ctx->r5;
+    const uint32_t callback_state = (uint32_t)ctx->r6;
+    const uint32_t active_before = lod_audio_u32(rdram, DMA_STATE, 0x04);
+    const uint32_t free_before = lod_audio_u32(rdram, DMA_STATE, 0x08);
+    const uint32_t msg_index_before = lod_audio_u32(rdram, DMA_MSG_INDEX, 0x00);
+    const uint32_t age_before = lod_audio_u32(rdram, DMA_AGE_COUNTER, 0x00);
+    const uint32_t async_enabled_before = lod_audio_u32(rdram, DMA_ASYNC_ENABLED, 0x00);
+    const uint32_t async_queue_before = lod_audio_u32(rdram, DMA_ASYNC_QUEUE, 0x00);
+    const LodAudioDmaCacheEntry hit_before =
+        lod_audio_dma_find_cache_entry(rdram, active_before, req_addr, req_len);
+
+    if (lod_orig_audio_dma_callback != nullptr) {
+        lod_orig_audio_dma_callback(rdram, ctx);
+    }
+
+    const uint32_t ret = (uint32_t)ctx->r2;
+    const uint32_t ret_phys = lod_audio_phys(ret);
+    const uint32_t rsp_load_phys = ret_phys & ~UINT32_C(7);
+    const uint32_t active_after = lod_audio_u32(rdram, DMA_STATE, 0x04);
+    const uint32_t free_after = lod_audio_u32(rdram, DMA_STATE, 0x08);
+    const uint32_t msg_index_after = lod_audio_u32(rdram, DMA_MSG_INDEX, 0x00);
+    const uint32_t age_after = lod_audio_u32(rdram, DMA_AGE_COUNTER, 0x00);
+    const uint32_t async_enabled_after = lod_audio_u32(rdram, DMA_ASYNC_ENABLED, 0x00);
+    const uint32_t async_queue_after = lod_audio_u32(rdram, DMA_ASYNC_QUEUE, 0x00);
+    const LodAudioDmaCacheEntry hit_after =
+        lod_audio_dma_find_cache_entry(rdram, active_after, req_addr, req_len);
+
+    uint32_t msg_addr = 0;
+    LodAudioDmaMessage msg{};
+    if (!hit_before.ok && msg_index_after != msg_index_before && msg_index_before < 128) {
+        msg_addr = DMA_MSG_BASE + msg_index_before * 0x18;
+        msg = lod_audio_dma_message(rdram, msg_addr);
+    }
+
+    const uint32_t ret_probe_len = lod_audio_min_u32(req_len + 8, 0x100);
+    const uint32_t rsp_probe_len = lod_audio_min_u32(req_len + 16, 0x140);
+    const uint32_t ret_nonzero =
+        lod_audio_count_nonzero_phys(rdram, ret_phys, ret_probe_len);
+    const uint32_t rsp_nonzero =
+        lod_audio_count_nonzero_phys(rdram, rsp_load_phys, rsp_probe_len);
+    const uint32_t msg_dst_phys = lod_audio_phys(msg.dst);
+    const uint32_t msg_probe_len = lod_audio_min_u32(msg.size, 0x100);
+    const uint32_t msg_dst_nonzero =
+        msg.ok ? lod_audio_count_nonzero_phys(rdram, msg_dst_phys, msg_probe_len) : 0;
+
+    const bool miss = !hit_before.ok;
+    const bool suspicious =
+        ret == 0 || (miss && !msg.ok) ||
+        (msg.ok && (msg.src != (req_addr & ~UINT32_C(1)))) ||
+        (msg.ok && (lod_audio_phys(msg.dst) != lod_audio_phys(hit_after.buffer)));
+    const bool empty = ret_nonzero == 0 && rsp_nonzero == 0 && msg_dst_nonzero == 0;
+    const bool miss_sample =
+        miss && (count <= 500 || ret_nonzero != 0 || rsp_nonzero != 0 ||
+                 msg_dst_nonzero != 0 || (count % 100) == 0);
+    const bool should_log =
+        count <= 240 || miss_sample || ret_nonzero != 0 || rsp_nonzero != 0 ||
+        msg_dst_nonzero != 0 || suspicious ||
+        (empty && count <= 1000 && (count % 100) == 0) || (count % 1000) == 0;
+
+    if (should_log) {
+        fprintf(stderr,
+                "[AUDIO_DMA_CB] #%u req=0x%08X len=0x%X cb_state=0x%08X"
+                " hit_before=%u hit_after=%u ret=0x%08X ret_phys=0x%08X"
+                " rsp_phys=0x%08X nonzero{ret=%u/%u rsp=%u/%u msgdst=%u/%u}"
+                " lists{active=0x%08X->0x%08X free=0x%08X->0x%08X}"
+                " counters{msg=%u->%u age=%u->%u}"
+                " async{enabled=%u->%u queue=0x%08X->0x%08X}",
+                count, req_addr, req_len, callback_state,
+                hit_before.ok ? 1u : 0u, hit_after.ok ? 1u : 0u,
+                ret, ret_phys, rsp_load_phys,
+                ret_nonzero, ret_probe_len, rsp_nonzero, rsp_probe_len,
+                msg_dst_nonzero, msg_probe_len,
+                active_before, active_after, free_before, free_after,
+                msg_index_before, msg_index_after, age_before, age_after,
+                async_enabled_before, async_enabled_after,
+                async_queue_before, async_queue_after);
+
+        if (hit_before.ok) {
+            fprintf(stderr,
+                    " before{entry=0x%08X base=0x%08X age=%u buf=0x%08X}",
+                    hit_before.entry, hit_before.base, hit_before.age,
+                    hit_before.buffer);
+        }
+        if (hit_after.ok) {
+            fprintf(stderr,
+                    " after{entry=0x%08X base=0x%08X age=%u buf=0x%08X}",
+                    hit_after.entry, hit_after.base, hit_after.age,
+                    hit_after.buffer);
+        }
+        if (msg.ok) {
+            fprintf(stderr,
+                    " msg@0x%08X{type=0x%X sub=%u queue=0x%08X"
+                    " dst=0x%08X src=0x%08X size=0x%X unk14=0x%08X}",
+                    msg_addr, msg.type, msg.subtype, msg.ret_queue, msg.dst,
+                    msg.src, msg.size, msg.unk14);
+        }
+        fprintf(stderr, " head:");
+        lod_audio_dump_head_phys(rdram, rsp_load_phys, rsp_probe_len);
+        fprintf(stderr, "\n");
+    }
+}
 
 static void lod_audio_pull_trace_common(uint8_t* rdram, recomp_context* ctx,
                                         const char* name, uint32_t vram,
@@ -746,12 +1403,65 @@ static void lod_audio_pull_trace_common(uint8_t* rdram, recomp_context* ctx,
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_main_bus_pull, "mainBusPull", 0x8009D5F0, lod_orig_audio_main_bus_pull)
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_fx_pull, "fxPull", 0x8009D710, lod_orig_audio_fx_pull)
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_aux_bus_pull, "auxBusPull", 0x8009E3A0, lod_orig_audio_aux_bus_pull)
-LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_envmixer_pull, "envmixerPull", 0x8009E480, lod_orig_audio_envmixer_pull)
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_resample_pull, "resamplePull", 0x8009F1EC, lod_orig_audio_resample_pull)
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_raw16_pull, "raw16Pull", 0x8009F7A4, lod_orig_audio_raw16_pull)
 LOD_AUDIO_PULL_WRAPPER(lod_trace_audio_adpcm_pull, "adpcmPull", 0x8009FC7C, lod_orig_audio_adpcm_pull)
 
 #undef LOD_AUDIO_PULL_WRAPPER
+
+static void lod_trace_audio_envmixer_pull(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+
+    const uint32_t in_a0 = (uint32_t)ctx->r4;
+    const uint32_t in_a1 = (uint32_t)ctx->r5;
+    const uint32_t in_a2 = (uint32_t)ctx->r6;
+    const uint32_t in_a3 = (uint32_t)ctx->r7;
+    uint32_t node_func = 0;
+    const uint32_t node_phys = in_a0 & 0x1FFFFFFF;
+    if (in_a0 != 0 && lod_rdram_range_ok(node_phys, 0x10)) {
+        node_func = lod_rdram_u32(rdram, node_phys + 0x08);
+    }
+    const LodAudioEnvmixerState before = lod_audio_envmixer_state(rdram, in_a0);
+
+    if (lod_orig_audio_envmixer_pull != nullptr) {
+        lod_orig_audio_envmixer_pull(rdram, ctx);
+    }
+
+    const uint32_t out_v0 = (uint32_t)ctx->r2;
+    const int32_t cmd_delta = (int32_t)(out_v0 - in_a2);
+    const LodAudioEnvmixerState after = lod_audio_envmixer_state(rdram, in_a0);
+    if (count <= 40 || (count % 5000) == 0) {
+        fprintf(stderr,
+                "[AUDIO_PULL] envmixerPull#%u vram=0x8009E480 a0=0x%08X"
+                " node_fn=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X"
+                " -> v0=0x%08X delta=%d\n",
+                count, in_a0, node_func, in_a1, in_a2, in_a3, out_v0, cmd_delta);
+    }
+
+    const bool tiny = lod_audio_envmixer_state_tiny(before) ||
+                      lod_audio_envmixer_state_tiny(after);
+    const bool changed = lod_audio_envmixer_state_changed(before, after);
+    const uint32_t state_phys = before.state_phys != 0 ? before.state_phys : after.state_phys;
+    const uint32_t state_count = lod_audio_envmixer_state_pull_count(state_phys);
+    const bool hot = lod_audio_envmixer_hot_state(before.state_phys) ||
+                     lod_audio_envmixer_hot_state(after.state_phys);
+    const bool state_start = state_count != 0 && state_count <= 8;
+    const bool hot_sample = hot && state_count != 0 && ((state_count % 16) == 0);
+    const bool tiny_sample = tiny && state_count != 0 && ((state_count % 250) == 0);
+    if (count <= 80 || state_start || (changed && count <= 2000) ||
+        hot_sample || tiny_sample || (count % 5000) == 0) {
+        fprintf(stderr, "[AUDIO_ENVMIXER_CPU] envmixerPull#%u statePull#%u"
+                        " hot=%u tiny=%u changed=%u node=0x%08X "
+                        "a1=0x%08X a2=0x%08X a3=0x%08X -> v0=0x%08X ",
+                count, state_count, hot ? 1u : 0u, tiny ? 1u : 0u,
+                changed ? 1u : 0u, in_a0, in_a1, in_a2, in_a3, out_v0);
+        lod_audio_log_envmixer_state_piece("before", before);
+        fprintf(stderr, " ");
+        lod_audio_log_envmixer_state_piece("after", after);
+        fprintf(stderr, "\n");
+    }
+}
 
 static void lod_trace_audio_envmixer_param(uint8_t* rdram, recomp_context* ctx) {
     static uint32_t count = 0;
@@ -765,6 +1475,7 @@ static void lod_trace_audio_envmixer_param(uint8_t* rdram, recomp_context* ctx) 
     uint32_t source_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x00) : 0;
     uint32_t state38_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x38) : 0;
     uint32_t state48_before = node_ok ? lod_rdram_u32(rdram, node_phys + 0x48) : 0;
+    LodAudioEventState event_before = lod_audio_event_state(rdram, param_value);
 
     if (lod_orig_audio_envmixer_param != nullptr) {
         lod_orig_audio_envmixer_param(rdram, ctx);
@@ -773,7 +1484,9 @@ static void lod_trace_audio_envmixer_param(uint8_t* rdram, recomp_context* ctx) 
     uint32_t source_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x00) : 0;
     uint32_t state38_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x38) : 0;
     uint32_t state48_after = node_ok ? lod_rdram_u32(rdram, node_phys + 0x48) : 0;
-    bool important_param = param_id == 4 || param_id == 9;
+    LodAudioEventState event_after = lod_audio_event_state(rdram, param_value);
+    bool important_param = param_id == 1 || param_id == 3 || param_id == 4 ||
+                           param_id == 5 || param_id == 9;
     bool changed = state38_before != state38_after ||
                    state48_before != state48_after ||
                    source_before != source_after;
@@ -781,10 +1494,23 @@ static void lod_trace_audio_envmixer_param(uint8_t* rdram, recomp_context* ctx) 
         fprintf(stderr,
                 "[AUDIO_PARAM] envmixerParam#%u a0=0x%08X id=%u value=0x%08X "
                 "source 0x%08X->0x%08X state38 0x%08X->0x%08X "
-                "state48 0x%08X->0x%08X v0=0x%08X\n",
+                "state48 0x%08X->0x%08X"
+                " event_before{ok=%u next=0x%08X time=%u type=0x%X"
+                " d0c=0x%08X d10=0x%08X d14=0x%08X d18=0x%08X}"
+                " event_after{ok=%u next=0x%08X time=%u type=0x%X"
+                " d0c=0x%08X d10=0x%08X d14=0x%08X d18=0x%08X}"
+                " v0=0x%08X\n",
                 count, node, param_id, param_value,
                 source_before, source_after, state38_before, state38_after,
-                state48_before, state48_after, (uint32_t)ctx->r2);
+                state48_before, state48_after,
+                event_before.ok ? 1U : 0U, event_before.next, event_before.time,
+                event_before.type, event_before.d0c, event_before.d10,
+                event_before.d14, event_before.d18,
+                event_after.ok ? 1U : 0U, event_after.next, event_after.time,
+                event_after.type, event_after.d0c, event_after.d10,
+                event_after.d14, event_after.d18, (uint32_t)ctx->r2);
+        lod_audio_log_event("envmixerParam.before", count, event_before);
+        lod_audio_log_event("envmixerParam.after", count, event_after);
     }
 }
 
@@ -802,6 +1528,24 @@ static void lod_install_audio_pull_trace_wrapper(uint32_t vram, const char* name
 }
 
 extern "C" void lod_install_audio_pull_trace_wrappers_early() {
+    lod_install_audio_pull_trace_wrapper(0x800973A0, "alSynSetVol",
+                                         lod_trace_audio_al_syn_set_vol,
+                                         &lod_orig_audio_al_syn_set_vol);
+    lod_install_audio_pull_trace_wrapper(0x80099278, "alSynAllocVoice",
+                                         lod_trace_audio_al_syn_alloc_voice,
+                                         &lod_orig_audio_al_syn_alloc_voice);
+    lod_install_audio_pull_trace_wrapper(0x800999B0, "alSynStartVoice",
+                                         lod_trace_audio_al_syn_start_voice,
+                                         &lod_orig_audio_al_syn_start_voice);
+    lod_install_audio_pull_trace_wrapper(0x8009B1A0, "alSynSetPitch",
+                                         lod_trace_audio_al_syn_set_pitch,
+                                         &lod_orig_audio_al_syn_set_pitch);
+    lod_install_audio_pull_trace_wrapper(0x8009B940, "alSynSetPan",
+                                         lod_trace_audio_al_syn_set_pan,
+                                         &lod_orig_audio_al_syn_set_pan);
+    lod_install_audio_pull_trace_wrapper(0x8009092C, "audioDmaCallback",
+                                         lod_trace_audio_dma_callback,
+                                         &lod_orig_audio_dma_callback);
     lod_install_audio_pull_trace_wrapper(0x8009D5F0, "mainBusPull",
                                          lod_trace_audio_main_bus_pull,
                                          &lod_orig_audio_main_bus_pull);
@@ -826,6 +1570,15 @@ extern "C" void lod_install_audio_pull_trace_wrappers_early() {
     lod_install_audio_pull_trace_wrapper(0x8009FC7C, "adpcmPull",
                                          lod_trace_audio_adpcm_pull,
                                          &lod_orig_audio_adpcm_pull);
+    lod_install_audio_pull_trace_wrapper(0x800A1540, "alSynSetFXMix",
+                                         lod_trace_audio_al_syn_set_fx_mix,
+                                         &lod_orig_audio_al_syn_set_fx_mix);
+    lod_install_audio_pull_trace_wrapper(0x800A4DF0, "alSynStartVoiceParams",
+                                         lod_trace_audio_al_syn_start_voice_params,
+                                         &lod_orig_audio_al_syn_start_voice_params);
+    lod_install_audio_pull_trace_wrapper(0x800A71B0, "alSynStopVoice",
+                                         lod_trace_audio_al_syn_stop_voice,
+                                         &lod_orig_audio_al_syn_stop_voice);
 }
 #endif // LOD_ENABLE_AUDIO_PULL_TRACE
 
@@ -871,6 +1624,63 @@ static inline int16_t lod_rdram_s16(uint8_t* rdram, uint32_t phys) {
 
 static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys) {
     return *(uint32_t*)(rdram + phys);
+}
+
+static inline bool lod_ai_buffer_phys(uint32_t addr, uint32_t size, uint32_t* phys_out) {
+    uint32_t phys = addr;
+    const uint32_t region = addr & 0xE0000000u;
+    if (region == 0x80000000u || region == 0xA0000000u) {
+        phys = addr & 0x1FFFFFFFu;
+    }
+
+    if (!lod_rdram_range_ok(phys, size)) {
+        return false;
+    }
+
+    *phys_out = phys;
+    return true;
+}
+
+// LoD can pass a low/physical RDRAM address to osAiSetNextBuffer. The
+// ultramodern runtime helper expects a KSEG0/KSEG1-style pointer and otherwise
+// maps low 0x00xxxxxx addresses to rdram+0x80xxxxxx, which faults past RDRAM.
+// Keep this local wrapper out of the N64ModernRuntime submodule and patch the
+// generated audioTask_build call site to use it after regeneration.
+void lod_osAiSetNextBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t raw = (uint32_t)ctx->r4;
+    const uint32_t bytes = (uint32_t)ctx->r5;
+    uint32_t phys = 0;
+
+    if (bytes == 0) {
+        ctx->r2 = 0;
+        return;
+    }
+
+    if (!lod_ai_buffer_phys(raw, bytes, &phys)) {
+#if LOD_ENABLE_AUDIO_TRACE
+        fprintf(stderr,
+                "[AUDIO_AI] skip invalid osAiSetNextBuffer raw=0x%08X bytes=0x%X\n",
+                raw, bytes);
+#endif
+        ctx->r2 = 0;
+        return;
+    }
+
+    const uint32_t kseg0 = 0x80000000u | phys;
+#if LOD_ENABLE_AUDIO_TRACE
+    if (raw != kseg0) {
+        static uint32_t normalize_count = 0;
+        normalize_count++;
+        if (normalize_count <= 20 || (normalize_count % 200) == 0) {
+            fprintf(stderr,
+                    "[AUDIO_AI] normalize osAiSetNextBuffer#%u raw=0x%08X"
+                    " -> kseg0=0x%08X phys=0x%06X bytes=0x%X\n",
+                    normalize_count, raw, kseg0, phys, bytes);
+        }
+    }
+#endif
+    ultramodern::queue_audio_buffer(rdram, (PTR(int16_t))kseg0, bytes);
+    ctx->r2 = 0;
 }
 
 static int32_t lod_current_gamestate(uint8_t* rdram) {
