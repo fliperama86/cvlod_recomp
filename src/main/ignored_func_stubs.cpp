@@ -24,6 +24,10 @@
 #define LOD_ENABLE_BOOT_INPUT_SCRIPT 0
 #endif
 
+#ifndef LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
+#define LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT 0
+#endif
+
 #ifndef LOD_ENABLE_SAVE_HANDLER_TRACE
 #define LOD_ENABLE_SAVE_HANDLER_TRACE 0
 #endif
@@ -642,6 +646,22 @@ static int32_t lod_current_gamestate(uint8_t* rdram) {
     }
 
     return *(int32_t*)(rdram + gsm_phys + 0x24);
+}
+
+static uint32_t lod_current_exec_flags(uint8_t* rdram) {
+    constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
+    return lod_rdram_range_ok(EXEC_FLAGS_PHYS, 4) ? lod_rdram_u32(rdram, EXEC_FLAGS_PHYS) : 0;
+}
+
+static uint32_t lod_current_ni_sys_ptr(uint8_t* rdram) {
+    constexpr uint32_t NI_SYS_PTR_PHYS = 0x001CAC1C;
+    return lod_rdram_range_ok(NI_SYS_PTR_PHYS, 4) ? lod_rdram_u32(rdram, NI_SYS_PTR_PHYS) : 0;
+}
+
+static bool lod_fast_gameplay_idle_target(uint8_t* rdram, int32_t gs) {
+    return gs == 3 &&
+           lod_current_exec_flags(rdram) == 0x38000000 &&
+           lod_current_ni_sys_ptr(rdram) == 0x803241C0;
 }
 
 static uint8_t lod_object_dispatch_state(uint8_t* rdram, uint32_t obj_phys);
@@ -2538,11 +2558,12 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 }
 #endif
 
-#if LOD_ENABLE_BOOT_INPUT_SCRIPT
+#if LOD_ENABLE_BOOT_INPUT_SCRIPT || LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
                 // Debug-only boot automation. This is not a gamestate skip:
                 // it exercises the same controller/PIF path as real input.
                 static int32_t boot_script_last_gs = INT32_MIN;
                 static int boot_script_gs_frame = 0;
+                static bool fast_script_reached_idle_target = false;
                 int32_t boot_script_gs = lod_current_gamestate(rdram);
                 if (boot_script_gs != boot_script_last_gs) {
                     boot_script_last_gs = boot_script_gs;
@@ -2551,6 +2572,47 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 }
                 boot_script_gs_frame++;
 
+#if LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
+                // Fast debug-only controller script for KSEG0/idle repros.
+                // It aggressively presses Start/A through skippable menus and
+                // cutscenes, then stops once the known low-res gameplay-idle
+                // signature is reached so the actual idle test is hands-off.
+                bool fast_at_idle_target = lod_fast_gameplay_idle_target(rdram, boot_script_gs);
+                if (fast_at_idle_target) {
+                    if (!fast_script_reached_idle_target) {
+                        fast_script_reached_idle_target = true;
+                        fprintf(stderr,
+                                "[AUTO] fast script reached idle target gs=3 exec=0x%08X ni=0x%08X; releasing input\n",
+                                lod_current_exec_flags(rdram), lod_current_ni_sys_ptr(rdram));
+                    }
+                } else {
+                    bool pulse = false;
+                    uint16_t fast_buttons = 0x9000; // A + Start
+
+                    if (boot_script_gs == 12) {
+                        // Expansion Pak acknowledgement: quick repeated A/Start.
+                        pulse = (boot_script_gs_frame % 24) >= 6 &&
+                                (boot_script_gs_frame % 24) < 12;
+                    } else if (boot_script_gs == 5 || boot_script_gs == 6 ||
+                               boot_script_gs == 8 || boot_script_gs == -3 ||
+                               boot_script_gs == 3) {
+                        // Menus, title, character select, book/prologue, and
+                        // early scene transitions: skip/advance aggressively.
+                        pulse = (boot_script_gs_frame % 18) >= 3 &&
+                                (boot_script_gs_frame % 18) < 8;
+                    }
+
+                    if (pulse) {
+                        buttons |= fast_buttons;
+                        if (boot_script_gs_frame <= 120 &&
+                            (boot_script_gs_frame % 18) == 3) {
+                            fprintf(stderr,
+                                    "[AUTO] fast gs=%d frame %d: A+Start\n",
+                                    boot_script_gs, boot_script_gs_frame);
+                        }
+                    }
+                }
+#else
                 if (boot_script_gs == 12) {
                     // Expansion Pak acknowledgement screen. Pulse both A and
                     // Start so either accepted prompt advances, then release.
@@ -2619,6 +2681,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                         }
                     }
                 }
+#endif
 #endif
 
                 uint8_t sx = (uint8_t)(int8_t)(x * 127);
