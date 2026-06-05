@@ -800,7 +800,6 @@ extern "C" void lod_install_gs3_anim_trace_wrappers_early() {
 
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 static recomp_func_t* lod_orig_kseg0_dmamgr_update = nullptr; // 0x80011E48
-static recomp_func_t* lod_orig_kseg0_gfx_helper = nullptr;    // 0x80043768
 
 static uint32_t lod_kseg0_trace_u32_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
     return ok && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
@@ -874,13 +873,6 @@ static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
     }
 }
 
-static void lod_kseg0_trace_gfx_helper(uint8_t* rdram, recomp_context* ctx) {
-    lod_kseg0_record_snapshot(rdram, ctx, 0x80043768);
-    if (lod_orig_kseg0_gfx_helper != nullptr) {
-        lod_orig_kseg0_gfx_helper(rdram, ctx);
-    }
-}
-
 static void lod_install_kseg0_fault_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
                                                   recomp_func_t** original_out) {
     recomp_func_t* current = get_function((int32_t)vram);
@@ -896,15 +888,12 @@ static void lod_install_kseg0_fault_trace_wrappers(const char* reason) {
 
     lod_install_kseg0_fault_trace_wrapper(0x80011E48, lod_kseg0_trace_dmamgr_update,
         &lod_orig_kseg0_dmamgr_update);
-    lod_install_kseg0_fault_trace_wrapper(0x80043768, lod_kseg0_trace_gfx_helper,
-        &lod_orig_kseg0_gfx_helper);
 
     if (install_count <= 4) {
         fprintf(stderr,
-                "[KSEG0-TRACE] installed wrappers #%d reason=%s dmamgr=%p gfx=%p\n",
+                "[KSEG0-TRACE] installed wrappers #%d reason=%s dmamgr=%p\n",
                 install_count, reason,
-                (void*)lod_orig_kseg0_dmamgr_update,
-                (void*)lod_orig_kseg0_gfx_helper);
+                (void*)lod_orig_kseg0_dmamgr_update);
     }
 }
 
