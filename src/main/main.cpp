@@ -40,6 +40,10 @@
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
 
+#ifndef LOD_ENABLE_AUDIO_TRACE
+#define LOD_ENABLE_AUDIO_TRACE 0
+#endif
+
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
     ((void)fprintf(stderr, str, args), ...);
@@ -130,6 +134,32 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     static std::vector<float> swap_buffer;
     static std::array<float, duplicated_input_frames * input_channels> duplicated_sample_buffer;
 
+#if LOD_ENABLE_AUDIO_TRACE
+    static uint32_t queue_count = 0;
+    queue_count++;
+    int16_t min_sample = 0;
+    int16_t max_sample = 0;
+    size_t nonzero_count = 0;
+    if (sample_count > 0) {
+        min_sample = audio_data[0];
+        max_sample = audio_data[0];
+        for (size_t i = 0; i < sample_count; i++) {
+            if (audio_data[i] < min_sample) min_sample = audio_data[i];
+            if (audio_data[i] > max_sample) max_sample = audio_data[i];
+            if (audio_data[i] != 0) nonzero_count++;
+        }
+    }
+    bool should_log = queue_count <= 40 || (queue_count % 120) == 0 || nonzero_count == 0;
+    if (should_log) {
+        fprintf(stderr,
+                "[AUDIO] queue_samples#%u samples=%zu frames=%zu freq=%u out=%u "
+                "min=%d max=%d nonzero=%zu queued_before=%u device=%u\n",
+                queue_count, sample_count, sample_count / input_channels,
+                sample_rate, output_sample_rate, (int)min_sample, (int)max_sample,
+                nonzero_count, SDL_GetQueuedAudioSize(audio_device), audio_device);
+    }
+#endif
+
     size_t resampled_sample_count = sample_count + duplicated_input_frames * input_channels;
     size_t max_sample_count = std::max(resampled_sample_count, resampled_sample_count * audio_convert.len_mult);
     if (max_sample_count > swap_buffer.size()) {
@@ -159,6 +189,13 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
 
     SDL_QueueAudio(audio_device, samples_to_queue, num_bytes_to_queue);
+#if LOD_ENABLE_AUDIO_TRACE
+    if (should_log) {
+        fprintf(stderr,
+                "[AUDIO] queue_samples#%u queued_bytes=%u queued_after=%u\n",
+                queue_count, num_bytes_to_queue, SDL_GetQueuedAudioSize(audio_device));
+    }
+#endif
 }
 
 size_t get_frames_remaining() {
@@ -178,6 +215,16 @@ size_t get_frames_remaining() {
 void set_frequency(uint32_t freq) {
     sample_rate = freq;
     update_audio_converter();
+#if LOD_ENABLE_AUDIO_TRACE
+    static uint32_t set_frequency_count = 0;
+    set_frequency_count++;
+    if (set_frequency_count <= 40 || (set_frequency_count % 120) == 0) {
+        fprintf(stderr,
+                "[AUDIO] set_frequency#%u freq=%u output=%u len_mult=%d discarded=%u\n",
+                set_frequency_count, sample_rate, output_sample_rate,
+                audio_convert.len_mult, discarded_output_frames);
+    }
+#endif
 }
 
 void reset_audio(uint32_t output_freq) {
@@ -198,10 +245,20 @@ void reset_audio(uint32_t output_freq) {
         fprintf(stderr, "[WARN] SDL error opening audio device: %s (continuing without audio)\n", SDL_GetError());
     } else {
         SDL_PauseAudioDevice(audio_device, 0);
+#if LOD_ENABLE_AUDIO_TRACE
+        fprintf(stderr,
+                "[AUDIO] opened SDL audio device id=%u output_freq=%u channels=%u\n",
+                audio_device, output_freq, output_channels);
+#endif
     }
 
     output_sample_rate = output_freq;
     update_audio_converter();
+#if LOD_ENABLE_AUDIO_TRACE
+    fprintf(stderr,
+            "[AUDIO] reset_audio output=%u len_mult=%d discarded=%u device=%u\n",
+            output_sample_rate, audio_convert.len_mult, discarded_output_frames, audio_device);
+#endif
 }
 
 // ── RSP ─────────────────────────────────────────────────────────────
