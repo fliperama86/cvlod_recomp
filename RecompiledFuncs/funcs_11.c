@@ -3284,7 +3284,7 @@ L_80017BB4:
     // 0x80017C18: jal         0x8001A42C
     // 0x80017C1C: subu        $a2, $t1, $a0
     ctx->r6 = SUB32(ctx->r9, ctx->r4);
-    func_8001A42C(rdram, ctx);
+    DMA_ROMCopy(rdram, ctx);
         goto after_15;
     // 0x80017C1C: subu        $a2, $t1, $a0
     ctx->r6 = SUB32(ctx->r9, ctx->r4);
@@ -3324,7 +3324,7 @@ L_80017BB4:
     // 0x80017C50: jal         0x8001A42C
     // 0x80017C54: subu        $a2, $t2, $a0
     ctx->r6 = SUB32(ctx->r10, ctx->r4);
-    func_8001A42C(rdram, ctx);
+    DMA_ROMCopy(rdram, ctx);
         goto after_18;
     // 0x80017C54: subu        $a2, $t2, $a0
     ctx->r6 = SUB32(ctx->r10, ctx->r4);

@@ -4923,7 +4923,7 @@ L_80011C4C:
     // 0x80011C80: jal         0x8001A42C
     // 0x80011C84: sw          $a1, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r5;
-    func_8001A42C(rdram, ctx);
+    DMA_ROMCopy(rdram, ctx);
         goto after_0;
     // 0x80011C84: sw          $a1, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r5;
@@ -5214,7 +5214,7 @@ L_80011E38:
     // 0x80011E44: nop
 
 ;}
-RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void DMAMgr_updatePendingFileLoad(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80011E48: addiu       $sp, $sp, -0x40
@@ -5290,7 +5290,7 @@ RECOMP_FUNC void func_80011E48(uint8_t* rdram, recomp_context* ctx) {
     // 0x80011EC8: jal         0x8001A42C
     // 0x80011ECC: lw          $a0, 0x828($v1)
     ctx->r4 = MEM_W(ctx->r3, 0X828);
-    func_8001A42C(rdram, ctx);
+    DMA_ROMCopy(rdram, ctx);
         goto after_0;
     // 0x80011ECC: lw          $a0, 0x828($v1)
     ctx->r4 = MEM_W(ctx->r3, 0X828);

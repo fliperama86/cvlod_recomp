@@ -2147,7 +2147,7 @@ functions = [
     { name = "func_8009E2C0", vram = 0x8009E2C0, size = 0xA8 },
     { name = "func_8009E370", vram = 0x8009E370, size = 0x30 },
     { name = "func_8009E3A0", vram = 0x8009E3A0, size = 0xD8 },
-    { name = "func_8009E480", vram = 0x8009E480, size = 0x508 },
+    { name = "alEnvmixerPull", vram = 0x8009E480, size = 0x508 },
     { name = "func_8009E988", vram = 0x8009E988, size = 0xE0 },
     { name = "func_8009EA68", vram = 0x8009EA68, size = 0x2E8 },
     { name = "func_8009ED50", vram = 0x8009ED50, size = 0xEC },

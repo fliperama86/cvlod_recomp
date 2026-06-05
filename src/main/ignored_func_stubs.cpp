@@ -63,14 +63,22 @@
 // the symbol to the weak RECOMP_FUNC version in RecompiledFuncs/.
 //
 // Cleanup priority (try disabling first — thinnest justification):
-//   * LOD_OVERRIDE_FUNC_8009E480       — audio-chain hard no-op
+//   * LOD_OVERRIDE_ALENVMIXERPULL      — libultra envmixer hard no-op
+//     (LOD_OVERRIDE_FUNC_8009E480 remains accepted as a compatibility alias)
 //   * LOD_OVERRIDE_FUNC_8001D398       — contpak recheck force-return-2
 //
 // LOD_OVERRIDE_FUNC_8009F400 is intentionally default-off: the direct
 // osPfsFindFile shim can return stale NOT FOUND after the game creates a
 // Controller Pak note, while the recompiled/native PFS path advances.
+#ifndef LOD_OVERRIDE_ALENVMIXERPULL
+#  ifdef LOD_OVERRIDE_FUNC_8009E480
+#    define LOD_OVERRIDE_ALENVMIXERPULL LOD_OVERRIDE_FUNC_8009E480
+#  else
+#    define LOD_OVERRIDE_ALENVMIXERPULL 1
+#  endif
+#endif
 #ifndef LOD_OVERRIDE_FUNC_8009E480
-#define LOD_OVERRIDE_FUNC_8009E480 1
+#define LOD_OVERRIDE_FUNC_8009E480 LOD_OVERRIDE_ALENVMIXERPULL
 #endif
 #ifndef LOD_OVERRIDE_FUNC_8001D398
 #define LOD_OVERRIDE_FUNC_8001D398 1
@@ -581,13 +589,27 @@ void func_800A16A0(uint8_t* rdram, recomp_context* ctx) {
     ctx->r2 = (uint64_t)(int64_t)result;
 }
 
-#if LOD_OVERRIDE_FUNC_8009E480
-// func_8009E480: on the audio task chain, NOT a PFS save function.
-// Crashes without this stub because it calls PFS internals that need full setup.
-void func_8009E480(uint8_t* rdram, recomp_context* ctx) {
+#if LOD_OVERRIDE_ALENVMIXERPULL
+// alEnvmixerPull (formerly func_8009E480): libultra envmixer pull on the audio
+// task chain. This hard no-op keeps bring-up stable but suppresses generated
+// audio command output; disable with LOD_OVERRIDE_ALENVMIXERPULL=0 or the
+// compatibility alias LOD_OVERRIDE_FUNC_8009E480=0 while debugging audio.
+static void alEnvmixerPull_noop(recomp_context* ctx) {
     ctx->r2 = 0;
 }
-#endif // LOD_OVERRIDE_FUNC_8009E480
+
+void alEnvmixerPull(uint8_t* rdram, recomp_context* ctx) {
+    (void)rdram;
+    alEnvmixerPull_noop(ctx);
+}
+
+// Compatibility for stale local RecompiledFuncs generated before the symbol
+// rename. Once regenerated, the weak original is named alEnvmixerPull instead.
+void func_8009E480(uint8_t* rdram, recomp_context* ctx) {
+    (void)rdram;
+    alEnvmixerPull_noop(ctx);
+}
+#endif // LOD_OVERRIDE_ALENVMIXERPULL
 
 // Bank select — single 32KB bank, no-op.
 void func_800A4D00(uint8_t* rdram, recomp_context* ctx) {
