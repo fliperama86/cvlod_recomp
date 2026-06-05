@@ -40,8 +40,9 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
   - Local debug-input reproduction now reaches the same route automatically. With NI loading keyed to the actual TLB-mapped vaddr, the pair-233 black-screen loop advances through two `gs=3` scene loads and produces non-black CFB snapshots.
   - User visual confirmation: actual gameplay is reachable by skipping/advancing the intro sequence after character selection; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text.
   - User visual confirmation: in low-resolution mode, the prologue/intro sequence can play through fully and enter actual gameplay without skipping.
-  - Caveat: high-resolution mode still appears to expose a no-match NI/TLB crash during the intro/book animation path. Treat resolution-dependent intro stability as the active blocker, not basic gameplay reachability.
-  - User idle test in actual gameplay also hit the same late-crash signature seen locally: `Signal 10` at `0x380800002`, after many `gs=3` frames and repeated last lookups through `func_80011E48`.
+  - Caveat: long low-resolution idle in gameplay still crashes in the post-RDRAM/KSEG0 guard family: `Signal 10` at `0x380810002`, i.e. runtime RDRAM base plus `0x80810002`. This is two bytes past the current 64KB guard, so the earlier small guard did not fully model the game's out-of-RDRAM reads.
+  - Caveat: high-resolution mode still appears to expose a no-match NI/TLB crash during the intro/book animation path. Treat gameplay stability and resolution-dependent intro stability as active blockers, not basic gameplay reachability.
+  - Earlier user idle test in actual gameplay also hit the same late-crash family seen locally: `Signal 10` at `0x380800002`, after many `gs=3` frames and repeated last lookups through `func_80011E48`.
   - User high-resolution manual run hit a different-looking instance of the older no-match NI TLB crash family: `Signal 10` at `0x3880006d0` after a base `0x0F000000` map from paddr `0x0039B000` whose first words were a close but non-matching/corrupted NI prologue. Treat display-resolution choice as a repro variable until low-res/high-res A/B confirms otherwise.
   - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
 
@@ -56,7 +57,7 @@ Reach actual controllable gameplay through the game's natural state flow, not by
 Objective:
 
 - Preserve the now-working route from title/start/new game into actual controllable gameplay.
-- Stabilize the natural intro/cutscene playout path, which still crashes if not skipped.
+- Stabilize long gameplay idle and the high-resolution intro/cutscene path.
 - Exercise controller input through the game's natural menu flow; do not permanently force gamestates.
 - Keep overlay registration range-based and avoid generated overlay-ID assumptions.
 
@@ -72,21 +73,24 @@ Current evidence:
 - User confirmed actual gameplay is reachable by skipping/advancing the intro sequence after character select.
 - User confirmed actual gameplay is also reachable through the natural intro/prologue path in low-resolution mode, with no skip.
 - Remaining active risk: high-resolution mode appears to expose a no-match NI/TLB crash during the same intro/book animation route. Earlier natural-intro crashes were reported as `Signal 15`-style, and later logs clarified actionable faults as `Signal 10` at `0x380800002` and `0x3880006d0`. Low-res natural flow is now validated; high-res/no-match classification remains open.
+- Long low-res gameplay idle is not yet stable. A later idle crash hit `Signal 10` at `0x380810002`, with last lookups again in the graphics/DMAMgr path (`0x80043768`, `createGraphicTasks_overlay`, `ni_system_dispatcher`, `func_80011D10`, `DMAMgr_updatePendingFileLoad`). The address decodes as runtime RDRAM base `0x300000000` plus `0x80810002`, which is two bytes beyond the current `rdram+0x80800000` 64KB guard.
 - The user idle-crash log showed repeated NI/TLB maps where `0x0F00A000` was skipped as NI overlay copy, but `0x0F012000` was not. Extending the skip window to the actual loaded NI overlay size fixed that symptom in local automation: `0x0F012000` now logs `(NI skip copy)`.
 - New `gs=3` stability progress: local automation gets past the previous `0x8F00AB8C` missing-function abort and the later `0x3880006d0` crash when base NI TLB maps with no fingerprint match are handled by preserving the registered overlay functions while allowing the normal TLB copy for that base page.
 - A 190s scripted `gs=3` route reached later map overlay `ROM 0x00835D10`, cycled multiple NI pairs (`3`, `20`, `28`, `57`, `67`, `74`, `95`, `130`, `131`), produced non-black CFB snapshots, and ended only by timeout.
 - The repeated `0x380800002` crash decoded to the runtime RDRAM base `0x300000000` plus `0x80800002`: a KSEG0 access two bytes past the 8MB Expansion Pak mirror. A small zero-filled guard at `rdram+0x80800000` lets this behave as a bounded open/guard read instead of host SIGBUS. With the guard, the same scripted route reached `map_ovl_09` (`ROM 0x00835D10`) and ended only by timeout (`exit=124`) after 180s.
+- The later `0x380810002` idle crash shows the current 64KB post-RDRAM guard is too narrow for all observed accesses; do not blindly grow it without deciding whether this should become a larger open-bus mirror model or whether the caller is using a bad pointer/resource.
 - CV64 cross-reference confirms the fault path is the engine `DMAMgr` / `DMAChunkMgr_t`; `0x8001A42C` is the CV64-equivalent `DMA_ROMCopy`, and `0x80011E48` is now named `DMAMgr_updatePendingFileLoad`.
 - New manual high-res evidence means the old `0x3880006d0` no-match family is not fully eliminated. The observed paddr words (`27BCFFE8 AFBC0014 8480000C 24600000`) are absent from the ROM/resource set and differ by only a few bits from the common NI overlay prologue (`27BDFFE8 AFBF0014 8483000E 24630001`), which points more toward stale/corrupted TLB buffer contents than a legitimate missing overlay fingerprint.
 
 Next action:
 
-1. Do not chase audio yet. Stabilize the `gs=3` NI/TLB path first.
-2. Add/enable only targeted no-match classification evidence for base `0x0F000000` maps: current loaded NI pair/ROM, paddr, first words, active resolution mode if available, and whether the page is code-like/corrupted vs data-like.
-3. Use the user's A/B result as the current repro split: low-res natural intro reaches gameplay; high-res reproduced `0x3880006d0`. Keep high-res as the primary repro mode until contradicted.
-4. Repeat a longer bounded scripted route with only boot input + CFB snapshots enabled, without the heavy DMAMgr trace, after no-match logging is clarified.
-5. Use internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
-6. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0`, `0x007AB090`, `0x007CDDE0`, `0x00835D10`, and the newly observed `0x007B1F60`/`0x007C89A0` path.
+1. Do not chase audio yet. Stabilize the `gs=3` NI/TLB and post-RDRAM/KSEG0 paths first.
+2. Decide how to model out-of-RDRAM KSEG0 reads after the new `0x80810002` evidence: targeted trace of the caller/source first, then either a principled larger open-bus/guard region or a real bad-pointer/resource fix.
+3. Add/enable only targeted no-match classification evidence for base `0x0F000000` maps: current loaded NI pair/ROM, paddr, first words, active resolution mode if available, and whether the page is code-like/corrupted vs data-like.
+4. Use the user's A/B result as the current repro split: low-res natural intro reaches gameplay; high-res reproduced `0x3880006d0`. Keep high-res as the primary repro mode until contradicted.
+5. Repeat a longer bounded scripted route with only boot input + CFB snapshots enabled, without the heavy DMAMgr trace, after no-match/KSEG0 logging is clarified.
+6. Use internal CFB snapshots for `gs=3`, `gs=6`, and `gs=8` to verify whether scene output is still valid immediately before any remaining crash.
+7. Identify and name the `gs=3` scene/map transition functions encountered after character select, including the map overlays at `0x007A60F0`, `0x007AB090`, `0x007CDDE0`, `0x00835D10`, and the newly observed `0x007B1F60`/`0x007C89A0` path.
 
 ## Resolved Work Item
 
@@ -243,6 +247,7 @@ Record durable experiments here. Keep entries concise and technical.
 | G6-001I | all debug/input/trace flags off, post-RDRAM guard present | 20s | Clean/default build reached `gs=12`; no `[CRASH]` or missing-function abort. The bounded `timeout` delivered SIGTERM (`Signal 15`). A concurrent/manual `LodRecomp` process was mistakenly treated as stale and killed; do not treat that as app behavior. | Default baseline remains buildable with the guard. Longer no-heavy-trace scripted route still needs confirmation before asking for manual natural-intro retest. Never kill a visible `LodRecomp` unless it is proven to be the process just launched by the test command. |
 | G6-001J | manual high-resolution route after post-RDRAM guard | user run | During the intro/book animation path, crashed with `Signal 10` at `0x3880006d0`. Just before the crash, `ni_overlay_on_tlb_map` warned for base `0x0F000000` paddr `0x0039B000` with no matching overlay. Words were `27BCFFE8 AFBC0014 8480000C 24600000`; expected common NI prologue was `27BDFFE8 AFBF0014 8483000E 24630001`. Last lookups ended at `0x0F000858`. Offline search did not find the observed word sequence in LoD/CV64 ROM resources. | High-res may alter timing/memory pressure enough to surface the no-match path. This looks more like stale/corrupted TLB buffer contents than a missing ROM fingerprint. The `0x3880006d0` family remains active and needs no-match classification before further gameplay-stability claims. |
 | G6-001K | manual low-resolution natural intro route after post-RDRAM guard | user run | User let the prologue/intro play through fully with no skip and reached actual gameplay. | Natural boot/title/new-game/intro-to-gameplay flow is now validated in low-res mode. The remaining intro blocker appears resolution-dependent or timing-dependent, with high-res as the best current repro for the no-match crash. |
+| G6-001L | manual low-resolution natural intro route, then idle in actual gameplay | user run | After a while standing still in `gs=3`, crashed with `Signal 10` at `0x380810002`. Last logs showed repeated `0x0F000000` TLB maps from paddr `0x00393000` with `ni_span=0x14000 (NI skip copy)`, VI width 320, and final lookups through `0x80043768`, `createGraphicTasks_overlay`, `ni_system_dispatcher`, `func_80011D10`, and `DMAMgr_updatePendingFileLoad`. | Low-res natural intro route works, but long gameplay idle is not stable. The fault is `rdram=0x300000000 + 0x80810002`, two bytes past the 64KB post-RDRAM guard added for `0x80800002`; this is the same KSEG0/open-bus family, not a new missing-function failure. |
 
 ## Open Questions
 
@@ -252,7 +257,7 @@ Record durable experiments here. Keep entries concise and technical.
 - Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the currently loaded overlay span?
 - Are `0x8E...`/`0x8F...` dispatch targets always safe to canonicalize/register as aliases for `0x0E...`/`0x0F...` NI overlays?
 - For no-match base NI TLB maps, how should code-like but non-fingerprinted/corrupted pages be handled? Normal-copying while preserving old registrations helped one scripted route, but the manual high-res crash shows stale registered functions plus mismatched bytes can still be unsafe.
-- What exact caller/source produces the `0x80800002` KSEG0 access? Is it a legitimate open-bus/end-of-RDRAM probe or an upstream object/resource pointer bug?
+- What exact caller/source produces the `0x80800002` and `0x80810002` KSEG0 accesses? Are these legitimate open-bus/end-of-RDRAM probes or upstream object/resource pointer bugs?
 - What scene/maps do `map_ovl_09` (`ROM 0x007A60F0`) and `map_ovl_10` (`ROM 0x007AB090`) correspond to, and should either lead directly into gameplay?
 - Are remaining black-looking moments in `gs=3` legitimate fades while the non-black CFB snapshots show scene progress?
 - Are remaining default-on PFS/Pak/audio overrides still required once gameplay is reachable?
@@ -309,4 +314,4 @@ pgrep -la LodRecomp
 
 ## Current Next Step
 
-Work item `G6-001`: preserve the now-validated low-resolution natural route into gameplay, then stabilize resolution-dependent intro/gameplay `gs=3`. The NI TLB skip-window bug, `0x8E`/`0x8F` mirror dispatch miss, and `rdram+0x80800002` SIGBUS have concrete local fixes, but the manual high-res `0x3880006d0` crash shows base NI no-match handling is still not fully classified. Next, capture/interpret targeted high-res no-match evidence and verify longer low-res gameplay stability before claiming the route recovered across modes. Keep debug-only input/CFB snapshots as test harnesses, avoid gamestate skips as permanent fixes, and keep audio disabled until the CPU/TLB/DMAMgr route is stable.
+Work item `G6-001`: preserve the now-validated low-resolution natural route into gameplay, then stabilize long-idle gameplay and high-resolution intro/gameplay `gs=3`. The NI TLB skip-window bug and `0x8E`/`0x8F` mirror dispatch miss have concrete local fixes. The post-RDRAM guard fixed the first `rdram+0x80800002` SIGBUS but not the later `rdram+0x80810002` idle crash, so the KSEG0/open-bus model is still incomplete. The manual high-res `0x3880006d0` crash also shows base NI no-match handling is not fully classified. Next, capture/interpret targeted KSEG0 and high-res no-match evidence before claiming the route recovered across modes. Keep debug-only input/CFB snapshots as test harnesses, avoid gamestate skips as permanent fixes, and keep audio disabled until the CPU/TLB/DMAMgr route is stable.
