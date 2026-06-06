@@ -16,6 +16,10 @@
 
 #include "lod/lod_render.h"
 
+#ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
+#define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
+#endif
+
 static uint8_t DMEM[0x1000];
 static uint8_t IMEM[0x1000];
 
@@ -342,6 +346,7 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint8_t* rdram = app->core.RDRAM;
     g_dl_n++;
 
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     // === Game state diagnostic (read-only) ===
     {
         uint32_t exec_flags = *(uint32_t*)(rdram + 0x001CABC8);
@@ -374,6 +379,7 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
             prev_gs = cur_gs;
         }
     }
+#endif
 
     // Track 2nd SETCIMG for VI_ORIGIN (1st is Z-buffer, 2nd is color buffer)
     {
@@ -449,10 +455,12 @@ void lod::renderer::RT64Context::update_screen() {
     } else {
         vi->VI_ORIGIN_REG = 0x1DA800 + row_offset;
     }
-    if (us_n <= 5 || us_n % 200 == 0) {
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
+    if (us_n <= 5 || us_n % 5000 == 0) {
         fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X width=%d\n",
                 us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG, width);
     }
+#endif
 
 #if LOD_ENABLE_CFB_SNAPSHOT
     {

@@ -20,6 +20,10 @@
 
 #include "recomp.h"
 
+#ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
+#define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
+#endif
+
 // Track TLB entries so we can re-copy when mappings change
 struct TlbEntry {
     uint32_t vaddr;
@@ -119,12 +123,14 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
                 if (index >= 0 && index < 32) {
                     tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
                 }
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
                 static int log_count_ni = 0;
                 log_count_ni++;
-                if (log_count_ni <= 30 || (log_count_ni % 200) == 0) {
+                if (log_count_ni <= 10 || (log_count_ni % 5000) == 0) {
                     fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X ni_span=0x%X (NI skip copy)\n",
                             log_count_ni, index, vaddr, even_paddr, odd_paddr, page_size, skip_span);
                 }
+#endif
                 return;
             }
         }
@@ -188,12 +194,14 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // Save the mapping for debugging
     tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
 
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     static int log_count = 0;
     log_count++;
-    if (log_count <= 30 || (log_count % 200) == 0) {
+    if (log_count <= 10 || (log_count % 5000) == 0) {
         fprintf(stderr, "[osMapTLB] #%d idx=%d vaddr=0x%08X even=0x%08X odd=0x%08X page=0x%X\n",
                 log_count, index, vaddr, even_paddr, odd_paddr, page_size);
     }
+#endif
 }
 
 // osUnmapTLB

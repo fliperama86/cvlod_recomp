@@ -27,8 +27,16 @@
 #define LOD_ENABLE_GS5_NI_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_NI24_NULL_DISPATCH_TRACE
+#define LOD_ENABLE_NI24_NULL_DISPATCH_TRACE 0
+#endif
+
 #ifndef LOD_FIX_NI_PAIR120_RESULT_LABELS
 #define LOD_FIX_NI_PAIR120_RESULT_LABELS 1
+#endif
+
+#ifndef LOD_FIX_NI_PAIR24_INTERNAL_LABELS
+#define LOD_FIX_NI_PAIR24_INTERNAL_LABELS 1
 #endif
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
@@ -46,6 +54,14 @@ static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 // Track separately for 0x0E and 0x0F (they're independent)
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
+
+extern "C" int lod_ni_overlay_loaded_0f_pair() {
+    return loaded_0f_pair;
+}
+
+extern "C" int lod_ni_overlay_loaded_0e_pair() {
+    return loaded_0e_pair;
+}
 
 static bool lod_ni_telemetry_range_ok(uint32_t phys, uint32_t size) {
     return size <= 0x800000 && phys <= (0x800000 - size);
@@ -231,6 +247,43 @@ static void lod_install_ni_pair120_dispatch_fix(const char* reason) {
 #else
     (void)reason;
 #endif
+}
+#endif
+
+#if LOD_FIX_NI_PAIR24_INTERNAL_LABELS
+static void lod_ni_pair24_internal_label_0F00ADEC(uint8_t* rdram, recomp_context* ctx) {
+    // Original internal label 0x0F00ADEC inside ni_ovl_024_func_0F00ACE4.
+    // Pair-24's dispatch table intentionally targets this label for state 4.
+    // N64Recomp's range fallback otherwise resolves 0x0F00ADEC to the containing
+    // function start (0x0F00ACE4), which advances the object from state 4 to the
+    // nonexistent state 5 and prevents the Fog Lake platform event from firing.
+    ctx->r2 = MEM_W(ctx->r4, 0x24);
+    ctx->r25 = ADD32(0, 0x2);
+    ctx->r14 = MEM_BU(ctx->r2, 0x1B);
+    ctx->r15 = ADD32(ctx->r14, -0xF);
+    ctx->r24 = ctx->r15 & 0xFF;
+    ctx->r1 = SIGNED(ctx->r24) < 0x14 ? 1 : 0;
+
+    // Delay slot of the branch at 0x0F00AE04 executes regardless of branch.
+    MEM_B(0x1B, ctx->r2) = ctx->r15;
+
+    if (ctx->r1 != 0) {
+        MEM_B(0x1B, ctx->r2) = 0;
+        MEM_B(0x9, ctx->r4) = ctx->r25;
+    }
+}
+
+static void lod_install_ni_pair24_internal_label_fix(const char* reason) {
+    recomp::overlays::add_loaded_function((int32_t)0x0F00ADEC,
+        lod_ni_pair24_internal_label_0F00ADEC);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count == 1) {
+        fprintf(stderr,
+            "[PAIR24-FIX] installed internal label alias 0x0F00ADEC reason=%s\n",
+            reason);
+    }
 }
 #endif
 
@@ -567,6 +620,140 @@ static void lod_install_gs5_ni_trace_wrapper(int pair_index, uint32_t vram) {
 }
 #endif
 
+#if LOD_ENABLE_NI24_NULL_DISPATCH_TRACE
+static recomp_func_t* lod_orig_ni24_func_0F00A8DC = nullptr;
+
+static bool lod_ni24_rdram_ok(uint32_t phys, uint32_t size) {
+    return phys < 0x00800000 && size <= 0x00800000 && phys <= 0x00800000 - size;
+}
+
+static uint32_t lod_ni24_rdram_u32(uint8_t* rdram, uint32_t phys) {
+    return lod_ni24_rdram_ok(phys, 4) ? *(uint32_t*)(rdram + phys) : 0;
+}
+
+static uint8_t lod_ni24_rdram_u8(uint8_t* rdram, uint32_t phys) {
+    return lod_ni24_rdram_ok(phys, 1) ? rdram[phys ^ 3] : 0;
+}
+
+static int16_t lod_ni24_rdram_s16(uint8_t* rdram, uint32_t phys) {
+    return lod_ni24_rdram_ok(phys, 2) ? *(int16_t*)(rdram + (phys ^ 2)) : 0;
+}
+
+static uint32_t lod_ni24_table_entry(uint8_t* rdram, uint8_t index) {
+    return (uint32_t)MEM_W(0x2E74 + (uint32_t)index * 4,
+                           (gpr)(int32_t)0x0F010000);
+}
+
+static void lod_log_ni24_dispatch(uint8_t* rdram, recomp_context* ctx,
+                                  gpr obj, int16_t func_before,
+                                  int16_t func_next, gpr slot_vaddr,
+                                  uint8_t timer_before, uint8_t timer_after,
+                                  uint8_t dispatch_index, uint32_t target) {
+    static int dispatch_count = 0;
+    static int null_count = 0;
+    dispatch_count++;
+    if (target == 0) {
+        null_count++;
+    }
+
+    bool should_log = dispatch_count <= 8 ||
+                      (target == 0 && (null_count <= 3 || (null_count % 2000) == 0));
+    if (!should_log) {
+        return;
+    }
+
+    uint32_t obj_u32 = (uint32_t)obj;
+    uint32_t obj_phys = obj_u32 & 0x1FFFFFFF;
+    bool obj_ok = lod_ni24_rdram_ok(obj_phys, 0x74);
+    uint32_t sp_phys = (uint32_t)ctx->r29 & 0x1FFFFFFF;
+    uint32_t obj34 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t obj38 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t obj3c = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x3C) : 0;
+    uint32_t obj40 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x40) : 0;
+    uint32_t obj44 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x44) : 0;
+    uint32_t obj48 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x48) : 0;
+    uint32_t obj5c = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x5C) : 0;
+    uint32_t obj60 = obj_ok ? lod_ni24_rdram_u32(rdram, obj_phys + 0x60) : 0;
+    uint32_t saved_v1 = lod_ni24_rdram_ok(sp_phys + 0x1C, 4) ?
+        lod_ni24_rdram_u32(rdram, sp_phys + 0x1C) : 0;
+
+    fprintf(stderr,
+        "[NI24_DISPATCH] #%d null#%d gs=%d loaded0f=%d loaded0e=%d "
+        "obj=0x%08X ok=%d func=%d->%d slot=0x%08X timer=%u->%u idx=%u target=0x%08X "
+        "obj34=0x%08X obj38=0x%08X obj3C=0x%08X obj40=0x%08X obj44=0x%08X "
+        "obj48=0x%08X obj5C=0x%08X obj60=0x%08X saved_v1=0x%08X "
+        "ra=0x%08X sp=0x%08X "
+        "table[0..15]=%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X,"
+        "%08X,%08X,%08X,%08X,%08X,%08X,%08X,%08X\n",
+        dispatch_count, null_count, lod_ni_telemetry_gamestate(rdram),
+        loaded_0f_pair, loaded_0e_pair,
+        obj_u32, obj_ok, func_before, func_next, (uint32_t)slot_vaddr, timer_before, timer_after,
+        dispatch_index, target,
+        obj34, obj38, obj3c, obj40, obj44, obj48, obj5c, obj60, saved_v1,
+        (uint32_t)ctx->r31, (uint32_t)ctx->r29,
+        lod_ni24_table_entry(rdram, 0), lod_ni24_table_entry(rdram, 1),
+        lod_ni24_table_entry(rdram, 2), lod_ni24_table_entry(rdram, 3),
+        lod_ni24_table_entry(rdram, 4), lod_ni24_table_entry(rdram, 5),
+        lod_ni24_table_entry(rdram, 6), lod_ni24_table_entry(rdram, 7),
+        lod_ni24_table_entry(rdram, 8), lod_ni24_table_entry(rdram, 9),
+        lod_ni24_table_entry(rdram, 10), lod_ni24_table_entry(rdram, 11),
+        lod_ni24_table_entry(rdram, 12), lod_ni24_table_entry(rdram, 13),
+        lod_ni24_table_entry(rdram, 14), lod_ni24_table_entry(rdram, 15));
+}
+
+static void lod_trace_ni24_func_0F00A8DC(uint8_t* rdram, recomp_context* ctx) {
+    // Precompute the table dispatch that the original function reaches after
+    // calling func_80045668. Do not hand-copy the generated function here: the
+    // original must run unchanged so this trace cannot perturb stack/register
+    // sign-extension semantics.
+    gpr obj = ctx->r4;
+    uint32_t obj_phys = (uint32_t)obj & 0x1FFFFFFF;
+    bool obj_ok = lod_ni24_rdram_ok(obj_phys, 0x74);
+    int16_t func_before = obj_ok ? lod_ni24_rdram_s16(rdram, obj_phys + 0x0E) : 0;
+    int16_t func_next = (int16_t)(func_before + 1);
+    gpr slot_vaddr = ADD32(obj, (int32_t)func_next * 2);
+    uint32_t slot_phys = (uint32_t)slot_vaddr & 0x1FFFFFFF;
+    uint8_t dispatch_index = lod_ni24_rdram_ok(slot_phys + 0x09, 1) ?
+        lod_ni24_rdram_u8(rdram, slot_phys + 0x09) : 0xFF;
+    uint8_t timer_before = lod_ni24_rdram_ok(slot_phys + 0x08, 1) ?
+        lod_ni24_rdram_u8(rdram, slot_phys + 0x08) : 0xFF;
+    uint32_t target = dispatch_index != 0xFF ?
+        lod_ni24_table_entry(rdram, dispatch_index) : 0;
+    lod_log_ni24_dispatch(rdram, ctx, obj, func_before, func_next, slot_vaddr,
+                          timer_before, (uint8_t)(timer_before + 1),
+                          dispatch_index, target);
+
+    if (lod_orig_ni24_func_0F00A8DC != nullptr) {
+        lod_orig_ni24_func_0F00A8DC(rdram, ctx);
+    }
+}
+
+static void lod_install_ni24_null_dispatch_trace_wrapper(int pair_index, uint32_t vram,
+                                                         const char* reason) {
+    if (pair_index != 24 || vram != 0x0F000000) {
+        return;
+    }
+
+    recomp_func_t* current = get_function((int32_t)0x0F00A8DC);
+    if (current != lod_trace_ni24_func_0F00A8DC) {
+        lod_orig_ni24_func_0F00A8DC = current;
+    }
+
+    recomp::overlays::add_loaded_function((int32_t)0x0F00A8DC,
+        lod_trace_ni24_func_0F00A8DC);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count == 1) {
+        fprintf(stderr,
+            "[NI24_DISPATCH] installed null-dispatch trace #%d reason=%s pair=%d "
+            "vram=0x%08X original=%p\n",
+            install_count, reason, pair_index, vram,
+            (void*)lod_orig_ni24_func_0F00A8DC);
+    }
+}
+#endif
+
 static int ni_index_to_pair(int ni_index) {
     if (ni_index < NI_TEXT_INDEX_START) return -1;
     int offset = ni_index - NI_TEXT_INDEX_START;
@@ -636,6 +823,11 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
         lod_install_ni_pair120_dispatch_fix("pair120-load");
     }
 #endif
+#if LOD_FIX_NI_PAIR24_INTERNAL_LABELS
+    if (pair_index == 24 && vram == 0x0F000000) {
+        lod_install_ni_pair24_internal_label_fix("pair24-load");
+    }
+#endif
 #if LOD_ENABLE_SAVE_PAIR120_TRACE
     if (pair_index == 120) {
         lod_install_ni_pair120_trace_wrapper("pair120-load");
@@ -643,6 +835,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #endif
 #if LOD_ENABLE_GS5_NI_TRACE
     lod_install_gs5_ni_trace_wrapper(pair_index, vram);
+#endif
+#if LOD_ENABLE_NI24_NULL_DISPATCH_TRACE
+    lod_install_ni24_null_dispatch_trace_wrapper(pair_index, vram, "pair24-load");
 #endif
 
     static int load_count = 0;

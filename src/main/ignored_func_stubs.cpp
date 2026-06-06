@@ -53,8 +53,28 @@
 #define LOD_ENABLE_KSEG0_FAULT_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_ITEM_KSEG0_TRACE
+#define LOD_ENABLE_ITEM_KSEG0_TRACE 0
+#endif
+
+#ifndef LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
+#define LOD_FIX_NULL_OBJECT_DISPATCH_CHILD 1
+#endif
+
 #ifndef LOD_ENABLE_INPUT_TRACE
 #define LOD_ENABLE_INPUT_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE
+#define LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_NI24_WRITER_TRACE
+#define LOD_ENABLE_NI24_WRITER_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
+#define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
 #endif
 
 #ifndef LOD_ENABLE_AUDIO_PULL_TRACE
@@ -138,8 +158,17 @@ static void lod_install_gs3_anim_trace_wrappers(const char* reason);
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 static void lod_install_kseg0_fault_trace_wrappers(const char* reason);
 #endif
+#if LOD_ENABLE_ITEM_KSEG0_TRACE
+extern "C" void lod_install_item_kseg0_trace_wrappers_early();
+#endif
+#if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
+extern "C" void lod_install_null_object_dispatch_child_guard_early();
+#endif
 #if LOD_ENABLE_INPUT_TRACE
 extern "C" void lod_install_input_action_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE
+static void lod_install_fog_lake_trigger_trace_wrappers(const char* reason);
 #endif
 
 // ── Map overlay table: ROM start → full DMA size ────────────────────
@@ -280,6 +309,11 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
 #endif
 #if LOD_ENABLE_BGSTATE_TRACE
                 lod_install_bgstate_trace_wrappers("map-overlay-load");
+#endif
+#if LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE
+                if (rom_start == 0x007AE430) {
+                    lod_install_fog_lake_trigger_trace_wrappers("map_ovl_11-load");
+                }
 #endif
 
                 if (lod_map_ovl_load_count <= 20 || (lod_map_ovl_load_count % 100) == 0)
@@ -1705,6 +1739,157 @@ static int32_t lod_current_gamestate(uint8_t* rdram) {
     return *(int32_t*)(rdram + gsm_phys + 0x24);
 }
 
+#if LOD_ENABLE_NI24_WRITER_TRACE
+extern "C" int lod_ni_overlay_loaded_0f_pair();
+extern "C" int lod_ni_overlay_loaded_0e_pair();
+
+static recomp_func_t* lod_orig_object_curlevel_goto_next_clear_timer = nullptr; // 0x80001CE8
+static recomp_func_t* lod_orig_object_curlevel_goto_func = nullptr;             // 0x80001E30
+
+static void lod_ni24_writer_host_symbol(const char** symbol_out, uintptr_t* offset_out) {
+    const char* symbol = "(unknown)";
+    uintptr_t offset = 0;
+#if defined(__APPLE__) || defined(__linux__)
+    Dl_info info = {};
+    void* caller = __builtin_return_address(1);
+    if (caller != nullptr && dladdr(caller, &info) != 0 && info.dli_sname != nullptr) {
+        symbol = info.dli_sname;
+        uintptr_t sym_base = (uintptr_t)info.dli_saddr;
+        uintptr_t addr = (uintptr_t)caller;
+        if (sym_base != 0 && addr >= sym_base) {
+            offset = addr - sym_base;
+        }
+    }
+#endif
+    *symbol_out = symbol;
+    *offset_out = offset;
+}
+
+static void lod_ni24_writer_snapshot(uint8_t* rdram, uint32_t base_phys,
+                                     uint8_t out[8]) {
+    for (uint32_t i = 0; i < 8; i++) {
+        out[i] = lod_rdram_range_ok(base_phys + i, 1) ?
+            lod_rdram_u8(rdram, base_phys + i) : 0xFF;
+    }
+}
+
+static void lod_log_ni24_writer(uint8_t* rdram, recomp_context* ctx, const char* op,
+                                uint32_t schedule_base, uint32_t level_ptr,
+                                int32_t target_func, const uint8_t before_sched[8]) {
+    const uint32_t base_phys = schedule_base & 0x1FFFFFFF;
+    const uint32_t level_phys = level_ptr & 0x1FFFFFFF;
+    const uint32_t obj = schedule_base - 0x08;
+    const bool shape_ok = (level_ptr == schedule_base + 0x06);
+    const bool base_ok = lod_rdram_range_ok(base_phys, 8);
+    const bool level_ok = lod_rdram_range_ok(level_phys, 2);
+    const int16_t level = level_ok ? lod_rdram_s16(rdram, level_phys) : -1;
+    const uint32_t slot_phys = base_phys + (uint32_t)((int32_t)level * 2);
+    const bool slot_ok = level >= 0 && level < 4 && lod_rdram_range_ok(slot_phys, 2);
+    const uint8_t before_timer = slot_ok ? before_sched[(uint32_t)level * 2] : 0xFF;
+    const uint8_t before_state = slot_ok ? before_sched[(uint32_t)level * 2 + 1] : 0xFF;
+    const uint8_t after_timer = slot_ok ? lod_rdram_u8(rdram, slot_phys + 0) : 0xFF;
+    const uint8_t after_state = slot_ok ? lod_rdram_u8(rdram, slot_phys + 1) : 0xFF;
+    const int32_t gamestate = lod_current_gamestate(rdram);
+    const int loaded_0f = lod_ni_overlay_loaded_0f_pair();
+    const int loaded_0e = lod_ni_overlay_loaded_0e_pair();
+
+    const bool target_obj = obj == 0x80324A5C;
+    const bool suspicious = before_state >= 4 || after_state >= 4 ||
+                            (target_func >= 4 && target_func < 0x100);
+    const bool pair24_gameplay = gamestate == 3 && loaded_0f == 24;
+    if (!shape_ok || !base_ok || !level_ok || !pair24_gameplay ||
+        (!target_obj && !suspicious)) {
+        return;
+    }
+
+    static uint32_t trace_count = 0;
+    trace_count++;
+    if (!target_obj && trace_count > 120 && (trace_count % 500) != 0) {
+        return;
+    }
+
+    uint8_t after_sched[8] = {};
+    lod_ni24_writer_snapshot(rdram, base_phys, after_sched);
+
+    const char* symbol = "(unknown)";
+    uintptr_t offset = 0;
+    lod_ni24_writer_host_symbol(&symbol, &offset);
+
+    fprintf(stderr,
+        "[NI24_WRITE] #%u op=%s gs=%d loaded0f=%d loaded0e=%d obj=0x%08X level=%d target=%d "
+        "slot=0x%08X state=%u->%u timer=%u->%u "
+        "sched_before=%02X%02X,%02X%02X,%02X%02X,%02X%02X "
+        "sched_after=%02X%02X,%02X%02X,%02X%02X,%02X%02X "
+        "a0=0x%08X a1=0x%08X a2=0x%08X caller=%s+0x%zX\n",
+        trace_count, op, gamestate, loaded_0f, loaded_0e, obj, level, target_func,
+        slot_ok ? (schedule_base + (uint32_t)((int32_t)level * 2)) : 0,
+        before_state, after_state, before_timer, after_timer,
+        before_sched[0], before_sched[1], before_sched[2], before_sched[3],
+        before_sched[4], before_sched[5], before_sched[6], before_sched[7],
+        after_sched[0], after_sched[1], after_sched[2], after_sched[3],
+        after_sched[4], after_sched[5], after_sched[6], after_sched[7],
+        schedule_base, level_ptr, (uint32_t)ctx->r6, symbol, (size_t)offset);
+}
+
+static void lod_trace_object_curlevel_goto_next_clear_timer(uint8_t* rdram,
+                                                            recomp_context* ctx) {
+    const uint32_t schedule_base = (uint32_t)ctx->r4;
+    const uint32_t level_ptr = (uint32_t)ctx->r5;
+    const uint32_t base_phys = schedule_base & 0x1FFFFFFF;
+    uint8_t before_sched[8] = {};
+    if (lod_rdram_range_ok(base_phys, sizeof(before_sched))) {
+        lod_ni24_writer_snapshot(rdram, base_phys, before_sched);
+    }
+
+    if (lod_orig_object_curlevel_goto_next_clear_timer != nullptr) {
+        lod_orig_object_curlevel_goto_next_clear_timer(rdram, ctx);
+    }
+
+    lod_log_ni24_writer(rdram, ctx, "next_clear_timer", schedule_base, level_ptr,
+                        -1, before_sched);
+}
+
+static void lod_trace_object_curlevel_goto_func(uint8_t* rdram, recomp_context* ctx) {
+    const uint32_t schedule_base = (uint32_t)ctx->r4;
+    const uint32_t level_ptr = (uint32_t)ctx->r5;
+    const int32_t target_func = (int32_t)ctx->r6;
+    const uint32_t base_phys = schedule_base & 0x1FFFFFFF;
+    uint8_t before_sched[8] = {};
+    if (lod_rdram_range_ok(base_phys, sizeof(before_sched))) {
+        lod_ni24_writer_snapshot(rdram, base_phys, before_sched);
+    }
+
+    if (lod_orig_object_curlevel_goto_func != nullptr) {
+        lod_orig_object_curlevel_goto_func(rdram, ctx);
+    }
+
+    lod_log_ni24_writer(rdram, ctx, "goto_func", schedule_base, level_ptr,
+                        target_func, before_sched);
+}
+
+static void lod_install_ni24_writer_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                  recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+extern "C" void lod_install_ni24_writer_trace_wrappers_early() {
+    lod_install_ni24_writer_trace_wrapper(0x80001CE8,
+        lod_trace_object_curlevel_goto_next_clear_timer,
+        &lod_orig_object_curlevel_goto_next_clear_timer);
+    lod_install_ni24_writer_trace_wrapper(0x80001E30,
+        lod_trace_object_curlevel_goto_func,
+        &lod_orig_object_curlevel_goto_func);
+    fprintf(stderr,
+        "[NI24_WRITE] installed object schedule writer trace originals next=%p goto=%p\n",
+        (void*)lod_orig_object_curlevel_goto_next_clear_timer,
+        (void*)lod_orig_object_curlevel_goto_func);
+}
+#endif
+
 static uint32_t lod_current_exec_flags(uint8_t* rdram) {
     constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
     return lod_rdram_range_ok(EXEC_FLAGS_PHYS, 4) ? lod_rdram_u32(rdram, EXEC_FLAGS_PHYS) : 0;
@@ -2062,6 +2247,789 @@ static void lod_install_kseg0_fault_trace_wrappers(const char* reason) {
 
 extern "C" void lod_install_kseg0_fault_trace_wrappers_early() {
     lod_install_kseg0_fault_trace_wrappers("lod-on-init");
+}
+#endif
+
+#if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
+static recomp_func_t* lod_orig_null_guard_object_dispatch_child = nullptr; // 0x8000516C
+
+static void lod_null_guard_object_dispatch_child(uint8_t* rdram, recomp_context* ctx) {
+    if ((uint32_t)ctx->r4 == 0) {
+        static uint32_t skip_count = 0;
+        skip_count++;
+        if (skip_count <= 5) {
+            fprintf(stderr,
+                    "[OBJECT_FIX] object_dispatchChild(NULL,0x%08X) no-op #%u "
+                    "gs=%d map#%d map_rom=0x%08X\n",
+                    (uint32_t)ctx->r5, skip_count, lod_current_gamestate(rdram),
+                    lod_map_ovl_load_count, lod_current_map_ovl_rom);
+            fflush(stderr);
+        }
+        return;
+    }
+
+    if (lod_orig_null_guard_object_dispatch_child != nullptr) {
+        lod_orig_null_guard_object_dispatch_child(rdram, ctx);
+    }
+}
+
+extern "C" void lod_install_null_object_dispatch_child_guard_early() {
+    constexpr uint32_t OBJECT_DISPATCH_CHILD_VRAM = 0x8000516C;
+    recomp_func_t* current = get_function((int32_t)OBJECT_DISPATCH_CHILD_VRAM);
+    if (current != lod_null_guard_object_dispatch_child) {
+        lod_orig_null_guard_object_dispatch_child = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)OBJECT_DISPATCH_CHILD_VRAM,
+                                          lod_null_guard_object_dispatch_child);
+    fprintf(stderr,
+            "[OBJECT_FIX] installed object_dispatchChild(NULL) guard original=%p\n",
+            (void*)lod_orig_null_guard_object_dispatch_child);
+}
+#endif
+
+#if LOD_ENABLE_ITEM_KSEG0_TRACE
+extern "C" int lod_ni_overlay_loaded_0f_pair();
+extern "C" int lod_ni_overlay_loaded_0e_pair();
+
+static recomp_func_t* lod_orig_item_object_dispatch_child = nullptr; // 0x8000516C
+static recomp_func_t* lod_orig_item_func_8007D9F0 = nullptr;
+static recomp_func_t* lod_orig_item_func_8007E8F4 = nullptr;
+static recomp_func_t* lod_orig_item_func_80085280 = nullptr;
+static recomp_func_t* lod_orig_item_func_800856B8 = nullptr;
+static recomp_func_t* lod_orig_item_func_80086120 = nullptr;
+static recomp_func_t* lod_orig_item_func_80086528 = nullptr;
+static recomp_func_t* lod_orig_item_func_8008AA90 = nullptr;
+static recomp_func_t* lod_orig_item_func_8008B3A4 = nullptr;
+static recomp_func_t* lod_orig_item_func_8008F590 = nullptr;
+
+struct LodItemTraceInterest {
+    bool segmented = false; // normal segmented display-list/model data, e.g. 0x06xxxxxx
+    bool bad = false;       // low segment / post-RDRAM KSEG mirror candidate, e.g. 0x08/0x88xxxxxx
+};
+
+static bool lod_item_trace_is_segmented_value(uint32_t value) {
+    const uint32_t high = value & 0xFF000000u;
+    return high == 0x06000000u || high == 0x08000000u || high == 0x86000000u ||
+           high == 0x88000000u;
+}
+
+static bool lod_item_trace_is_bad_value(uint32_t value) {
+    const uint32_t high = value & 0xFF000000u;
+    return high == 0x08000000u || high == 0x88000000u ||
+           (value >= 0x80800000u && value < 0x81000000u);
+}
+
+static void lod_item_trace_consider(LodItemTraceInterest& interest, uint32_t value) {
+    if (lod_item_trace_is_segmented_value(value)) {
+        interest.segmented = true;
+    }
+    if (lod_item_trace_is_bad_value(value)) {
+        interest.bad = true;
+    }
+}
+
+static uint32_t lod_item_trace_u32_at(uint8_t* rdram, bool base_ok,
+                                      uint32_t base_phys, uint32_t off) {
+    return base_ok && lod_rdram_range_ok(base_phys + off, 4)
+        ? lod_rdram_u32(rdram, base_phys + off)
+        : 0;
+}
+
+static uint8_t lod_item_trace_u8_at(uint8_t* rdram, bool base_ok,
+                                    uint32_t base_phys, uint32_t off) {
+    return base_ok && lod_rdram_range_ok(base_phys + off, 1)
+        ? lod_rdram_u8(rdram, base_phys + off)
+        : 0;
+}
+
+static int16_t lod_item_trace_s16_at(uint8_t* rdram, bool base_ok,
+                                     uint32_t base_phys, uint32_t off) {
+    return base_ok && lod_rdram_range_ok(base_phys + off, 2)
+        ? lod_rdram_s16(rdram, base_phys + off)
+        : 0;
+}
+
+static void lod_item_trace_scan_block(uint8_t* rdram, LodItemTraceInterest& interest,
+                                      uint32_t addr, uint32_t bytes) {
+    uint32_t phys = 0;
+    if (!lod_decode_rdram_phys_addr(addr, bytes, &phys)) {
+        lod_item_trace_consider(interest, addr);
+        return;
+    }
+    for (uint32_t off = 0; off + 4 <= bytes; off += 4) {
+        lod_item_trace_consider(interest, lod_rdram_u32(rdram, phys + off));
+    }
+}
+
+static LodItemTraceInterest lod_item_trace_collect(uint8_t* rdram,
+                                                   const recomp_context* ctx,
+                                                   uint32_t obj_addr) {
+    LodItemTraceInterest interest;
+    lod_item_trace_consider(interest, (uint32_t)ctx->r2);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r3);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r4);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r5);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r6);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r7);
+    lod_item_trace_consider(interest, (uint32_t)ctx->r31);
+
+    uint32_t obj_phys = 0;
+    const bool obj_ok = lod_decode_rdram_phys_addr(obj_addr, 0x74, &obj_phys);
+    if (!obj_ok) {
+        lod_item_trace_consider(interest, obj_addr);
+        return interest;
+    }
+
+    constexpr uint32_t object_fields[] = {
+        0x10, 0x14, 0x1C, 0x24, 0x30, 0x34, 0x38, 0x3C,
+        0x40, 0x58, 0x5C, 0x60, 0x64, 0x6C, 0x70,
+    };
+    for (uint32_t off : object_fields) {
+        uint32_t value = lod_rdram_u32(rdram, obj_phys + off);
+        lod_item_trace_consider(interest, value);
+    }
+
+    // Follow the most likely model/work pointers one level deep.  The item
+    // crash looks like a segmented display-list pointer (0x08xxxxxx) escaping
+    // into a CPU dereference, and model records commonly keep that value near
+    // +0x3C/+0x40.
+    constexpr uint32_t pointer_fields[] = {0x24, 0x30, 0x34, 0x38, 0x58, 0x5C, 0x60, 0x70};
+    for (uint32_t off : pointer_fields) {
+        uint32_t ptr = lod_rdram_u32(rdram, obj_phys + off);
+        if (ptr != 0) {
+            lod_item_trace_scan_block(rdram, interest, ptr, 0x80);
+        }
+    }
+
+    return interest;
+}
+
+static bool lod_item_trace_nested_has_segment(uint8_t* rdram, uint32_t ptr_addr) {
+    uint32_t ptr_phys = 0;
+    if (!lod_decode_rdram_phys_addr(ptr_addr, 0x80, &ptr_phys)) {
+        return lod_item_trace_is_segmented_value(ptr_addr);
+    }
+    for (uint32_t off = 0; off + 4 <= 0x80; off += 4) {
+        uint32_t value = lod_rdram_u32(rdram, ptr_phys + off);
+        if (lod_item_trace_is_segmented_value(value) || lod_item_trace_is_bad_value(value)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void lod_item_trace_print_nested(uint8_t* rdram, const char* phase, const char* label,
+                                        uint32_t count, const char* ptr_label,
+                                        uint32_t ptr_addr) {
+    uint32_t ptr_phys = 0;
+    if (!lod_decode_rdram_phys_addr(ptr_addr, 0x80, &ptr_phys)) {
+        if (lod_item_trace_is_segmented_value(ptr_addr)) {
+            fprintf(stderr,
+                    "[ITEM_KSEG0] %s #%u %s %s=0x%08X non-rdram-segptr\n",
+                    phase, count, label, ptr_label, ptr_addr);
+        }
+        return;
+    }
+
+    const uint32_t f00 = lod_rdram_u32(rdram, ptr_phys + 0x00);
+    const uint32_t f18 = lod_rdram_u32(rdram, ptr_phys + 0x18);
+    const uint32_t f20 = lod_rdram_u32(rdram, ptr_phys + 0x20);
+    const uint32_t f24 = lod_rdram_u32(rdram, ptr_phys + 0x24);
+    const uint32_t f38 = lod_rdram_u32(rdram, ptr_phys + 0x38);
+    const uint32_t f3c = lod_rdram_u32(rdram, ptr_phys + 0x3C);
+    const uint32_t f40 = lod_rdram_u32(rdram, ptr_phys + 0x40);
+    const uint32_t f58 = lod_rdram_u32(rdram, ptr_phys + 0x58);
+    const uint32_t f5c = lod_rdram_u32(rdram, ptr_phys + 0x5C);
+    const uint32_t f60 = lod_rdram_u32(rdram, ptr_phys + 0x60);
+    const uint32_t f6c = lod_rdram_u32(rdram, ptr_phys + 0x6C);
+    const uint32_t f70 = lod_rdram_u32(rdram, ptr_phys + 0x70);
+
+    fprintf(stderr,
+            "[ITEM_KSEG0] %s #%u %s %s=0x%08X phys=0x%06X "
+            "{00=0x%08X 18=0x%08X 20=0x%08X 24=0x%08X "
+            "38=0x%08X 3C=0x%08X 40=0x%08X 58=0x%08X "
+            "5C=0x%08X 60=0x%08X 6C=0x%08X 70=0x%08X}\n",
+            phase, count, label, ptr_label, ptr_addr, ptr_phys,
+            f00, f18, f20, f24, f38, f3c, f40, f58, f5c, f60, f6c, f70);
+}
+
+static void lod_item_child_trace_print_obj(uint8_t* rdram, const char* tag, uint32_t addr) {
+    uint32_t phys = 0;
+    if (!lod_decode_rdram_phys_addr(addr, 0x74, &phys)) {
+        fprintf(stderr, "[ITEM_CHILD]   %s=0x%08X ok=0 bad=%d\n",
+                tag, addr, lod_item_trace_is_bad_value(addr) ? 1 : 0);
+        return;
+    }
+
+    fprintf(stderr,
+            "[ITEM_CHILD]   %s=0x%08X phys=0x%06X "
+            "{flags=0x%04X step=%u state=%u level=%d "
+            "08=0x%08X 10=0x%08X 14=0x%08X 18=0x%08X "
+            "1C=0x%08X 24=0x%08X 30=0x%08X 34=0x%08X "
+            "38=0x%08X 3C=0x%08X 40=0x%08X 5C=0x%08X 60=0x%08X}\n",
+            tag, addr, phys,
+            lod_item_trace_u32_at(rdram, true, phys, 0x00) >> 16,
+            lod_item_trace_u8_at(rdram, true, phys, 0x08),
+            lod_item_trace_u8_at(rdram, true, phys, 0x09),
+            lod_item_trace_s16_at(rdram, true, phys, 0x0E),
+            lod_item_trace_u32_at(rdram, true, phys, 0x08),
+            lod_item_trace_u32_at(rdram, true, phys, 0x10),
+            lod_item_trace_u32_at(rdram, true, phys, 0x14),
+            lod_item_trace_u32_at(rdram, true, phys, 0x18),
+            lod_item_trace_u32_at(rdram, true, phys, 0x1C),
+            lod_item_trace_u32_at(rdram, true, phys, 0x24),
+            lod_item_trace_u32_at(rdram, true, phys, 0x30),
+            lod_item_trace_u32_at(rdram, true, phys, 0x34),
+            lod_item_trace_u32_at(rdram, true, phys, 0x38),
+            lod_item_trace_u32_at(rdram, true, phys, 0x3C),
+            lod_item_trace_u32_at(rdram, true, phys, 0x40),
+            lod_item_trace_u32_at(rdram, true, phys, 0x5C),
+            lod_item_trace_u32_at(rdram, true, phys, 0x60));
+}
+
+static bool lod_item_child_trace_has_bad_chain(uint8_t* rdram, uint32_t root_addr) {
+    if (lod_item_trace_is_bad_value(root_addr)) {
+        return true;
+    }
+
+    uint32_t root_phys = 0;
+    if (!lod_decode_rdram_phys_addr(root_addr, 0x74, &root_phys)) {
+        return root_addr != 0;
+    }
+
+    const uint32_t root_child = lod_rdram_u32(rdram, root_phys + 0x08);
+    const uint32_t root_next = lod_rdram_u32(rdram, root_phys + 0x10);
+    const uint32_t root_parent = lod_rdram_u32(rdram, root_phys + 0x14);
+    if (lod_item_trace_is_bad_value(root_child) ||
+        lod_item_trace_is_bad_value(root_next) ||
+        lod_item_trace_is_bad_value(root_parent)) {
+        return true;
+    }
+
+    uint32_t child_phys = 0;
+    if (root_child == 0) {
+        return false;
+    }
+    if (!lod_decode_rdram_phys_addr(root_child, 0x74, &child_phys)) {
+        return true;
+    }
+
+    const uint32_t child_next = lod_rdram_u32(rdram, child_phys + 0x10);
+    const uint32_t child_parent = lod_rdram_u32(rdram, child_phys + 0x14);
+    if (lod_item_trace_is_bad_value(child_next) ||
+        lod_item_trace_is_bad_value(child_parent)) {
+        return true;
+    }
+
+    uint32_t child_parent_phys = 0;
+    if (child_parent != 0 &&
+        !lod_decode_rdram_phys_addr(child_parent, 0x74, &child_parent_phys)) {
+        return true;
+    }
+    if (child_parent_phys != 0) {
+        const uint32_t parent_next = lod_rdram_u32(rdram, child_parent_phys + 0x10);
+        const uint32_t parent_parent = lod_rdram_u32(rdram, child_parent_phys + 0x14);
+        if (lod_item_trace_is_bad_value(parent_next) ||
+            lod_item_trace_is_bad_value(parent_parent)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void lod_item_child_trace_log(uint8_t* rdram, const recomp_context* ctx,
+                                     uint32_t count) {
+    const uint32_t root_addr = (uint32_t)ctx->r4;
+    const uint32_t mask = (uint32_t)ctx->r5;
+    const int loaded_0f = lod_ni_overlay_loaded_0f_pair();
+    const int loaded_0e = lod_ni_overlay_loaded_0e_pair();
+    const int32_t gs = lod_current_gamestate(rdram);
+    const bool pair99_cleanup = gs == 3 && loaded_0f == 99 && mask == 0;
+    const bool bad_chain = lod_item_child_trace_has_bad_chain(rdram, root_addr);
+
+    if (!pair99_cleanup && !bad_chain && count > 6) {
+        return;
+    }
+
+    fprintf(stderr,
+            "[ITEM_CHILD] pre #%u object_dispatchChild gs=%d map#%d map_rom=0x%08X "
+            "ni={0f=%d 0e=%d} root=0x%08X mask=0x%08X bad_chain=%d "
+            "args={a0=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X ra=0x%08X v0=0x%08X}\n",
+            count, gs, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            loaded_0f, loaded_0e, root_addr, mask, bad_chain ? 1 : 0,
+            (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6,
+            (uint32_t)ctx->r7, (uint32_t)ctx->r31, (uint32_t)ctx->r2);
+
+    lod_item_child_trace_print_obj(rdram, "root", root_addr);
+
+    uint32_t root_phys = 0;
+    if (lod_decode_rdram_phys_addr(root_addr, 0x74, &root_phys)) {
+        const uint32_t root_child = lod_rdram_u32(rdram, root_phys + 0x08);
+        const uint32_t root_next = lod_rdram_u32(rdram, root_phys + 0x10);
+        const uint32_t root_parent = lod_rdram_u32(rdram, root_phys + 0x14);
+        fprintf(stderr,
+                "[ITEM_CHILD]   root_links child=0x%08X next=0x%08X parent=0x%08X\n",
+                root_child, root_next, root_parent);
+        if (root_child != 0) {
+            lod_item_child_trace_print_obj(rdram, "root.child", root_child);
+            uint32_t child_phys = 0;
+            if (lod_decode_rdram_phys_addr(root_child, 0x74, &child_phys)) {
+                const uint32_t child_child = lod_rdram_u32(rdram, child_phys + 0x08);
+                const uint32_t child_next = lod_rdram_u32(rdram, child_phys + 0x10);
+                const uint32_t child_parent = lod_rdram_u32(rdram, child_phys + 0x14);
+                fprintf(stderr,
+                        "[ITEM_CHILD]   child_links child=0x%08X next=0x%08X parent=0x%08X\n",
+                        child_child, child_next, child_parent);
+                if (child_parent != 0) {
+                    lod_item_child_trace_print_obj(rdram, "root.child.parent", child_parent);
+                }
+                if (child_next != 0 && child_next != root_child) {
+                    lod_item_child_trace_print_obj(rdram, "root.child.next", child_next);
+                }
+            }
+        }
+        if (root_parent != 0) {
+            lod_item_child_trace_print_obj(rdram, "root.parent", root_parent);
+        }
+    }
+    fflush(stderr);
+}
+
+static void lod_item_trace_log(uint8_t* rdram, const recomp_context* ctx,
+                               const char* phase, const char* label,
+                               uint32_t vram, uint32_t count,
+                               uint32_t obj_addr, const LodItemTraceInterest& interest,
+                               bool force) {
+    static uint32_t total_logs = 0;
+    if (!force && !interest.bad) {
+        return;
+    }
+    if (!interest.bad && total_logs >= 180) {
+        return;
+    }
+    total_logs++;
+
+    uint32_t obj_phys = 0;
+    const bool obj_ok = lod_decode_rdram_phys_addr(obj_addr, 0x74, &obj_phys);
+    const uint8_t obj_step = lod_item_trace_u8_at(rdram, obj_ok, obj_phys, 0x08);
+    const uint8_t obj_state = lod_item_trace_u8_at(rdram, obj_ok, obj_phys, 0x09);
+    const int16_t obj_level = lod_item_trace_s16_at(rdram, obj_ok, obj_phys, 0x0E);
+    const uint32_t obj_10 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x10);
+    const uint32_t obj_14 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x14);
+    const uint32_t obj_1c = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x1C);
+    const uint32_t obj_24 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x24);
+    const uint32_t obj_30 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x30);
+    const uint32_t obj_34 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x34);
+    const uint32_t obj_38 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x38);
+    const uint32_t obj_3c = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x3C);
+    const uint32_t obj_40 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x40);
+    const uint32_t obj_58 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x58);
+    const uint32_t obj_5c = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x5C);
+    const uint32_t obj_60 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x60);
+    const uint32_t obj_64 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x64);
+    const uint32_t obj_6c = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x6C);
+    const uint32_t obj_70 = lod_item_trace_u32_at(rdram, obj_ok, obj_phys, 0x70);
+
+    fprintf(stderr,
+            "[ITEM_KSEG0] %s #%u %s vram=0x%08X gs=%d map#%d map_rom=0x%08X "
+            "ni={0f=%d 0e=%d} bad=%d seg=%d "
+            "args={a0=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X ra=0x%08X v0=0x%08X} "
+            "obj_ok=%d obj_phys=0x%06X obj={step=%u state=%u level=%d "
+            "10=0x%08X 14=0x%08X 1C=0x%08X 24=0x%08X 30=0x%08X 34=0x%08X "
+            "38=0x%08X 3C=0x%08X 40=0x%08X 58=0x%08X 5C=0x%08X 60=0x%08X "
+            "64=0x%08X 6C=0x%08X 70=0x%08X}\n",
+            phase, count, label, vram, lod_current_gamestate(rdram),
+            lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair(),
+            interest.bad ? 1 : 0, interest.segmented ? 1 : 0,
+            (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6,
+            (uint32_t)ctx->r7, (uint32_t)ctx->r31, (uint32_t)ctx->r2,
+            obj_ok ? 1 : 0, obj_ok ? obj_phys : 0,
+            obj_step, obj_state, obj_level,
+            obj_10, obj_14, obj_1c, obj_24, obj_30, obj_34,
+            obj_38, obj_3c, obj_40, obj_58, obj_5c, obj_60,
+            obj_64, obj_6c, obj_70);
+
+    const struct {
+        const char* label;
+        uint32_t addr;
+    } nested[] = {
+        {"obj24", obj_24}, {"obj30", obj_30}, {"obj34", obj_34}, {"obj38", obj_38},
+        {"obj58", obj_58}, {"obj5C", obj_5c}, {"obj60", obj_60}, {"obj70", obj_70},
+    };
+    for (const auto& ptr : nested) {
+        if (ptr.addr != 0 && lod_item_trace_nested_has_segment(rdram, ptr.addr)) {
+            lod_item_trace_print_nested(rdram, phase, label, count, ptr.label, ptr.addr);
+        }
+    }
+}
+
+static void lod_item_trace_call(uint8_t* rdram, recomp_context* ctx,
+                                const char* label, uint32_t vram,
+                                recomp_func_t* original, uint32_t* counter) {
+    (*counter)++;
+    const uint32_t count = *counter;
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    LodItemTraceInterest pre = lod_item_trace_collect(rdram, ctx, obj_addr);
+    const bool force_pre = pre.bad || count <= 3 ||
+                           (pre.segmented && count <= 12) ||
+                           (pre.segmented && (count % 600) == 0);
+    lod_item_trace_log(rdram, ctx, "pre", label, vram, count, obj_addr, pre, force_pre);
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    LodItemTraceInterest post = lod_item_trace_collect(rdram, ctx, obj_addr);
+    if (post.bad) {
+        lod_item_trace_log(rdram, ctx, "post", label, vram, count, obj_addr, post, true);
+    }
+}
+
+#define LOD_ITEM_TRACE_WRAPPER(wrapper_name, label, vram_value, original_var) \
+static void wrapper_name(uint8_t* rdram, recomp_context* ctx) { \
+    static uint32_t count = 0; \
+    lod_item_trace_call(rdram, ctx, label, vram_value, original_var, &count); \
+}
+
+static void lod_item_trace_object_dispatch_child(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    lod_item_child_trace_log(rdram, ctx, count);
+    if (lod_orig_item_object_dispatch_child != nullptr) {
+        lod_orig_item_object_dispatch_child(rdram, ctx);
+    }
+}
+
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_8007D9F0, "func_8007D9F0", 0x8007D9F0, lod_orig_item_func_8007D9F0)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_8007E8F4, "func_8007E8F4", 0x8007E8F4, lod_orig_item_func_8007E8F4)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_80085280, "func_80085280", 0x80085280, lod_orig_item_func_80085280)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_800856B8, "func_800856B8", 0x800856B8, lod_orig_item_func_800856B8)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_80086120, "func_80086120", 0x80086120, lod_orig_item_func_80086120)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_80086528, "func_80086528", 0x80086528, lod_orig_item_func_80086528)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_8008AA90, "func_8008AA90", 0x8008AA90, lod_orig_item_func_8008AA90)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_8008B3A4, "func_8008B3A4", 0x8008B3A4, lod_orig_item_func_8008B3A4)
+LOD_ITEM_TRACE_WRAPPER(lod_item_trace_func_8008F590, "func_8008F590", 0x8008F590, lod_orig_item_func_8008F590)
+
+#undef LOD_ITEM_TRACE_WRAPPER
+
+static void lod_install_item_kseg0_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                 recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+extern "C" void lod_install_item_kseg0_trace_wrappers_early() {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_item_kseg0_trace_wrapper(0x8000516C,
+        lod_item_trace_object_dispatch_child, &lod_orig_item_object_dispatch_child);
+    lod_install_item_kseg0_trace_wrapper(0x8007D9F0,
+        lod_item_trace_func_8007D9F0, &lod_orig_item_func_8007D9F0);
+    lod_install_item_kseg0_trace_wrapper(0x8007E8F4,
+        lod_item_trace_func_8007E8F4, &lod_orig_item_func_8007E8F4);
+    lod_install_item_kseg0_trace_wrapper(0x80085280,
+        lod_item_trace_func_80085280, &lod_orig_item_func_80085280);
+    lod_install_item_kseg0_trace_wrapper(0x800856B8,
+        lod_item_trace_func_800856B8, &lod_orig_item_func_800856B8);
+    lod_install_item_kseg0_trace_wrapper(0x80086120,
+        lod_item_trace_func_80086120, &lod_orig_item_func_80086120);
+    lod_install_item_kseg0_trace_wrapper(0x80086528,
+        lod_item_trace_func_80086528, &lod_orig_item_func_80086528);
+    lod_install_item_kseg0_trace_wrapper(0x8008AA90,
+        lod_item_trace_func_8008AA90, &lod_orig_item_func_8008AA90);
+    lod_install_item_kseg0_trace_wrapper(0x8008B3A4,
+        lod_item_trace_func_8008B3A4, &lod_orig_item_func_8008B3A4);
+    lod_install_item_kseg0_trace_wrapper(0x8008F590,
+        lod_item_trace_func_8008F590, &lod_orig_item_func_8008F590);
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+                "[ITEM_KSEG0] installed item/model trace wrappers #%d originals "
+                "child=%p 7d9f0=%p 7e8f4=%p 85280=%p 856b8=%p 86120=%p "
+                "86528=%p 8aa90=%p 8b3a4=%p 8f590=%p\n",
+                install_count,
+                (void*)lod_orig_item_object_dispatch_child,
+                (void*)lod_orig_item_func_8007D9F0,
+                (void*)lod_orig_item_func_8007E8F4,
+                (void*)lod_orig_item_func_80085280,
+                (void*)lod_orig_item_func_800856B8,
+                (void*)lod_orig_item_func_80086120,
+                (void*)lod_orig_item_func_80086528,
+                (void*)lod_orig_item_func_8008AA90,
+                (void*)lod_orig_item_func_8008B3A4,
+                (void*)lod_orig_item_func_8008F590);
+    }
+}
+#endif
+
+#if LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE
+static recomp_func_t* lod_orig_fog_gate_init_802E5328 = nullptr;
+static recomp_func_t* lod_orig_fog_gate_check_802E5458 = nullptr;
+static recomp_func_t* lod_orig_fog_platform_wait_802E55E8 = nullptr;
+static recomp_func_t* lod_orig_fog_enemy_slot_802E56A8 = nullptr;
+
+static constexpr uint32_t LOD_FOG_MAP_ROM = 0x007AE430;
+static constexpr uint32_t LOD_FOG_SYS_PHYS = 0x001C82C0;        // 0x801C82C0
+static constexpr uint32_t LOD_FOG_SYS_FLAGS_PHYS = LOD_FOG_SYS_PHYS + 0x2858;
+static constexpr uint32_t LOD_FOG_KILL_COUNT_PHYS = LOD_FOG_SYS_PHYS + 0x2B38;
+static constexpr uint32_t LOD_FOG_OVL_GLOBAL_SLOT0_PHYS = 0x002E5AFC; // 0x802E5AFC
+static constexpr uint32_t LOD_FOG_ENEMY_LIST_PHYS = 0x000F9120;       // 0x800F9120
+static constexpr uint32_t LOD_FOG_ENEMY_LIST_ENTRY_SIZE = 0x1C;
+static constexpr uint32_t LOD_FOG_ENEMY_DONE_FLAG = 0x10;
+
+struct LodFogEnemyState {
+    uint32_t actor = 0;
+    uint32_t entry = 0;
+    uint32_t flags = 0;
+    uint32_t aux_flags = 0;
+    bool found = false;
+};
+
+struct LodFogState {
+    uint32_t obj = 0;
+    bool obj_ok = false;
+    int16_t obj_func = 0;
+    uint32_t obj_timer = 0;
+    uint32_t sys_flags = 0;
+    int16_t kill_count = 0;
+    uint32_t slot[2] = {0, 0};
+    uint32_t global_slot[2] = {0, 0};
+    LodFogEnemyState enemy[2];
+};
+
+static LodFogEnemyState lod_fog_enemy_state_for_actor(uint8_t* rdram, uint32_t actor) {
+    LodFogEnemyState state;
+    state.actor = actor;
+
+    if (actor == 0 || !lod_rdram_range_ok(LOD_FOG_ENEMY_LIST_PHYS, 4)) {
+        return state;
+    }
+
+    int32_t count = (int32_t)lod_rdram_u32(rdram, LOD_FOG_ENEMY_LIST_PHYS);
+    if (count < 0) {
+        count = 0;
+    } else if (count > 0x18) {
+        count = 0x18;
+    }
+
+    for (int32_t i = 0; i < count; i++) {
+        const uint32_t entry_phys = LOD_FOG_ENEMY_LIST_PHYS + 4 + (uint32_t)i * LOD_FOG_ENEMY_LIST_ENTRY_SIZE;
+        if (!lod_rdram_range_ok(entry_phys, LOD_FOG_ENEMY_LIST_ENTRY_SIZE)) {
+            break;
+        }
+
+        const uint32_t entry_actor = lod_rdram_u32(rdram, entry_phys + 0x18);
+        if (entry_actor == actor) {
+            state.entry = 0x80000000u | entry_phys;
+            state.flags = lod_rdram_u32(rdram, entry_phys + 0x00);
+            state.aux_flags = lod_rdram_u32(rdram, entry_phys + 0x04);
+            state.found = true;
+            break;
+        }
+    }
+
+    return state;
+}
+
+static LodFogState lod_fog_capture_state(uint8_t* rdram, uint32_t obj) {
+    LodFogState state;
+    state.obj = obj;
+
+    if (lod_rdram_range_ok(LOD_FOG_SYS_FLAGS_PHYS, 4)) {
+        state.sys_flags = lod_rdram_u32(rdram, LOD_FOG_SYS_FLAGS_PHYS);
+    }
+    if (lod_rdram_range_ok(LOD_FOG_KILL_COUNT_PHYS, 2)) {
+        state.kill_count = lod_rdram_s16(rdram, LOD_FOG_KILL_COUNT_PHYS);
+    }
+    if (lod_rdram_range_ok(LOD_FOG_OVL_GLOBAL_SLOT0_PHYS, 8)) {
+        state.global_slot[0] = lod_rdram_u32(rdram, LOD_FOG_OVL_GLOBAL_SLOT0_PHYS + 0);
+        state.global_slot[1] = lod_rdram_u32(rdram, LOD_FOG_OVL_GLOBAL_SLOT0_PHYS + 4);
+    }
+
+    const uint32_t obj_phys = obj & 0x1FFFFFFF;
+    state.obj_ok = obj != 0 && lod_rdram_range_ok(obj_phys, 0x4C);
+    if (state.obj_ok) {
+        state.obj_func = lod_rdram_s16(rdram, obj_phys + 0x0E);
+        state.slot[0] = lod_rdram_u32(rdram, obj_phys + 0x40);
+        state.slot[1] = lod_rdram_u32(rdram, obj_phys + 0x44);
+        state.obj_timer = lod_rdram_u32(rdram, obj_phys + 0x48);
+    }
+
+    for (int i = 0; i < 2; i++) {
+        state.enemy[i] = lod_fog_enemy_state_for_actor(rdram, state.slot[i]);
+    }
+
+    return state;
+}
+
+static bool lod_fog_state_slots_changed(const LodFogState& before, const LodFogState& after) {
+    return before.slot[0] != after.slot[0] ||
+           before.slot[1] != after.slot[1] ||
+           before.global_slot[0] != after.global_slot[0] ||
+           before.global_slot[1] != after.global_slot[1];
+}
+
+static bool lod_fog_state_enemy_flags_changed(const LodFogState& before, const LodFogState& after) {
+    return before.enemy[0].found != after.enemy[0].found ||
+           before.enemy[1].found != after.enemy[1].found ||
+           before.enemy[0].flags != after.enemy[0].flags ||
+           before.enemy[1].flags != after.enemy[1].flags ||
+           before.enemy[0].aux_flags != after.enemy[0].aux_flags ||
+           before.enemy[1].aux_flags != after.enemy[1].aux_flags;
+}
+
+static bool lod_fog_state_has_done_flag(const LodFogState& state) {
+    return (state.enemy[0].found && ((state.enemy[0].flags & LOD_FOG_ENEMY_DONE_FLAG) != 0)) ||
+           (state.enemy[1].found && ((state.enemy[1].flags & LOD_FOG_ENEMY_DONE_FLAG) != 0));
+}
+
+static void lod_fog_print_state_delta(uint8_t* rdram, const char* label, uint32_t count,
+                                      const LodFogState& before,
+                                      const LodFogState& after) {
+    fprintf(stderr,
+            "[FOG_LAKE] %s#%u gs=%d map_rom=0x%08X obj=0x%08X ok=%d "
+            "func=%d->%d timer=%u->%u sys_flags=0x%08X kill=%d->%d "
+            "slots=[0x%08X,0x%08X]->[0x%08X,0x%08X] "
+            "globals=[0x%08X,0x%08X]->[0x%08X,0x%08X] "
+            "enemy0={found=%d->%d flags=0x%08X->0x%08X aux=0x%08X->0x%08X entry=0x%08X->0x%08X} "
+            "enemy1={found=%d->%d flags=0x%08X->0x%08X aux=0x%08X->0x%08X entry=0x%08X->0x%08X}\n",
+            label, count, lod_current_gamestate(rdram), lod_current_map_ovl_rom,
+            before.obj, before.obj_ok ? 1 : 0,
+            before.obj_func, after.obj_func, before.obj_timer, after.obj_timer,
+            after.sys_flags, before.kill_count, after.kill_count,
+            before.slot[0], before.slot[1], after.slot[0], after.slot[1],
+            before.global_slot[0], before.global_slot[1], after.global_slot[0], after.global_slot[1],
+            before.enemy[0].found ? 1 : 0, after.enemy[0].found ? 1 : 0,
+            before.enemy[0].flags, after.enemy[0].flags,
+            before.enemy[0].aux_flags, after.enemy[0].aux_flags,
+            before.enemy[0].entry, after.enemy[0].entry,
+            before.enemy[1].found ? 1 : 0, after.enemy[1].found ? 1 : 0,
+            before.enemy[1].flags, after.enemy[1].flags,
+            before.enemy[1].aux_flags, after.enemy[1].aux_flags,
+            before.enemy[1].entry, after.enemy[1].entry);
+}
+
+static void lod_trace_fog_gate_init_802E5328(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const LodFogState before = lod_fog_capture_state(rdram, obj);
+    if (lod_orig_fog_gate_init_802E5328 != nullptr) {
+        lod_orig_fog_gate_init_802E5328(rdram, ctx);
+    }
+    const LodFogState after = lod_fog_capture_state(rdram, obj);
+
+    const bool interesting = count <= 6 ||
+        before.kill_count != after.kill_count ||
+        lod_fog_state_slots_changed(before, after) ||
+        lod_fog_state_enemy_flags_changed(before, after);
+    if (interesting) {
+        lod_fog_print_state_delta(rdram, "gate_init", count, before, after);
+    }
+}
+
+static void lod_trace_fog_gate_check_802E5458(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const LodFogState before = lod_fog_capture_state(rdram, obj);
+    if (lod_orig_fog_gate_check_802E5458 != nullptr) {
+        lod_orig_fog_gate_check_802E5458(rdram, ctx);
+    }
+    const LodFogState after = lod_fog_capture_state(rdram, obj);
+
+    const bool has_tracked_enemy = before.slot[0] != 0 || before.slot[1] != 0 ||
+                                   after.slot[0] != 0 || after.slot[1] != 0;
+    const bool interesting = (count <= 8 && has_tracked_enemy) ||
+        before.kill_count != after.kill_count ||
+        before.obj_func != after.obj_func ||
+        lod_fog_state_slots_changed(before, after) ||
+        lod_fog_state_enemy_flags_changed(before, after) ||
+        lod_fog_state_has_done_flag(before) ||
+        lod_fog_state_has_done_flag(after);
+    if (interesting) {
+        lod_fog_print_state_delta(rdram, "gate_check", count, before, after);
+    }
+}
+
+static void lod_trace_fog_platform_wait_802E55E8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    static int16_t last_logged_func = -32768;
+    static int16_t last_logged_kill_count = -32768;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const LodFogState before = lod_fog_capture_state(rdram, obj);
+    if (lod_orig_fog_platform_wait_802E55E8 != nullptr) {
+        lod_orig_fog_platform_wait_802E55E8(rdram, ctx);
+    }
+    const LodFogState after = lod_fog_capture_state(rdram, obj);
+
+    const bool interesting = count <= 4 ||
+        before.obj_func != after.obj_func ||
+        after.obj_func != last_logged_func ||
+        after.kill_count != last_logged_kill_count ||
+        (before.kill_count > 0 && after.kill_count <= 0);
+    if (interesting) {
+        last_logged_func = after.obj_func;
+        last_logged_kill_count = after.kill_count;
+        lod_fog_print_state_delta(rdram, "platform_wait", count, before, after);
+    }
+}
+
+static void lod_trace_fog_enemy_slot_802E56A8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const LodFogState before = lod_fog_capture_state(rdram, obj);
+    if (lod_orig_fog_enemy_slot_802E56A8 != nullptr) {
+        lod_orig_fog_enemy_slot_802E56A8(rdram, ctx);
+    }
+    const LodFogState after = lod_fog_capture_state(rdram, obj);
+
+    const bool interesting = count <= 6 ||
+        lod_fog_state_slots_changed(before, after) ||
+        lod_fog_state_enemy_flags_changed(before, after);
+    if (interesting) {
+        lod_fog_print_state_delta(rdram, "enemy_slot", count, before, after);
+    }
+}
+
+static void lod_install_fog_lake_trigger_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
+                                                       recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+}
+
+static void lod_install_fog_lake_trigger_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    lod_install_fog_lake_trigger_trace_wrapper(0x802E5328, lod_trace_fog_gate_init_802E5328,
+        &lod_orig_fog_gate_init_802E5328);
+    lod_install_fog_lake_trigger_trace_wrapper(0x802E5458, lod_trace_fog_gate_check_802E5458,
+        &lod_orig_fog_gate_check_802E5458);
+    lod_install_fog_lake_trigger_trace_wrapper(0x802E55E8, lod_trace_fog_platform_wait_802E55E8,
+        &lod_orig_fog_platform_wait_802E55E8);
+    lod_install_fog_lake_trigger_trace_wrapper(0x802E56A8, lod_trace_fog_enemy_slot_802E56A8,
+        &lod_orig_fog_enemy_slot_802E56A8);
+
+    fprintf(stderr,
+            "[FOG_LAKE] installed trigger trace wrappers #%d reason=%s map_rom=0x%08X "
+            "orig={5328=%p 5458=%p 55E8=%p 56A8=%p}\n",
+            install_count, reason, lod_current_map_ovl_rom,
+            (void*)lod_orig_fog_gate_init_802E5328,
+            (void*)lod_orig_fog_gate_check_802E5458,
+            (void*)lod_orig_fog_platform_wait_802E55E8,
+            (void*)lod_orig_fog_enemy_slot_802E56A8);
 }
 #endif
 
@@ -3673,12 +4641,14 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         lod_install_bgstate_trace_wrappers("si-refresh");
     }
 #endif
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     if (si_dma_count <= 10 || si_dma_count % 500 == 0) {
         uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
         int32_t cur_gs = 0;
         if (gsm_addr != 0) cur_gs = *(int32_t*)(rdram + (gsm_addr & 0x1FFFFFFF) + 0x24);
         fprintf(stderr, "[SI_DMA] #%d dir=%d gs=%d\n", si_dma_count, direction, cur_gs);
     }
+#endif
 
     // On WRITE: if the PIF buffer is empty, format a basic button read command.
     if (direction == 1 && dram_addr != 0) {
@@ -4007,12 +4977,14 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                     WR_MEM_B(pif, response_start + i, pak_data[i]);
                 uint8_t crc = pak_data_crc(pak_data, 32);
                 WR_MEM_B(pif, response_start + 32, crc);
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
                 {
                     static int pr = 0; pr++;
                     if (pr <= 30 || pr % 100 == 0)
                         fprintf(stderr, "[PIF] PAK_READ #%d addr=0x%04X crc=0x%02X data=[%02X %02X %02X %02X...]\n",
                                 pr, pak_addr, crc, pak_data[0], pak_data[1], pak_data[2], pak_data[3]);
                 }
+#endif
             } else if (cmd == 0x03) {
                 // Controller Pak WRITE
                 uint8_t addr_hi = RD_MEM_B(pif, pos + 3);
@@ -4025,12 +4997,14 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 pak_write(pak_addr, pak_data, 32);
                 uint8_t crc = pak_data_crc(pak_data, 32);
                 WR_MEM_B(pif, response_start, crc);
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
                 {
                     static int pw = 0; pw++;
                     if (pw <= 30 || pw % 100 == 0)
                         fprintf(stderr, "[PIF] PAK_WRITE #%d addr=0x%04X crc=0x%02X data=[%02X %02X %02X %02X...]\n",
                                 pw, pak_addr, crc, pak_data[0], pak_data[1], pak_data[2], pak_data[3]);
                 }
+#endif
             } else {
                 // Unknown PIF command — log it
                 static int unk = 0; unk++;
@@ -4044,6 +5018,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     }
 
     // Trace scheduler messages — dump the message slots and queue state
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     if (direction == 0) {
         static int dc = 0;
         if (++dc == 100) {
@@ -4070,6 +5045,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
             fprintf(stderr, "\n");
         }
     }
+#endif
 
     // Map overlay loading is now done in lod_on_init (before game threads start).
     // See lod_init.cpp for map_ovl_34 loading.
@@ -4113,6 +5089,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
     }
 #endif
 
+#if LOD_ENABLE_SAVE_STATE45_TRACE || LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     // Watchpoint: monitor save object state byte at 0x8031AFA4+0x09
     if (direction == 0) {
         static uint8_t prev_state = 255;
@@ -4202,6 +5179,7 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
             prev_child_dispatch_state = 255;
         }
     }
+#endif
 
     // Send SI completion message
     if (ultramodern::is_game_started()) {

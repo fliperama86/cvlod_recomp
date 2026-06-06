@@ -49,6 +49,10 @@
 #define LOD_ENABLE_AUDIO_RAW_DUMP 0
 #endif
 
+#ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
+#define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
+#endif
+
 template<typename... Ts>
 void exit_error(const char* str, Ts ...args) {
     ((void)fprintf(stderr, str, args), ...);
@@ -363,11 +367,13 @@ static float normalize_axis(Sint16 value) {
 }
 
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+#if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     {
         static int input_calls = 0; input_calls++;
         if (input_calls <= 3 || (input_calls % 1000 == 0))
             fprintf(stderr, "[INPUT] get_n64_input called #%d, controller=%d\n", input_calls, controller_num);
     }
+#endif
     if (controller_num != 0) return false;
 
     *buttons = 0;

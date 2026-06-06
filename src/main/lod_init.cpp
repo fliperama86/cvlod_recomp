@@ -29,11 +29,20 @@ extern "C" void lod_install_gs3_anim_trace_wrappers_early();
 #if LOD_ENABLE_KSEG0_FAULT_TRACE
 extern "C" void lod_install_kseg0_fault_trace_wrappers_early();
 #endif
+#if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
+extern "C" void lod_install_null_object_dispatch_child_guard_early();
+#endif
+#if LOD_ENABLE_ITEM_KSEG0_TRACE
+extern "C" void lod_install_item_kseg0_trace_wrappers_early();
+#endif
 #if LOD_ENABLE_AUDIO_PULL_TRACE
 extern "C" void lod_install_audio_pull_trace_wrappers_early();
 #endif
 #if LOD_ENABLE_INPUT_TRACE
 extern "C" void lod_install_input_action_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_NI24_WRITER_TRACE
+extern "C" void lod_install_ni24_writer_trace_wrappers_early();
 #endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
@@ -465,6 +474,15 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Lightweight crash-context snapshots for post-RDRAM/KSEG0 faults.
     lod_install_kseg0_fault_trace_wrappers_early();
 #endif
+#if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
+    // Gameplay/item cleanup can legally request no-op child dispatch with a
+    // null root; keep the generated helper from walking low RDRAM as an object.
+    lod_install_null_object_dispatch_child_guard_early();
+#endif
+#if LOD_ENABLE_ITEM_KSEG0_TRACE
+    // Narrow item/menu model pointer trace for segmented-address KSEG0 faults.
+    lod_install_item_kseg0_trace_wrappers_early();
+#endif
 #if LOD_ENABLE_AUDIO_PULL_TRACE
     // Debug-only CPU audio pull-chain wrappers. These only log/interpose
     // indirect pull calls via get_function(), and are disabled by default.
@@ -474,5 +492,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Debug-only player action callback wrappers. These only log when A/B are
     // active in gameplay, and are disabled by default.
     lod_install_input_action_trace_wrappers_early();
+#endif
+#if LOD_ENABLE_NI24_WRITER_TRACE
+    // Debug-only object schedule writer tracing for the NI pair-24 Fog Lake
+    // null-dispatch diagnosis. Disabled by default.
+    lod_install_ni24_writer_trace_wrappers_early();
 #endif
 }
