@@ -15,6 +15,7 @@
 #include "ultramodern/config.hpp"
 
 #include "lod/lod_render.h"
+#include "lod_ui_overlay.h"
 
 #ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
 #define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
@@ -167,6 +168,7 @@ ultramodern::renderer::GraphicsApi map_graphics_api(RT64::UserConfiguration::Gra
 
 lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool debug) {
     static unsigned char dummy_rom_header[0x40];
+    lod::ui::set_render_hooks();
 
     RT64::Application::Core appCore{};
 #if defined(_WIN32)

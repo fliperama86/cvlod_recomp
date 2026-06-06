@@ -39,6 +39,7 @@
 #include "lod/lod_fault_trace.hpp"
 #include "lod/lod_paths.hpp"
 #include "lod/target_rom.hpp"
+#include "lod_ui_overlay.h"
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
@@ -86,6 +87,236 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
 static SDL_Window* window = nullptr;
 static SDL_GameController* game_controller = nullptr;
 static SDL_JoystickID game_controller_instance = -1;
+static std::filesystem::path g_config_path;
+
+static std::filesystem::path graphics_config_path() {
+    return g_config_path / "graphics.json";
+}
+
+static ultramodern::renderer::GraphicsConfig default_graphics_config() {
+    ultramodern::renderer::GraphicsConfig config{};
+    config.developer_mode = false;
+    config.res_option = ultramodern::renderer::Resolution::Original2x;
+    config.wm_option = ultramodern::renderer::WindowMode::Windowed;
+    config.hr_option = ultramodern::renderer::HUDRatioMode::Original;
+    config.api_option = ultramodern::renderer::GraphicsApi::Auto;
+    config.ar_option = ultramodern::renderer::AspectRatio::Original;
+    config.msaa_option = ultramodern::renderer::Antialiasing::None;
+    config.rr_option = ultramodern::renderer::RefreshRate::Original;
+    config.hpfb_option = ultramodern::renderer::HighPrecisionFramebuffer::Auto;
+    config.rr_manual_value = 60;
+    config.ds_option = 1;
+    return config;
+}
+
+static nlohmann::json graphics_config_to_json(const ultramodern::renderer::GraphicsConfig& config) {
+    return nlohmann::json{
+        {"developer_mode", config.developer_mode},
+        {"resolution", config.res_option},
+        {"window_mode", config.wm_option},
+        {"hud_ratio", config.hr_option},
+        {"graphics_api", config.api_option},
+        {"aspect_ratio", config.ar_option},
+        {"antialiasing", config.msaa_option},
+        {"refresh_rate", config.rr_option},
+        {"high_precision_framebuffer", config.hpfb_option},
+        {"refresh_rate_manual", config.rr_manual_value},
+        {"downsample", config.ds_option},
+    };
+}
+
+template <typename Enum>
+static void read_graphics_enum(const nlohmann::json& json, const char* key, Enum& out) {
+    auto it = json.find(key);
+    if (it == json.end()) {
+        return;
+    }
+
+    try {
+        Enum value = it->get<Enum>();
+        int raw = static_cast<int>(value);
+        if (raw >= 0 && raw < static_cast<int>(Enum::OptionCount)) {
+            out = value;
+        }
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[CONFIG] Ignoring invalid graphics option %s: %s\n", key, e.what());
+    }
+}
+
+static ultramodern::renderer::GraphicsConfig graphics_config_from_json(const nlohmann::json& json) {
+    auto config = default_graphics_config();
+
+    if (auto it = json.find("developer_mode"); it != json.end() && it->is_boolean()) {
+        config.developer_mode = it->get<bool>();
+    }
+    read_graphics_enum(json, "resolution", config.res_option);
+    read_graphics_enum(json, "window_mode", config.wm_option);
+    read_graphics_enum(json, "hud_ratio", config.hr_option);
+    read_graphics_enum(json, "graphics_api", config.api_option);
+    read_graphics_enum(json, "aspect_ratio", config.ar_option);
+    read_graphics_enum(json, "antialiasing", config.msaa_option);
+    read_graphics_enum(json, "refresh_rate", config.rr_option);
+    read_graphics_enum(json, "high_precision_framebuffer", config.hpfb_option);
+
+    if (auto it = json.find("refresh_rate_manual"); it != json.end() && it->is_number_integer()) {
+        int value = it->get<int>();
+        if (value >= 20 && value <= 360) {
+            config.rr_manual_value = value;
+        }
+    }
+    if (auto it = json.find("downsample"); it != json.end() && it->is_number_integer()) {
+        int value = it->get<int>();
+        if (value >= 1 && value <= 8) {
+            config.ds_option = value;
+        }
+    }
+
+    return config;
+}
+
+static void save_graphics_config(const ultramodern::renderer::GraphicsConfig& config) {
+    if (g_config_path.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(g_config_path, ec);
+
+    std::ofstream f(graphics_config_path());
+    if (!f) {
+        fprintf(stderr, "[CONFIG] Failed to write %s\n", graphics_config_path().string().c_str());
+        return;
+    }
+    f << graphics_config_to_json(config).dump(2) << "\n";
+}
+
+static ultramodern::renderer::GraphicsConfig load_graphics_config() {
+    auto config = default_graphics_config();
+
+    std::ifstream f(graphics_config_path());
+    if (!f) {
+        save_graphics_config(config);
+        return config;
+    }
+
+    try {
+        nlohmann::json json;
+        f >> json;
+        config = graphics_config_from_json(json);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[CONFIG] Failed to parse %s: %s; using defaults\n",
+                graphics_config_path().string().c_str(), e.what());
+        config = default_graphics_config();
+    }
+
+    save_graphics_config(config);
+    return config;
+}
+
+template <typename Enum>
+static Enum next_graphics_option(Enum value) {
+    int raw = static_cast<int>(value) + 1;
+    int count = static_cast<int>(Enum::OptionCount);
+    if (raw >= count) {
+        raw = 0;
+    }
+    return static_cast<Enum>(raw);
+}
+
+static const char* graphics_resolution_name(ultramodern::renderer::Resolution value) {
+    switch (value) {
+        case ultramodern::renderer::Resolution::Original: return "Original";
+        case ultramodern::renderer::Resolution::Original2x: return "Original2x";
+        case ultramodern::renderer::Resolution::Auto: return "Auto";
+        default: return "Unknown";
+    }
+}
+
+static const char* graphics_window_mode_name(ultramodern::renderer::WindowMode value) {
+    switch (value) {
+        case ultramodern::renderer::WindowMode::Windowed: return "Windowed";
+        case ultramodern::renderer::WindowMode::Fullscreen: return "Fullscreen";
+        default: return "Unknown";
+    }
+}
+
+static const char* graphics_aspect_name(ultramodern::renderer::AspectRatio value) {
+    switch (value) {
+        case ultramodern::renderer::AspectRatio::Original: return "Original";
+        case ultramodern::renderer::AspectRatio::Expand: return "Expand";
+        case ultramodern::renderer::AspectRatio::Manual: return "Manual";
+        default: return "Unknown";
+    }
+}
+
+static const char* graphics_msaa_name(ultramodern::renderer::Antialiasing value) {
+    switch (value) {
+        case ultramodern::renderer::Antialiasing::None: return "None";
+        case ultramodern::renderer::Antialiasing::MSAA2X: return "MSAA2X";
+        case ultramodern::renderer::Antialiasing::MSAA4X: return "MSAA4X";
+        case ultramodern::renderer::Antialiasing::MSAA8X: return "MSAA8X";
+        default: return "Unknown";
+    }
+}
+
+static const char* graphics_refresh_name(ultramodern::renderer::RefreshRate value) {
+    switch (value) {
+        case ultramodern::renderer::RefreshRate::Original: return "Original";
+        case ultramodern::renderer::RefreshRate::Display: return "Display";
+        case ultramodern::renderer::RefreshRate::Manual: return "Manual";
+        default: return "Unknown";
+    }
+}
+
+static void apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
+                                           const char* reason) {
+    ultramodern::renderer::set_graphics_config(config);
+    save_graphics_config(config);
+    fprintf(stderr,
+            "[CONFIG] %s: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
+            reason,
+            graphics_resolution_name(config.res_option),
+            graphics_window_mode_name(config.wm_option),
+            graphics_aspect_name(config.ar_option),
+            graphics_msaa_name(config.msaa_option),
+            graphics_refresh_name(config.rr_option),
+            config.rr_manual_value);
+}
+
+static bool handle_graphics_hotkey(SDL_Keycode key) {
+    auto config = ultramodern::renderer::get_graphics_config();
+
+    switch (key) {
+        case SDLK_F1:
+            lod::ui::toggle_overlay();
+            fprintf(stderr, "[UI] F1 overlay %s\n", lod::ui::overlay_visible() ? "shown" : "hidden");
+            return true;
+        case SDLK_F11:
+            config.wm_option = config.wm_option == ultramodern::renderer::WindowMode::Fullscreen
+                ? ultramodern::renderer::WindowMode::Windowed
+                : ultramodern::renderer::WindowMode::Fullscreen;
+            apply_and_save_graphics_config(config, "F11");
+            return true;
+        case SDLK_F5:
+            config.res_option = next_graphics_option(config.res_option);
+            apply_and_save_graphics_config(config, "F5");
+            return true;
+        case SDLK_F6:
+            config.ar_option = next_graphics_option(config.ar_option);
+            apply_and_save_graphics_config(config, "F6");
+            return true;
+        case SDLK_F7:
+            config.msaa_option = next_graphics_option(config.msaa_option);
+            apply_and_save_graphics_config(config, "F7");
+            return true;
+        case SDLK_F8:
+            config.rr_option = next_graphics_option(config.rr_option);
+            apply_and_save_graphics_config(config, "F8");
+            return true;
+        default:
+            return false;
+    }
+}
 
 static void open_first_game_controller() {
     if (game_controller != nullptr) {
@@ -167,6 +398,11 @@ void update_gfx(void*) {
                 if (event.cdevice.which == game_controller_instance) {
                     close_game_controller();
                     open_first_game_controller();
+                }
+                break;
+            case SDL_KEYDOWN:
+                if (event.key.repeat == 0 && handle_graphics_hotkey(event.key.keysym.sym)) {
+                    break;
                 }
                 break;
         }
@@ -405,24 +641,20 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
     if (game_controller != nullptr) {
-        // Face-button aliases: keep the direct N64 A/B mapping, but also map
-        // the left/top face buttons to the main action buttons so Xbox and
-        // PlayStation layouts have obvious jump/attack buttons during testing.
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_A) ||
-            SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_Y)) {
-            *buttons |= 0x8000; // N64 A / jump
-        }
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_B) ||
-            SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_X)) {
-            *buttons |= 0x4000; // N64 B / attack
-        }
+        // Modern face-button layout for LoD's default control set:
+        // A = Jump, X = primary attack, Y = secondary attack, B = interact/collect.
+        // R1 throws the selected item.
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_A)) *buttons |= 0x8000; // N64 A / jump
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_X)) *buttons |= 0x4000; // N64 B / attack 1 / primary
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_Y)) *buttons |= 0x0002; // N64 C-Left / attack 2 / secondary
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_B)) *buttons |= 0x0001; // N64 C-Right / interact / collect
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_START))         *buttons |= 0x1000; // Start
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_UP))       *buttons |= 0x0800; // D-Up
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN))     *buttons |= 0x0400; // D-Down
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT))     *buttons |= 0x0200; // D-Left
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    *buttons |= 0x0100; // D-Right
         if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  *buttons |= 0x0020; // L
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) *buttons |= 0x0010; // R
+        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) *buttons |= 0x0004; // N64 C-Down / throw item
 
         // N64 Z: natural on modern triggers.
         if (SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 12000 ||
@@ -430,13 +662,15 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
             *buttons |= 0x2000;
         }
 
-        // N64 C-buttons on right stick.
-        const float c_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX));
-        const float c_y = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY));
-        if (c_y < -0.5f) *buttons |= 0x0008; // C-Up
-        if (c_y >  0.5f) *buttons |= 0x0004; // C-Down
-        if (c_x < -0.5f) *buttons |= 0x0002; // C-Left
-        if (c_x >  0.5f) *buttons |= 0x0001; // C-Right
+        // LoD uses the N64 D-pad for camera movement; map it to the right stick
+        // on modern controllers while keeping the physical D-pad available too.
+        // Right-stick camera axes are inverted to match the requested modern mapping.
+        const float camera_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX));
+        const float camera_y = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY));
+        if (camera_y < -0.5f) *buttons |= 0x0400; // D-Down
+        if (camera_y >  0.5f) *buttons |= 0x0800; // D-Up
+        if (camera_x < -0.5f) *buttons |= 0x0100; // D-Right
+        if (camera_x >  0.5f) *buttons |= 0x0200; // D-Left
 
         const float pad_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTX));
         const float pad_y = -normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTY));
@@ -878,6 +1112,18 @@ int main(int argc, char** argv) {
 #endif
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
+    g_config_path = config_path;
+
+    auto graphics_config = load_graphics_config();
+    ultramodern::renderer::set_graphics_config(graphics_config);
+    fprintf(stderr,
+            "[CONFIG] Loaded graphics config: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
+            graphics_resolution_name(graphics_config.res_option),
+            graphics_window_mode_name(graphics_config.wm_option),
+            graphics_aspect_name(graphics_config.ar_option),
+            graphics_msaa_name(graphics_config.msaa_option),
+            graphics_refresh_name(graphics_config.rr_option),
+            graphics_config.rr_manual_value);
 
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(48000);

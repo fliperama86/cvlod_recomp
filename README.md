@@ -98,6 +98,24 @@ On first launch, macOS may block the ad-hoc signed app. Open **System Settings â
 
 The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. If macOS launches the app through App Translocation and that adjacent ROM is hidden from the process, the app will ask you to select your stock LoD ROM once with a native file picker and remember that path for future launches. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
 
+### Graphics/settings overlay
+
+The app creates a persistent graphics config at `~/Library/Application Support/LodRecomp/graphics.json` on macOS.
+Fresh configs default to `Original2x` internal resolution; existing configs are preserved.
+
+The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The overlay currently mirrors the live graphics settings; direct menu navigation is still in progress, so use these hotkeys to change values for now:
+
+| Key | Action |
+| --- | --- |
+| `F1` | Show/hide the RmlUi settings overlay |
+| `F11` | Toggle windowed/fullscreen |
+| `F5` | Cycle internal resolution mode (`Original`, `Original2x`, `Auto`) |
+| `F6` | Cycle aspect ratio mode (`Original`, `Expand`, `Manual`) |
+| `F7` | Cycle antialiasing (`None`, `MSAA2X`, `MSAA4X`, `MSAA8X`) |
+| `F8` | Cycle refresh-rate mode (`Original`, `Display`, `Manual`) |
+
+Options are applied live and saved automatically. The overlay uses the same RmlUi/RT64 render-hook direction as Zelda64Recomp, but it is still an early LoD-specific prototype.
+
 ### Building from a release tag
 
 GitHub releases are also tagged source baselines. Use the release tag with `git clone --recursive`; do **not** rely on GitHub's auto-generated "Source code" zip/tarball for a fresh build because it does not include submodule contents and it still requires the local/generated files listed above.
@@ -236,15 +254,17 @@ Keyboard input remains available:
 
 SDL game controllers are also supported. Xbox controllers and DualSense/DualShock controllers should be detected through SDL's standard GameController mappings:
 
-- A / Cross or Y / Triangle = N64 A / jump
-- B / Circle or X / Square = N64 B / attack
+- A / Cross = N64 A / jump
+- X / Square = N64 B / attack 1 / primary attack
+- Y / Triangle = N64 C-Left / attack 2 / secondary attack
+- B / Circle = N64 C-Right / collect / interact
 - Start / Options = Start
 - Left stick = analog stick
 - D-pad = N64 D-pad
 - Left bumper = N64 L
-- Right bumper = N64 R
+- Right bumper / R1 = N64 C-Down / throw item
 - Left or right trigger = N64 Z
-- Right stick = N64 C-buttons
+- Right stick = inverted N64 D-pad / camera
 
 ## Crash/test reports
 

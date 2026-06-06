@@ -206,6 +206,11 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
     ${CMAKE_SOURCE_DIR}/src/main/lod_init.cpp
     ${CMAKE_SOURCE_DIR}/src/main/ni_overlay_loader.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/lod_ui_overlay.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfaceVS.hlsl.spirv.c
+    ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfacePS.hlsl.spirv.c
+    ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfaceVS.hlsl.metal.c
+    ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfacePS.hlsl.metal.c
     ${LOD_AUDIO_RSP_SOURCE}
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
@@ -217,10 +222,13 @@ endif()
 
 target_include_directories(LodRecomp PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src/ui
+    ${CMAKE_SOURCE_DIR}/src/ui/shaders
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Include
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib
+    ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/plume
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/hlslpp/include
     ${CMAKE_SOURCE_DIR}/lib/rt64/src/contrib/dxc/inc
     ${CMAKE_SOURCE_DIR}/lib/rt64/src
