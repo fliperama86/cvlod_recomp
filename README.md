@@ -58,7 +58,7 @@ A source build/test checkout needs, at minimum, the generated `RecompiledFuncs/`
 RecompiledFuncs/funcs.h
 RecompiledFuncs/recomp_overlays.inl
 RecompiledFuncs/*.c              # full generated set, not only tracked patched files
-rom.z64                          # preferred runtime name; prepared extended LoD ROM image
+rom.z64                          # preferred runtime name; stock Castlevania: LoD ROM image
 ```
 
 Developer checkouts may also use the older `resources/*.z64` layout as a fallback, but release binaries prefer `./rom.z64`.
@@ -75,7 +75,7 @@ That script verifies the tool, repairs known truncation issues, reapplies patche
 
 ### Running the macOS binary asset
 
-Download the macOS `.app` asset from the GitHub release, extract it, and place your prepared LoD runtime ROM next to the app as `rom.z64`:
+Download the macOS `.app` asset from the GitHub release, extract it, and place your legally dumped stock Castlevania: Legacy of Darkness ROM next to the app as `rom.z64`:
 
 ```text
 LodRecomp.app
@@ -100,7 +100,7 @@ If Gatekeeper quarantine was applied to the downloaded file, clear it with:
 xattr -dr com.apple.quarantine ./LodRecomp.app
 ```
 
-The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder.
+The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
 
 ### Building from a release tag
 
@@ -123,7 +123,7 @@ git submodule update --init --recursive
 git submodule status --recursive
 ```
 
-Before building, provide the generated/local files listed in [Generated/local files](#generatedlocal-files), especially `rom.z64` and the full generated `RecompiledFuncs/` output matching the release tag.
+Before building, provide the generated/local files listed in [Generated/local files](#generatedlocal-files), especially a stock `rom.z64` and the full generated `RecompiledFuncs/` output matching the release tag.
 
 Build:
 

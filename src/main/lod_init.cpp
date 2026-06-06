@@ -13,6 +13,7 @@
 #include <zlib.h>
 
 #include "recomp.h"
+#include "ni_ovl_data.h"
 #include "lod/lod_paths.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
@@ -50,6 +51,8 @@ extern "C" void lod_install_ni24_writer_trace_wrappers_early();
 uint32_t ni_decompressed_addrs[1024] = {};
 int ni_decompressed_count = 0;
 
+static constexpr int NI_TEXT_INDEX_START = 0x1C5;
+
 // Set rdram pointer for debug scanning in get_function()
 extern uint8_t* rdram_ptr_for_debug;
 
@@ -84,6 +87,8 @@ extern "C" void lod_copy_overlay_data(uint8_t* rdram, uint32_t rom_offset,
 
 void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     rdram_ptr_for_debug = rdram;
+    bool ni_extension_mapped_from_stock_rom = false;
+    int ni_extension_mapped_pairs = 0;
 
     // Load the ORIGINAL compressed ROM for NI decompression. The decompressed ROM
     // has different NI table format (shared offsets, no size info). The compressed
@@ -264,6 +269,39 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         constexpr uint32_t ni_entries_rom = ni_table_rom + 0x10; // after 16-byte magic
         constexpr uint32_t file_ptr_array = 0x801C8830;
         constexpr uint32_t bitmask_array  = 0x801C83EC;
+        constexpr uint32_t rom_rdram_base = 0x10000000;
+
+        // Release UX: users should only provide their stock LoD ROM. The
+        // recompiled NI loader needs each executable NI overlay's full
+        // decompressed text+data blob at the same offsets used by the developer
+        // extended ROM. Populate that in-memory extension directly from the
+        // user's ROM while we are already decompressing NI files.
+        bool ni_extension_region_writable = false;
+        uint32_t ni_ext_start = 0xFFFFFFFFu;
+        uint32_t ni_ext_end = 0;
+        for (int i = 0; i < NI_OVL_COUNT; i++) {
+            if (ni_ovl_data[i].rom_offset < ni_ext_start) {
+                ni_ext_start = ni_ovl_data[i].rom_offset;
+            }
+            uint32_t end = ni_ovl_data[i].rom_offset + ni_ovl_data[i].full_size;
+            if (end > ni_ext_end) {
+                ni_ext_end = end;
+            }
+        }
+        if (ni_ext_start != 0xFFFFFFFFu && ni_ext_end > ni_ext_start) {
+            uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+            uint8_t* ext_base = rdram + rom_rdram_base + ni_ext_start;
+            uint8_t* aligned = (uint8_t*)((uintptr_t)ext_base & ~page_mask);
+            size_t aligned_size = ((rdram + rom_rdram_base + ni_ext_end) - aligned + page_mask) & ~page_mask;
+            int ext_ret = mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
+            fprintf(stderr, "[init] mprotect runtime NI extension: rdram+0x%08X..0x%08X %s\n",
+                    rom_rdram_base + ni_ext_start, rom_rdram_base + ni_ext_end,
+                    ext_ret == 0 ? "OK" : "FAILED");
+            if (ext_ret == 0) {
+                memset(rdram + rom_rdram_base + ni_ext_start, 0, ni_ext_end - ni_ext_start);
+                ni_extension_region_writable = true;
+            }
+        }
 
         uint32_t ni_rdram_cursor = ni_rdram_base;
         uint32_t ni_rdram_limit = ni_rdram_base + ni_rdram_size;
@@ -325,6 +363,41 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                             ni_rdram_cursor += aligned_size;
                             decomp_count++;
                         }
+
+                        int pair_index = -1;
+                        if (entry_idx >= NI_TEXT_INDEX_START) {
+                            int code_offset = entry_idx - NI_TEXT_INDEX_START;
+                            if ((code_offset % 2) == 0) {
+                                pair_index = code_offset / 2;
+                            }
+                        }
+                        if (pair_index >= 0 && pair_index < NI_OVL_COUNT &&
+                            ni_extension_region_writable) {
+                            const NiOvlData& ovl = ni_ovl_data[pair_index];
+                            uint8_t* dst = rdram + rom_rdram_base + ovl.rom_offset;
+                            if (decomp_size != ovl.full_size) {
+                                static int mismatch_count = 0;
+                                mismatch_count++;
+                                if (mismatch_count <= 8) {
+                                    fprintf(stderr,
+                                            "[init] NI runtime extension size mismatch pair=%d "
+                                            "decomp=0x%zX expected=0x%X\n",
+                                            pair_index, decomp_size, ovl.full_size);
+                                }
+                            }
+                            for (uint32_t j = 0; j < ovl.full_size; j += 4) {
+                                uint8_t b0 = (j + 0 < decomp_size) ? temp[j + 0] : 0;
+                                uint8_t b1 = (j + 1 < decomp_size) ? temp[j + 1] : 0;
+                                uint8_t b2 = (j + 2 < decomp_size) ? temp[j + 2] : 0;
+                                uint8_t b3 = (j + 3 < decomp_size) ? temp[j + 3] : 0;
+                                dst[j + 0] = b3;
+                                dst[j + 1] = b2;
+                                dst[j + 2] = b1;
+                                dst[j + 3] = b0;
+                            }
+                            ni_extension_mapped_from_stock_rom = true;
+                            ni_extension_mapped_pairs++;
+                        }
                 }
             }
             file_count++;
@@ -338,6 +411,11 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                 ni_rdram_base, ni_rdram_cursor);
         fprintf(stderr, "[init]   File ptr array at 0x%08X, bitmask at 0x%08X\n",
                 file_ptr_array, bitmask_array);
+        if (ni_extension_mapped_from_stock_rom) {
+            fprintf(stderr,
+                    "[init] Prepared runtime NI extension from stock ROM: %d/%d overlays\n",
+                    ni_extension_mapped_pairs, NI_OVL_COUNT);
+        }
 
         // DO NOT pre-populate file_ptr_array at init — it breaks game boot.
         // The game's DMAMgr loads NI files on demand during execution.
@@ -401,7 +479,11 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         std::filesystem::path ext_rom_path = lod::get_runtime_rom_path();
         if (ext_rom_path.empty() || !std::filesystem::exists(ext_rom_path) ||
             std::filesystem::file_size(ext_rom_path) <= 0x01000000) {
-            ext_rom_path = "resources/castlevania2_ni_extended.z64";
+            if (ni_extension_mapped_from_stock_rom) {
+                ext_rom_path.clear();
+            } else {
+                ext_rom_path = "resources/castlevania2_ni_extended.z64";
+            }
         }
         if (std::filesystem::exists(ext_rom_path)) {
             std::ifstream ef(ext_rom_path, std::ios::binary);
