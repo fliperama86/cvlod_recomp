@@ -31,12 +31,24 @@
 #define LOD_ENABLE_NI24_NULL_DISPATCH_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_PAUSE_ITEM_TRACE
+#define LOD_ENABLE_PAUSE_ITEM_TRACE 0
+#endif
+
 #ifndef LOD_FIX_NI_PAIR120_RESULT_LABELS
 #define LOD_FIX_NI_PAIR120_RESULT_LABELS 1
 #endif
 
 #ifndef LOD_FIX_NI_PAIR24_INTERNAL_LABELS
 #define LOD_FIX_NI_PAIR24_INTERNAL_LABELS 1
+#endif
+
+#ifndef LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA
+#define LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA 1
+#endif
+
+#ifndef LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
+#define LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST 1
 #endif
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
@@ -754,6 +766,1106 @@ static void lod_install_ni24_null_dispatch_trace_wrapper(int pair_index, uint32_
 }
 #endif
 
+#if LOD_ENABLE_PAUSE_ITEM_TRACE
+static recomp_func_t* lod_orig_pause_item_entry = nullptr;
+static recomp_func_t* lod_orig_pause_item_sub_entry = nullptr;
+
+static bool lod_pause_item_addr_phys(uint32_t addr, uint32_t size, uint32_t* phys_out) {
+    if (addr == 0) {
+        return false;
+    }
+
+    uint32_t phys = 0xFFFFFFFF;
+    if (addr < 0x00800000) {
+        phys = addr;
+    } else if (addr >= 0x80000000 && addr < 0x80800000) {
+        phys = addr - 0x80000000;
+    } else if (addr >= 0xA0000000 && addr < 0xA0800000) {
+        phys = addr - 0xA0000000;
+    } else {
+        return false;
+    }
+
+    if (!lod_ni_telemetry_range_ok(phys, size)) {
+        return false;
+    }
+    if (phys_out != nullptr) {
+        *phys_out = phys;
+    }
+    return true;
+}
+
+static uint8_t lod_pause_item_u8(uint8_t* rdram, uint32_t phys) {
+    return lod_ni_telemetry_range_ok(phys, 1) ? rdram[phys ^ 3] : 0;
+}
+
+static uint16_t lod_pause_item_u16(uint8_t* rdram, uint32_t phys) {
+    return lod_ni_telemetry_range_ok(phys, 2) ? *(uint16_t*)(rdram + (phys ^ 2)) : 0;
+}
+
+static int16_t lod_pause_item_s16(uint8_t* rdram, uint32_t phys) {
+    return (int16_t)lod_pause_item_u16(rdram, phys);
+}
+
+static uint32_t lod_pause_item_u32(uint8_t* rdram, uint32_t phys) {
+    return lod_ni_telemetry_range_ok(phys, 4) ? *(uint32_t*)(rdram + phys) : 0;
+}
+
+static float lod_pause_item_f32(uint8_t* rdram, uint32_t phys) {
+    union { uint32_t u; float f; } v{};
+    v.u = lod_pause_item_u32(rdram, phys);
+    return v.f;
+}
+
+static uint32_t lod_pause_item_hash_step(uint32_t hash, uint32_t value) {
+    hash ^= value;
+    hash *= 16777619u;
+    return hash;
+}
+
+static uint32_t lod_pause_item_table_target(uint8_t* rdram, uint32_t table_offset,
+                                            uint32_t state_index, uint32_t max_entries) {
+    // MEM_W(offset, base) expects an offset relative to the 0x0F segment base.
+    if (state_index >= max_entries) {
+        return 0;
+    }
+    return (uint32_t)MEM_W(table_offset + state_index * 4, (gpr)(int32_t)0x0F000000);
+}
+
+static uint32_t lod_pause_item_top_target(uint8_t* rdram, uint32_t state_index) {
+    return lod_pause_item_table_target(rdram, 0x5BAC, state_index, 32);
+}
+
+static uint32_t lod_pause_item_sub_a_target(uint8_t* rdram, uint32_t state_index) {
+    return lod_pause_item_table_target(rdram, 0x5BDC, state_index, 8);
+}
+
+static uint32_t lod_pause_item_sub_b_target(uint8_t* rdram, uint32_t state_index) {
+    return lod_pause_item_table_target(rdram, 0x5BF4, state_index, 8);
+}
+
+static uint32_t lod_pause_item_pair99_item_target(uint8_t* rdram, uint32_t state_index) {
+    return lod_pause_item_table_target(rdram, 0x4F6C, state_index, 8);
+}
+
+static bool lod_pause_item_is_focused_pair(int pair) {
+    return pair == 45 || pair == 99 || pair == 101;
+}
+
+static uint32_t lod_pause_item_pair_target(uint8_t* rdram, int pair, uint32_t state_index) {
+    switch (pair) {
+        case 45:  return lod_pause_item_table_target(rdram, 0x5BAC, state_index, 32);
+        case 99:  return lod_pause_item_table_target(rdram, 0x4CE8, state_index, 16);
+        case 101: return lod_pause_item_table_target(rdram, 0x1488, state_index, 8);
+        default:  return 0;
+    }
+}
+
+static const char* lod_pause_item_state_name(uint32_t target) {
+    switch (target) {
+        case 0x0F000070: return "vol-down";
+        case 0x0F0000E8: return "init";
+        case 0x0F0005F0: return "create-main";
+        case 0x0F000B18: return "calc-main";
+        case 0x0F002F94: return "top04";
+        case 0x0F003118: return "top05";
+        case 0x0F003250: return "top06";
+        case 0x0F003364: return "top07";
+        case 0x0F0034B8: return "top08";
+        case 0x0F003544: return "callback";
+        case 0x0F003628: return "top10";
+        case 0x0F00371C: return "top11";
+        case 0x0F001540: return "subA0";
+        case 0x0F002198: return "subA1";
+        case 0x0F00236C: return "subA2";
+        case 0x0F0025D4: return "subA3";
+        case 0x0F0027AC: return "subA4-noop";
+        case 0x0F0027B4: return "subA5";
+        case 0x0F002ACC: return "subB0";
+        case 0x0F002BFC: return "subB1";
+        case 0x0F002DB0: return "subB2-label";
+        case 0x0F002DD4: return "subB3";
+        case 0x0F002F8C: return "subB4-noop";
+        case 0x0F0001F8: return "p99-state01";
+        case 0x0F000648: return "p99-state02";
+        case 0x0F0009F8: return "p99-state03";
+        case 0x0F000A40: return "p99-state04";
+        case 0x0F00103C: return "p99-state05";
+        case 0x0F0010A0: return "p99-state06";
+        case 0x0F0010E8: return "p99-state07";
+        case 0x0F001270: return "p99-state08";
+        case 0x0F001350: return "p99-state09";
+        case 0x0F0016BC: return "p99-state10";
+        case 0x0F00192C: return "p99-state11";
+        case 0x0F0019FC: return "p99-state12";
+        case 0x0F001A9C: return "p99-state13";
+        case 0x0F001B08: return "p99-state14";
+        case 0x0F001FE8: return "p99-state15";
+        case 0x0F002830: return "p99-item-create";
+        case 0x0F0029BC: return "p99-item-calc";
+        case 0x0F002E2C: return "p99-item-close";
+        case 0x0F002FAC: return "p99-item-destroy";
+        case 0x0F003008: return "p99-item-noop";
+        case 0x0F00302C: return "p99-item-selected";
+        case 0x0F00364C: return "p99-item-selected-close";
+        case 0x0F0003A8: return "p101-state01";
+        case 0x0F0004DC: return "p101-state02";
+        case 0x0F00052C: return "p101-state03";
+        case 0x0F000690: return "p101-state04";
+        default: return "unknown";
+    }
+}
+
+static uint8_t lod_pause_item_current_state_index(uint8_t* rdram, uint32_t obj) {
+    uint32_t obj_phys = 0;
+    if (!lod_pause_item_addr_phys(obj, 0x74, &obj_phys)) {
+        return 0xFF;
+    }
+
+    int16_t active_level = lod_pause_item_s16(rdram, obj_phys + 0x0E);
+    int32_t dispatch_level = active_level + 1;
+    if (dispatch_level < 0) {
+        dispatch_level = 0;
+    }
+    uint32_t state_byte_phys = obj_phys + 0x09 + (uint32_t)dispatch_level * 2;
+    if (!lod_ni_telemetry_range_ok(state_byte_phys, 1)) {
+        return 0xFF;
+    }
+    return lod_pause_item_u8(rdram, state_byte_phys);
+}
+
+struct LodPauseItemTraceSlot {
+    uint32_t obj = 0;
+    int pair = -999;
+    uint32_t sig = 0;
+};
+
+static bool lod_pause_item_seen_signature(int pair, uint32_t obj, uint32_t sig) {
+    static LodPauseItemTraceSlot slots[32] = {};
+    int free_slot = -1;
+    for (int i = 0; i < 32; i++) {
+        if (slots[i].obj == obj && slots[i].pair == pair) {
+            if (slots[i].sig == sig) {
+                return true;
+            }
+            slots[i].sig = sig;
+            return false;
+        }
+        if (slots[i].obj == 0 && free_slot < 0) {
+            free_slot = i;
+        }
+    }
+    if (free_slot < 0) {
+        free_slot = (obj >> 4) & 31;
+    }
+    slots[free_slot].obj = obj;
+    slots[free_slot].pair = pair;
+    slots[free_slot].sig = sig;
+    return false;
+}
+
+static void lod_pause_item_dump_save_items(uint8_t* rdram, const char* site, int count) {
+    // Pair 99 builds its item list from sys.SaveStruct_gameplay item bytes at
+    // SaveStruct base 0x801C82C0 + 0x2883 + item_id.
+    static constexpr uint32_t kSaveStructPhys = 0x001C82C0;
+    static constexpr uint32_t kItemAmountOff = 0x2883;
+
+    char nonzero[512];
+    size_t pos = 0;
+    nonzero[0] = '\0';
+    int nonzero_count = 0;
+    for (int item_id = 0; item_id <= 0x2E; item_id++) {
+        uint32_t phys = kSaveStructPhys + kItemAmountOff + (uint32_t)item_id;
+        uint8_t amount = lod_pause_item_u8(rdram, phys);
+        if (amount != 0) {
+            int wrote = snprintf(nonzero + pos, sizeof(nonzero) - pos,
+                                 "%s%02X:%u", nonzero_count == 0 ? "" : ",",
+                                 item_id, amount);
+            if (wrote > 0) {
+                pos += (size_t)wrote;
+                if (pos >= sizeof(nonzero)) {
+                    pos = sizeof(nonzero) - 1;
+                    nonzero[pos] = '\0';
+                    break;
+                }
+            }
+            nonzero_count++;
+        }
+    }
+    if (nonzero_count == 0) {
+        snprintf(nonzero, sizeof(nonzero), "none");
+    }
+
+    fprintf(stderr,
+            "[ITEM_MENU_SAVE] %s #%d nonzero=%d items={%s} "
+            "raw04-2D=[",
+            site, count, nonzero_count, nonzero);
+    for (int item_id = 4; item_id <= 0x2D; item_id++) {
+        uint32_t phys = kSaveStructPhys + kItemAmountOff + (uint32_t)item_id;
+        fprintf(stderr, "%s%u", item_id == 4 ? "" : ",",
+                lod_pause_item_u8(rdram, phys));
+    }
+    fprintf(stderr, "]\n");
+}
+
+static void lod_pause_item_dump_child(uint8_t* rdram, const char* site, int count,
+                                      const char* label, uint32_t obj) {
+    uint32_t phys = 0;
+    if (!lod_pause_item_addr_phys(obj, 0x74, &phys)) {
+        fprintf(stderr,
+                "[ITEM_MENU_CHILD] %s #%d %s=0x%08X invalid\n",
+                site, count, label, obj);
+        return;
+    }
+
+    int16_t level = lod_pause_item_s16(rdram, phys + 0x0E);
+    uint8_t state0 = lod_pause_item_u8(rdram, phys + 0x09);
+    uint8_t state1 = lod_pause_item_u8(rdram, phys + 0x0B);
+    uint8_t state2 = lod_pause_item_u8(rdram, phys + 0x0D);
+    uint16_t type10 = lod_pause_item_u16(rdram, phys + 0x10);
+    uint16_t flags12 = lod_pause_item_u16(rdram, phys + 0x12);
+    uint32_t f20 = lod_pause_item_u32(rdram, phys + 0x20);
+    uint32_t f24 = lod_pause_item_u32(rdram, phys + 0x24);
+    uint32_t f28 = lod_pause_item_u32(rdram, phys + 0x28);
+    uint32_t f2c = lod_pause_item_u32(rdram, phys + 0x2C);
+    uint32_t f30 = lod_pause_item_u32(rdram, phys + 0x30);
+    uint32_t f34 = lod_pause_item_u32(rdram, phys + 0x34);
+    uint32_t f38 = lod_pause_item_u32(rdram, phys + 0x38);
+    uint32_t f3c = lod_pause_item_u32(rdram, phys + 0x3C);
+    uint32_t f40 = lod_pause_item_u32(rdram, phys + 0x40);
+    uint32_t f44 = lod_pause_item_u32(rdram, phys + 0x44);
+    uint32_t f48 = lod_pause_item_u32(rdram, phys + 0x48);
+    uint32_t f4c = lod_pause_item_u32(rdram, phys + 0x4C);
+    uint32_t f50 = lod_pause_item_u32(rdram, phys + 0x50);
+    uint32_t f54 = lod_pause_item_u32(rdram, phys + 0x54);
+    uint32_t f58 = lod_pause_item_u32(rdram, phys + 0x58);
+    uint32_t f5c = lod_pause_item_u32(rdram, phys + 0x5C);
+    uint32_t f60 = lod_pause_item_u32(rdram, phys + 0x60);
+    uint32_t f64 = lod_pause_item_u32(rdram, phys + 0x64);
+    uint32_t f68 = lod_pause_item_u32(rdram, phys + 0x68);
+    uint32_t f6c = lod_pause_item_u32(rdram, phys + 0x6C);
+    uint32_t f70 = lod_pause_item_u32(rdram, phys + 0x70);
+
+    uint32_t state_phys = 0;
+    bool state_ok = lod_pause_item_addr_phys(f70, 0x60, &state_phys);
+    uint32_t st_flags = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x00) : 0;
+    uint32_t st_cam = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x04) : 0;
+    uint32_t st_text = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x08) : 0;
+    uint32_t st_amount = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x0C) : 0;
+    uint32_t st_work = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x10) : 0;
+    uint16_t st_x = state_ok ? lod_pause_item_u16(rdram, state_phys + 0x14) : 0;
+    uint16_t st_y = state_ok ? lod_pause_item_u16(rdram, state_phys + 0x16) : 0;
+    float st_z = state_ok ? lod_pause_item_f32(rdram, state_phys + 0x18) : 0.0f;
+    float st_sx = state_ok ? lod_pause_item_f32(rdram, state_phys + 0x1C) : 0.0f;
+    float st_sy = state_ok ? lod_pause_item_f32(rdram, state_phys + 0x20) : 0.0f;
+    uint32_t st_number = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x24) : 0;
+    uint16_t st_width = state_ok ? lod_pause_item_u16(rdram, state_phys + 0x2C) : 0;
+    uint8_t st_opt = state_ok ? lod_pause_item_u8(rdram, state_phys + 0x2F) : 0;
+    uint8_t st_line = state_ok ? lod_pause_item_u8(rdram, state_phys + 0x30) : 0;
+    uint8_t st_pal = state_ok ? lod_pause_item_u8(rdram, state_phys + 0x34) : 0;
+    uint8_t st_misc0 = state_ok ? lod_pause_item_u8(rdram, state_phys + 0x35) : 0;
+    uint8_t st_misc1 = state_ok ? lod_pause_item_u8(rdram, state_phys + 0x36) : 0;
+    uint32_t st_window_flags = state_ok ? lod_pause_item_u32(rdram, state_phys + 0x54) : 0;
+
+    fprintf(stderr,
+            "[ITEM_MENU_CHILD] %s #%d %s=0x%08X lvl=%d states=%u/%u/%u "
+            "type=0x%04X flags=0x%04X "
+            "obj={20=0x%08X 24=0x%08X 28=0x%08X 2C=0x%08X 30=0x%08X 34=0x%08X 38=0x%08X 3C=0x%08X "
+            "40=0x%08X 44=0x%08X 48=0x%08X 4C=0x%08X 50=0x%08X 54=0x%08X 58=0x%08X 5C=0x%08X "
+            "60=0x%08X 64=0x%08X 68=0x%08X 6C=0x%08X 70=0x%08X} "
+            "mfds_state={ok=%d flags=0x%08X cam=0x%08X text=0x%08X amount=0x%08X work=0x%08X "
+            "pos=(%u,%u,%+.1f) scale=(%.2f,%.2f) number=%u width=%u opt=%u line=%u pal=%u misc=%u/%u win=0x%08X}\n",
+            site, count, label, obj, level, state0, state1, state2,
+            type10, flags12,
+            f20, f24, f28, f2c, f30, f34, f38, f3c,
+            f40, f44, f48, f4c, f50, f54, f58, f5c,
+            f60, f64, f68, f6c, f70,
+            state_ok ? 1 : 0, st_flags, st_cam, st_text, st_amount, st_work,
+            st_x, st_y, st_z, st_sx, st_sy, st_number, st_width, st_opt,
+            st_line, st_pal, st_misc0, st_misc1, st_window_flags);
+}
+
+static void lod_pause_item_format_text_head(uint8_t* rdram, uint32_t text_addr,
+                                            char* out, size_t out_size) {
+    if (out_size == 0) {
+        return;
+    }
+    out[0] = '\0';
+
+    uint32_t phys = 0;
+    if (!lod_pause_item_addr_phys(text_addr, 2, &phys)) {
+        snprintf(out, out_size, "invalid");
+        return;
+    }
+
+    size_t pos = 0;
+    for (int i = 0; i < 16; i++) {
+        if (!lod_ni_telemetry_range_ok(phys + (uint32_t)i * 2, 2)) {
+            break;
+        }
+        uint16_t code = lod_pause_item_u16(rdram, phys + (uint32_t)i * 2);
+        int wrote = snprintf(out + pos, out_size - pos,
+                             "%s%04X", i == 0 ? "" : " ", code);
+        if (wrote <= 0) {
+            break;
+        }
+        pos += (size_t)wrote;
+        if (pos >= out_size) {
+            out[out_size - 1] = '\0';
+            break;
+        }
+        if (code == 0xB500 || code == 0xFFFF || code == 0x0000) {
+            break;
+        }
+    }
+}
+
+static void lod_pause_item_dump_mfds_state(uint8_t* rdram, const char* site, int count,
+                                           const char* label, uint32_t state_addr) {
+    uint32_t phys = 0;
+    if (!lod_pause_item_addr_phys(state_addr, 0x60, &phys)) {
+        fprintf(stderr,
+                "[ITEM_MENU_MFDS] %s #%d %s=0x%08X invalid\n",
+                site, count, label, state_addr);
+        return;
+    }
+
+    uint32_t flags = lod_pause_item_u32(rdram, phys + 0x00);
+    uint32_t cam = lod_pause_item_u32(rdram, phys + 0x04);
+    uint32_t text = lod_pause_item_u32(rdram, phys + 0x08);
+    uint32_t amount_text = lod_pause_item_u32(rdram, phys + 0x0C);
+    uint32_t work = lod_pause_item_u32(rdram, phys + 0x10);
+    uint16_t pos_x = lod_pause_item_u16(rdram, phys + 0x14);
+    uint16_t pos_y = lod_pause_item_u16(rdram, phys + 0x16);
+    float pos_z = lod_pause_item_f32(rdram, phys + 0x18);
+    float scale_x = lod_pause_item_f32(rdram, phys + 0x1C);
+    float scale_y = lod_pause_item_f32(rdram, phys + 0x20);
+    int32_t number = (int32_t)lod_pause_item_u32(rdram, phys + 0x24);
+    int32_t prev_number = (int32_t)lod_pause_item_u32(rdram, phys + 0x28);
+    uint16_t width = lod_pause_item_u16(rdram, phys + 0x2C);
+    uint8_t prev_opt = lod_pause_item_u8(rdram, phys + 0x2E);
+    uint8_t opt = lod_pause_item_u8(rdram, phys + 0x2F);
+    uint8_t line = lod_pause_item_u8(rdram, phys + 0x30);
+    uint8_t spacing = lod_pause_item_u8(rdram, phys + 0x32);
+    uint8_t left_margin = lod_pause_item_u8(rdram, phys + 0x33);
+    uint8_t palette = lod_pause_item_u8(rdram, phys + 0x34);
+    uint32_t window_flags = lod_pause_item_u32(rdram, phys + 0x54);
+    float close_speed = lod_pause_item_f32(rdram, phys + 0x58);
+    uint32_t lens = lod_pause_item_u32(rdram, phys + 0x5C);
+
+    uint32_t work_phys = 0;
+    bool work_ok = lod_pause_item_addr_phys(work, 0x60, &work_phys);
+    uint32_t work_flags = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x00) : 0;
+    uint16_t work_w04 = work_ok ? lod_pause_item_u16(rdram, work_phys + 0x04) : 0;
+    uint16_t work_w06 = work_ok ? lod_pause_item_u16(rdram, work_phys + 0x06) : 0;
+    uint32_t work_08 = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x08) : 0;
+    uint32_t work_0c = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x0C) : 0;
+    uint32_t work_10 = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x10) : 0;
+    uint8_t work_text_speed = work_ok ? lod_pause_item_u8(rdram, work_phys + 0x3D) : 0;
+    uint8_t work_tex_idx = work_ok ? lod_pause_item_u8(rdram, work_phys + 0x3C) : 0;
+    uint32_t work_texbuf = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x48) : 0;
+    uint32_t work_ltexbuf = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x4C) : 0;
+
+    char text_head[128];
+    char amount_head[128];
+    lod_pause_item_format_text_head(rdram, text, text_head, sizeof(text_head));
+    lod_pause_item_format_text_head(rdram, amount_text, amount_head, sizeof(amount_head));
+
+    fprintf(stderr,
+            "[ITEM_MENU_MFDS] %s #%d %s=0x%08X "
+            "flags=0x%08X cam=0x%08X text=0x%08X amount=0x%08X work=0x%08X "
+            "pos=(%u,%u,%+.1f) scale=(%.2f,%.2f) num=%d prev=%d "
+            "dims={line=%u width=%u spacing=%u margin=%u opt=%u/%u pal=%u} "
+            "win=0x%08X close=%.2f lens=0x%08X "
+            "text_head=[%s] amount_head=[%s] "
+            "work={ok=%d flags=0x%08X wh=%u/%u ptrs=0x%08X/0x%08X/0x%08X "
+            "tex=%u speed=%u texbuf=0x%08X ltex=0x%08X}\n",
+            site, count, label, state_addr,
+            flags, cam, text, amount_text, work,
+            pos_x, pos_y, pos_z, scale_x, scale_y, number, prev_number,
+            line, width, spacing, left_margin, prev_opt, opt, palette,
+            window_flags, close_speed, lens,
+            text_head, amount_head,
+            work_ok ? 1 : 0, work_flags, work_w04, work_w06, work_08, work_0c, work_10,
+            work_tex_idx, work_text_speed, work_texbuf, work_ltexbuf);
+}
+
+static void lod_pause_item_dump_textbox_handle(uint8_t* rdram, const char* site, int count,
+                                               const char* label, uint32_t handle_addr) {
+    uint32_t phys = 0;
+    if (!lod_pause_item_addr_phys(handle_addr, 0x74, &phys)) {
+        fprintf(stderr,
+                "[ITEM_MENU_TBOX] %s #%d %s=0x%08X invalid\n",
+                site, count, label, handle_addr);
+        return;
+    }
+
+    uint32_t core_addr = lod_pause_item_u32(rdram, phys + 0x38);
+    uint32_t core_phys = 0;
+    bool core_ok = lod_pause_item_addr_phys(core_addr, 0xA4, &core_phys);
+
+    uint32_t h20 = lod_pause_item_u32(rdram, phys + 0x20);
+    uint32_t h24 = lod_pause_item_u32(rdram, phys + 0x24);
+    uint32_t h34 = lod_pause_item_u32(rdram, phys + 0x34);
+    uint32_t h3c = lod_pause_item_u32(rdram, phys + 0x3C);
+    uint32_t h40 = lod_pause_item_u32(rdram, phys + 0x40);
+    uint32_t h4c = lod_pause_item_u32(rdram, phys + 0x4C);
+    uint32_t h50 = lod_pause_item_u32(rdram, phys + 0x50);
+    uint32_t h54 = lod_pause_item_u32(rdram, phys + 0x54);
+    uint32_t h60 = lod_pause_item_u32(rdram, phys + 0x60);
+    uint32_t h6c = lod_pause_item_u32(rdram, phys + 0x6C);
+
+    uint32_t c20 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x20) : 0;
+    uint8_t c24 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x24) : 0;
+    uint8_t c25 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x25) : 0;
+    uint16_t c30 = core_ok ? lod_pause_item_u16(rdram, core_phys + 0x30) : 0;
+    uint32_t c34 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x34) : 0;
+    uint32_t c38 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x38) : 0;
+    uint8_t c3c = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x3C) : 0;
+    uint8_t c3d = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x3D) : 0;
+    uint32_t c54 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x54) : 0;
+    uint32_t c58 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x58) : 0;
+    uint32_t c5c = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x5C) : 0;
+    uint8_t c60 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x60) : 0;
+    uint8_t c61 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x61) : 0;
+    uint8_t c62 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x62) : 0;
+    uint32_t c98 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x98) : 0;
+    uint32_t c9c = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x9C) : 0;
+    uint32_t ca0 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0xA0) : 0;
+
+    char head34[128], head54[128], head58[128], head5c[128];
+    lod_pause_item_format_text_head(rdram, c34, head34, sizeof(head34));
+    lod_pause_item_format_text_head(rdram, c54, head54, sizeof(head54));
+    lod_pause_item_format_text_head(rdram, c58, head58, sizeof(head58));
+    lod_pause_item_format_text_head(rdram, c5c, head5c, sizeof(head5c));
+
+    fprintf(stderr,
+            "[ITEM_MENU_TBOX] %s #%d %s=0x%08X "
+            "handle={20=0x%08X 24=0x%08X 34=0x%08X 38(core)=0x%08X 3C=0x%08X 40=0x%08X "
+            "4C=0x%08X 50=0x%08X 54=0x%08X 60=0x%08X 6C=0x%08X} "
+            "core={ok=%d 20flags=0x%08X pal24=%u line25=%u w30=0x%04X "
+            "text34=0x%08X amount38=0x%08X idx3C=%u speed3D=%u "
+            "lineptrs=0x%08X/0x%08X/0x%08X states=%u/%u/%u "
+            "scale98/9C/A0=0x%08X/0x%08X/0x%08X} "
+            "heads={34=[%s] 54=[%s] 58=[%s] 5C=[%s]}\n",
+            site, count, label, handle_addr,
+            h20, h24, h34, core_addr, h3c, h40, h4c, h50, h54, h60, h6c,
+            core_ok ? 1 : 0, c20, c24, c25, c30, c34, c38, c3c, c3d,
+            c54, c58, c5c, c60, c61, c62, c98, c9c, ca0,
+            head34, head54, head58, head5c);
+}
+
+static recomp_func_t* lod_orig_pause_item_func_80083008 = nullptr;
+static recomp_func_t* lod_orig_pause_item_func_800835D0 = nullptr;
+static recomp_func_t* lod_orig_pause_item_func_8008485C = nullptr;
+static recomp_func_t* lod_orig_pause_item_func_80083FA0 = nullptr;
+
+static uint32_t lod_pause_item_stack_u32(uint8_t* rdram, uint32_t sp, uint32_t off) {
+    uint32_t phys = 0;
+    if (!lod_pause_item_addr_phys(ADD32(sp, off), 4, &phys)) {
+        return 0;
+    }
+    return lod_pause_item_u32(rdram, phys);
+}
+
+static bool lod_pause_item_text_trace_active(uint8_t* rdram) {
+    int32_t gs = lod_ni_telemetry_gamestate(rdram);
+    return gs == 3 && (loaded_0f_pair == 99 || loaded_0f_pair == 101);
+}
+
+static bool lod_pause_item_text_trace_log_this(uint8_t* rdram, int* counter) {
+    if (!lod_pause_item_text_trace_active(rdram)) {
+        return false;
+    }
+    (*counter)++;
+    return *counter <= 160 || (*counter % 200) == 0;
+}
+
+static void lod_pause_item_log_text_core(uint8_t* rdram, const char* site, int count,
+                                         uint32_t handle_addr) {
+    uint32_t handle_phys = 0;
+    if (!lod_pause_item_addr_phys(handle_addr, 0x74, &handle_phys)) {
+        fprintf(stderr,
+                "[ITEM_TEXT] %s #%d handle=0x%08X invalid\n",
+                site, count, handle_addr);
+        return;
+    }
+
+    uint32_t core_addr = lod_pause_item_u32(rdram, handle_phys + 0x38);
+    uint32_t core_phys = 0;
+    bool core_ok = lod_pause_item_addr_phys(core_addr, 0xA4, &core_phys);
+    uint32_t flags = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x20) : 0;
+    uint8_t pal = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x24) : 0;
+    uint8_t line = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x25) : 0;
+    uint32_t text = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x34) : 0;
+    uint32_t amount = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x38) : 0;
+    uint8_t idx = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x3C) : 0;
+    uint8_t speed = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x3D) : 0;
+    uint32_t l0 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x54) : 0;
+    uint32_t l1 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x58) : 0;
+    uint32_t l2 = core_ok ? lod_pause_item_u32(rdram, core_phys + 0x5C) : 0;
+    uint8_t s0 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x60) : 0;
+    uint8_t s1 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x61) : 0;
+    uint8_t s2 = core_ok ? lod_pause_item_u8(rdram, core_phys + 0x62) : 0;
+
+    char text_head[128], amount_head[128], l0_head[128], l1_head[128], l2_head[128];
+    lod_pause_item_format_text_head(rdram, text, text_head, sizeof(text_head));
+    lod_pause_item_format_text_head(rdram, amount, amount_head, sizeof(amount_head));
+    lod_pause_item_format_text_head(rdram, l0, l0_head, sizeof(l0_head));
+    lod_pause_item_format_text_head(rdram, l1, l1_head, sizeof(l1_head));
+    lod_pause_item_format_text_head(rdram, l2, l2_head, sizeof(l2_head));
+
+    fprintf(stderr,
+            "[ITEM_TEXT] %s #%d pair=%d handle=0x%08X core=0x%08X ok=%d "
+            "flags=0x%08X pal=%u line=%u text=0x%08X amount=0x%08X idx=%u speed=%u "
+            "lineptrs=0x%08X/0x%08X/0x%08X states=%u/%u/%u "
+            "heads={text=[%s] amount=[%s] l0=[%s] l1=[%s] l2=[%s]}\n",
+            site, count, loaded_0f_pair, handle_addr, core_addr, core_ok ? 1 : 0,
+            flags, pal, line, text, amount, idx, speed, l0, l1, l2, s0, s1, s2,
+            text_head, amount_head, l0_head, l1_head, l2_head);
+}
+
+static void lod_trace_pause_item_func_80083008(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    bool log_this = lod_pause_item_text_trace_log_this(rdram, &count);
+    uint32_t handle = (uint32_t)ctx->r4;
+    uint32_t text = (uint32_t)ctx->r5;
+    uint32_t flags_arg = (uint32_t)ctx->r6;
+    uint32_t a3 = (uint32_t)ctx->r7;
+    uint32_t sp = (uint32_t)ctx->r29;
+    uint32_t stk10 = lod_pause_item_stack_u32(rdram, sp, 0x10);
+    uint32_t stk14 = lod_pause_item_stack_u32(rdram, sp, 0x14);
+    uint32_t stk18 = lod_pause_item_stack_u32(rdram, sp, 0x18);
+    if (log_this) {
+        char head[128];
+        lod_pause_item_format_text_head(rdram, text, head, sizeof(head));
+        fprintf(stderr,
+                "[ITEM_TEXT] 80083008-pre #%d pair=%d a={handle=0x%08X text=0x%08X flags=0x%08X a3=0x%08X} "
+                "stk={10=0x%08X 14=0x%08X 18=0x%08X} text_head=[%s]\n",
+                count, loaded_0f_pair, handle, text, flags_arg, a3, stk10, stk14, stk18, head);
+    }
+    if (lod_orig_pause_item_func_80083008 != nullptr) {
+        lod_orig_pause_item_func_80083008(rdram, ctx);
+    }
+    if (log_this) {
+        lod_pause_item_log_text_core(rdram, "80083008-post", count, handle);
+    }
+}
+
+static void lod_trace_pause_item_func_800835D0(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    bool log_this = lod_pause_item_text_trace_log_this(rdram, &count);
+    uint32_t handle = (uint32_t)ctx->r4;
+    uint32_t a1 = (uint32_t)ctx->r5;
+    uint32_t a2 = (uint32_t)ctx->r6;
+    uint32_t a3 = (uint32_t)ctx->r7;
+    uint32_t sp = (uint32_t)ctx->r29;
+    uint32_t stk10 = lod_pause_item_stack_u32(rdram, sp, 0x10);
+    uint32_t stk14 = lod_pause_item_stack_u32(rdram, sp, 0x14);
+    uint32_t stk18 = lod_pause_item_stack_u32(rdram, sp, 0x18);
+    if (log_this) {
+        fprintf(stderr,
+                "[ITEM_TEXT] 800835D0-pre #%d pair=%d a={handle=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X} "
+                "stk={10=0x%08X 14=0x%08X 18=0x%08X}\n",
+                count, loaded_0f_pair, handle, a1, a2, a3, stk10, stk14, stk18);
+    }
+    if (lod_orig_pause_item_func_800835D0 != nullptr) {
+        lod_orig_pause_item_func_800835D0(rdram, ctx);
+    }
+    if (log_this) {
+        lod_pause_item_log_text_core(rdram, "800835D0-post", count, handle);
+    }
+}
+
+static void lod_trace_pause_item_func_8008485C(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    bool log_this = lod_pause_item_text_trace_log_this(rdram, &count);
+    uint32_t handle = (uint32_t)ctx->r4;
+    uint32_t line_text = (uint32_t)ctx->r5;
+    uint32_t line_index = (uint32_t)ctx->r6;
+    uint32_t line_state = (uint32_t)ctx->r7;
+    if (log_this) {
+        char head[128];
+        lod_pause_item_format_text_head(rdram, line_text, head, sizeof(head));
+        fprintf(stderr,
+                "[ITEM_TEXT] 8008485C-pre #%d pair=%d a={handle=0x%08X line=0x%08X idx=%u state=%u} "
+                "line_head=[%s]\n",
+                count, loaded_0f_pair, handle, line_text, line_index, line_state, head);
+    }
+    if (lod_orig_pause_item_func_8008485C != nullptr) {
+        lod_orig_pause_item_func_8008485C(rdram, ctx);
+    }
+    if (log_this) {
+        lod_pause_item_log_text_core(rdram, "8008485C-post", count, handle);
+    }
+}
+
+static void lod_trace_pause_item_func_80083FA0(uint8_t* rdram, recomp_context* ctx) {
+    static int count = 0;
+    bool log_this = lod_pause_item_text_trace_log_this(rdram, &count);
+    uint32_t pool = (uint32_t)ctx->r4;
+    uint32_t index = (uint32_t)ctx->r5;
+    if (log_this) {
+        char head[128];
+        lod_pause_item_format_text_head(rdram, pool, head, sizeof(head));
+        fprintf(stderr,
+                "[ITEM_TEXT] 80083FA0-pre #%d pair=%d pool=0x%08X index=%u pool_head=[%s]\n",
+                count, loaded_0f_pair, pool, index, head);
+    }
+    if (lod_orig_pause_item_func_80083FA0 != nullptr) {
+        lod_orig_pause_item_func_80083FA0(rdram, ctx);
+    }
+    if (log_this) {
+        uint32_t result = (uint32_t)ctx->r2;
+        char head[128];
+        lod_pause_item_format_text_head(rdram, result, head, sizeof(head));
+        fprintf(stderr,
+                "[ITEM_TEXT] 80083FA0-post #%d pair=%d result=0x%08X result_head=[%s]\n",
+                count, loaded_0f_pair, result, head);
+    }
+}
+
+static void lod_install_pause_item_text_trace_wrapper(uint32_t vram,
+                                                      recomp_func_t* wrapper,
+                                                      recomp_func_t** original,
+                                                      const char* name) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original = current;
+        recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+        fprintf(stderr,
+                "[ITEM_TEXT] installed %s wrapper vram=0x%08X original=%p wrapper=%p\n",
+                name, vram, (void*)current, (void*)wrapper);
+    }
+}
+
+static void lod_install_pause_item_text_trace_wrappers(const char* reason) {
+    (void)reason;
+    lod_install_pause_item_text_trace_wrapper(0x80083008,
+        lod_trace_pause_item_func_80083008, &lod_orig_pause_item_func_80083008, "80083008");
+    lod_install_pause_item_text_trace_wrapper(0x800835D0,
+        lod_trace_pause_item_func_800835D0, &lod_orig_pause_item_func_800835D0, "800835D0");
+    lod_install_pause_item_text_trace_wrapper(0x8008485C,
+        lod_trace_pause_item_func_8008485C, &lod_orig_pause_item_func_8008485C, "8008485C");
+    lod_install_pause_item_text_trace_wrapper(0x80083FA0,
+        lod_trace_pause_item_func_80083FA0, &lod_orig_pause_item_func_80083FA0, "80083FA0");
+}
+
+static void lod_pause_item_trace_log_generic(uint8_t* rdram, recomp_context* ctx,
+                                             const char* site) {
+    static uint16_t last_sys_held = 0;
+    static uint16_t last_sys_pressed = 0;
+    static int pair_counts[NI_OVL_COUNT] = {};
+    static int generic_log_count = 0;
+
+    int pair = loaded_0f_pair;
+    if (pair < 0 || pair >= NI_OVL_COUNT) {
+        pair = -1;
+    }
+    if (pair >= 0) {
+        pair_counts[pair]++;
+    }
+
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = 0;
+    bool obj_ok = lod_pause_item_addr_phys(obj, 0x74, &obj_phys);
+    int16_t active_level_before = obj_ok ? lod_pause_item_s16(rdram, obj_phys + 0x0E) : -99;
+    int32_t dispatch_level = active_level_before + 1;
+    if (dispatch_level < 0) {
+        dispatch_level = 0;
+    }
+
+    uint32_t state_byte_phys = obj_phys + 0x09 + (uint32_t)dispatch_level * 2;
+    uint8_t state_index = (obj_ok && lod_ni_telemetry_range_ok(state_byte_phys, 1)) ?
+        lod_pause_item_u8(rdram, state_byte_phys) : 0xFF;
+    uint8_t state_timer = (obj_ok && state_byte_phys > 0) ?
+        lod_pause_item_u8(rdram, state_byte_phys - 1) : 0;
+
+    uint32_t model24 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x24) : 0;
+    uint32_t ctx34 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t child38 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t model54 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x54) : 0;
+
+    constexpr uint32_t SYS_INPUT_PHYS = 0x001C87F4;
+    constexpr uint32_t PLAYER_INPUT_PHYS = 0x000F35F0;
+    uint16_t sys_conn = lod_pause_item_u16(rdram, SYS_INPUT_PHYS + 0x00);
+    uint16_t sys_held = lod_pause_item_u16(rdram, SYS_INPUT_PHYS + 0x02);
+    uint16_t sys_pressed = lod_pause_item_u16(rdram, SYS_INPUT_PHYS + 0x04);
+    uint16_t player_conn = lod_pause_item_u16(rdram, PLAYER_INPUT_PHYS + 0x00);
+    uint16_t player_held = lod_pause_item_u16(rdram, PLAYER_INPUT_PHYS + 0x02);
+    uint16_t player_pressed = lod_pause_item_u16(rdram, PLAYER_INPUT_PHYS + 0x04);
+
+    bool input_event = sys_pressed != 0 || sys_held != last_sys_held || sys_pressed != last_sys_pressed;
+
+    if (lod_pause_item_is_focused_pair(pair)) {
+        uint32_t top_target = state_index != 0xFF ? lod_pause_item_pair_target(rdram, pair, state_index) : 0;
+
+        uint32_t ctx34_phys = 0;
+        bool ctx34_ok = lod_pause_item_addr_phys(ctx34, 0x170, &ctx34_phys);
+        uint32_t work_phys = ctx34_phys + 0xDC;
+        uint16_t c128 = ctx34_ok ? lod_pause_item_u16(rdram, ctx34_phys + 0x128) : 0;
+        uint16_t c144 = ctx34_ok ? lod_pause_item_u16(rdram, ctx34_phys + 0x144) : 0;
+        uint8_t work3a = ctx34_ok ? lod_pause_item_u8(rdram, work_phys + 0x3A) : 0;
+        uint8_t work3b = ctx34_ok ? lod_pause_item_u8(rdram, work_phys + 0x3B) : 0;
+        uint8_t work3c = ctx34_ok ? lod_pause_item_u8(rdram, work_phys + 0x3C) : 0;
+        uint16_t work4c = ctx34_ok ? lod_pause_item_u16(rdram, work_phys + 0x4C) : 0;
+        uint16_t work58 = ctx34_ok ? lod_pause_item_u16(rdram, work_phys + 0x58) : 0;
+        uint16_t work68 = ctx34_ok ? lod_pause_item_u16(rdram, work_phys + 0x68) : 0;
+        uint32_t work3c_ptr = ctx34_ok ? lod_pause_item_u32(rdram, work_phys + 0x3C) : 0;
+        uint32_t work64_ptr = ctx34_ok ? lod_pause_item_u32(rdram, work_phys + 0x64) : 0;
+        uint32_t work7c_ptr = ctx34_ok ? lod_pause_item_u32(rdram, work_phys + 0x7C) : 0;
+        uint32_t work84_ptr = ctx34_ok ? lod_pause_item_u32(rdram, work_phys + 0x84) : 0;
+        float work30 = ctx34_ok ? lod_pause_item_f32(rdram, work_phys + 0x30) : 0.0f;
+        // The sub-dispatch tables at 0x5BDC/0x5BF4 only exist in pair 45.
+        // Pair 99/101 are the pause/menu shell and children; reading those
+        // offsets there can fault outside the loaded 0x0F segment.
+        uint32_t sub_a_target = (pair == 45) ? lod_pause_item_sub_a_target(rdram, work3a) : 0;
+        uint32_t sub_b_target = (pair == 45) ? lod_pause_item_sub_b_target(rdram, work3b) : 0;
+
+        uint32_t sig = 2166136261u;
+        sig = lod_pause_item_hash_step(sig, (uint32_t)pair);
+        sig = lod_pause_item_hash_step(sig, obj);
+        sig = lod_pause_item_hash_step(sig, (uint32_t)(uint16_t)active_level_before);
+        sig = lod_pause_item_hash_step(sig, (uint32_t)dispatch_level);
+        sig = lod_pause_item_hash_step(sig, state_index);
+        sig = lod_pause_item_hash_step(sig, top_target);
+        sig = lod_pause_item_hash_step(sig, model24);
+        sig = lod_pause_item_hash_step(sig, ctx34);
+        sig = lod_pause_item_hash_step(sig, child38);
+        sig = lod_pause_item_hash_step(sig, model54);
+        sig = lod_pause_item_hash_step(sig, work3a | ((uint32_t)work3b << 8) |
+                                          ((uint32_t)work3c << 16) | ((uint32_t)work4c << 24));
+        sig = lod_pause_item_hash_step(sig, work58);
+        sig = lod_pause_item_hash_step(sig, work3c_ptr);
+        sig = lod_pause_item_hash_step(sig, work64_ptr);
+        sig = lod_pause_item_hash_step(sig, work7c_ptr);
+        sig = lod_pause_item_hash_step(sig, work84_ptr);
+        sig = lod_pause_item_hash_step(sig, sys_held | ((uint32_t)sys_pressed << 16));
+
+        bool already_seen = lod_pause_item_seen_signature(pair, obj, sig);
+        bool initial = pair_counts[pair] <= 18;
+        bool interesting_state = (pair == 45) &&
+            (state_index >= 4 || work3a != 0 || work3b != 0 || work3c != 0);
+        bool pair99_item_state = (pair == 99) && (state_index >= 3 && state_index <= 7);
+        bool should_log = initial || input_event || !already_seen || interesting_state;
+        if (should_log) {
+            fprintf(stderr,
+                "[ITEM_MENU_STATE] %s #%d gs=%d pair0f=%d obj=0x%08X ok=%d "
+                "lvl=%d dispatch=%d timer=%u state=%u->0x%08X(%s) "
+                "subA=%u->0x%08X(%s) subB=%u->0x%08X(%s) sig=0x%08X "
+                "input={sys:%04X/%04X/%04X player:%04X/%04X/%04X} "
+                "obj={model24=0x%08X ctx34=0x%08X child38=0x%08X model54=0x%08X} "
+                "ctx={ok=%d flags128=0x%04X flags144=0x%04X w30=%+.2f w3C=%u "
+                "w4C=0x%04X w58=0x%04X w68=0x%04X ptr3C=0x%08X ptr64=0x%08X ptr7C=0x%08X ptr84=0x%08X} "
+                "regs={v0=0x%08X a0=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X sp=0x%08X ra=0x%08X}\n",
+                site, pair_counts[pair], lod_ni_telemetry_gamestate(rdram), pair,
+                obj, obj_ok, active_level_before, dispatch_level, state_timer,
+                state_index, top_target, lod_pause_item_state_name(top_target),
+                work3a, sub_a_target, lod_pause_item_state_name(sub_a_target),
+                work3b, sub_b_target, lod_pause_item_state_name(sub_b_target), sig,
+                sys_conn, sys_held, sys_pressed, player_conn, player_held, player_pressed,
+                model24, ctx34, child38, model54,
+                ctx34_ok, c128, c144, work30, work3c, work4c, work58, work68,
+                work3c_ptr, work64_ptr, work7c_ptr, work84_ptr,
+                (uint32_t)ctx->r2, (uint32_t)ctx->r4, (uint32_t)ctx->r5,
+                (uint32_t)ctx->r6, (uint32_t)ctx->r7,
+                (uint32_t)ctx->r29, (uint32_t)ctx->r31);
+        }
+
+        if (pair99_item_state && should_log) {
+            uint32_t obj28 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x28) : 0;
+            uint32_t obj2c = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x2C) : 0;
+            uint32_t obj30 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x30) : 0;
+            uint32_t obj3c = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x3C) : 0;
+            uint32_t obj40 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x40) : 0;
+            uint32_t obj44 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x44) : 0;
+            uint32_t obj48 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x48) : 0;
+            uint32_t obj4c = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x4C) : 0;
+            uint32_t obj50 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x50) : 0;
+            uint32_t obj58 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x58) : 0;
+            uint32_t obj5c = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x5C) : 0;
+            uint32_t obj60 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x60) : 0;
+            uint32_t obj64 = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x64) : 0;
+
+            uint32_t item_work_phys = 0;
+            bool item_work_ok = lod_pause_item_addr_phys(ctx34, 0x70, &item_work_phys);
+            int16_t work1c = item_work_ok ? lod_pause_item_s16(rdram, item_work_phys + 0x1C) : 0;
+            uint8_t work1d = item_work_ok ? lod_pause_item_u8(rdram, item_work_phys + 0x1D) : 0;
+            int16_t work28_count = item_work_ok ? lod_pause_item_s16(rdram, item_work_phys + 0x28) : 0;
+            uint32_t work00 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x00) : 0;
+            uint32_t work04 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x04) : 0;
+            uint32_t work08 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x08) : 0;
+            uint32_t work0c = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x0C) : 0;
+            uint32_t work10 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x10) : 0;
+            uint32_t work14 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x14) : 0;
+            uint32_t work18 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x18) : 0;
+            uint32_t work20 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x20) : 0;
+            uint32_t work24 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x24) : 0;
+            uint32_t work2c = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x2C) : 0;
+            uint32_t work30w = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x30) : 0;
+            uint32_t work34 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x34) : 0;
+            uint32_t work38 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x38) : 0;
+            uint32_t work3c_w = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x3C) : 0;
+            uint32_t work40 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x40) : 0;
+            uint16_t work44 = item_work_ok ? lod_pause_item_u16(rdram, item_work_phys + 0x44) : 0;
+            uint16_t work46 = item_work_ok ? lod_pause_item_u16(rdram, item_work_phys + 0x46) : 0;
+            uint32_t work48 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x48) : 0;
+            uint32_t work4c_w = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x4C) : 0;
+            uint32_t work50 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x50) : 0;
+            uint32_t work54 = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x54) : 0;
+            uint32_t work58_w = item_work_ok ? lod_pause_item_u32(rdram, item_work_phys + 0x58) : 0;
+
+            int16_t list_id[8] = {};
+            int16_t list_amt[8] = {};
+            for (int i = 0; i < 8; i++) {
+                list_id[i] = MEM_H(0x4EA0 + i * 4, (gpr)(int32_t)0x0F000000);
+                list_amt[i] = MEM_H(0x4EA2 + i * 4, (gpr)(int32_t)0x0F000000);
+            }
+
+            fprintf(stderr,
+                "[ITEM_MENU_WORK] %s #%d gs=%d obj=0x%08X state=%u "
+                "obj={24=0x%08X 28=0x%08X 2C=0x%08X 30=0x%08X 34=0x%08X 38=0x%08X 3C=0x%08X "
+                "40=0x%08X 44=0x%08X 48=0x%08X 4C=0x%08X 50=0x%08X 54=0x%08X 58=0x%08X 5C=0x%08X 60=0x%08X 64=0x%08X} "
+                "work={ok=%d 00=0x%08X 04=0x%08X 08=0x%08X 0C=0x%08X 10=0x%08X 14=0x%08X 18=0x%08X "
+                "1C=%d 1D=%u 20=0x%08X 24=0x%08X 28_count=%d 2C=0x%08X 30=0x%08X 34=0x%08X 38=0x%08X "
+                "3C=0x%08X 40=0x%08X 44=0x%04X 46=0x%04X 48=0x%08X 4C=0x%08X 50=0x%08X 54=0x%08X 58=0x%08X} "
+                "list=[%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d]\n",
+                site, pair_counts[pair], lod_ni_telemetry_gamestate(rdram), obj, state_index,
+                model24, obj28, obj2c, obj30, ctx34, child38, obj3c,
+                obj40, obj44, obj48, obj4c, obj50, model54, obj58, obj5c, obj60, obj64,
+                item_work_ok, work00, work04, work08, work0c, work10, work14, work18,
+                work1c, work1d, work20, work24, work28_count, work2c, work30w, work34, work38,
+                work3c_w, work40, work44, work46, work48, work4c_w, work50, work54, work58_w,
+                list_id[0], list_amt[0], list_id[1], list_amt[1],
+                list_id[2], list_amt[2], list_id[3], list_amt[3],
+                list_id[4], list_amt[4], list_id[5], list_amt[5],
+                list_id[6], list_amt[6], list_id[7], list_amt[7]);
+
+            lod_pause_item_dump_save_items(rdram, site, pair_counts[pair]);
+            lod_pause_item_dump_child(rdram, site, pair_counts[pair], "work00_parent", work00);
+            lod_pause_item_dump_child(rdram, site, pair_counts[pair], "work0C_scroll", work0c);
+            lod_pause_item_dump_textbox_handle(rdram, site, pair_counts[pair], "work10_item_name0", work10);
+            lod_pause_item_dump_textbox_handle(rdram, site, pair_counts[pair], "work14_item_name1", work14);
+            lod_pause_item_dump_textbox_handle(rdram, site, pair_counts[pair], "work18_item_name2", work18);
+            if (work20 != 0 && work20 != work10 && work20 != work14 && work20 != work18) {
+                lod_pause_item_dump_textbox_handle(rdram, site, pair_counts[pair], "work20_active", work20);
+            }
+        }
+    } else {
+        uint32_t sig = 2166136261u;
+        sig = lod_pause_item_hash_step(sig, (uint32_t)pair);
+        sig = lod_pause_item_hash_step(sig, obj);
+        sig = lod_pause_item_hash_step(sig, (uint32_t)(uint16_t)active_level_before);
+        sig = lod_pause_item_hash_step(sig, state_index);
+        sig = lod_pause_item_hash_step(sig, model24);
+        sig = lod_pause_item_hash_step(sig, ctx34);
+        sig = lod_pause_item_hash_step(sig, child38);
+        sig = lod_pause_item_hash_step(sig, sys_held | ((uint32_t)sys_pressed << 16));
+        (void)lod_pause_item_seen_signature(pair, obj, sig);
+        bool initial = pair >= 0 && pair_counts[pair] <= 2;
+        bool should_log = input_event || initial;
+        if (should_log && generic_log_count < 160) {
+            generic_log_count++;
+            fprintf(stderr,
+                "[NI0F_ENTRY] %s #%d gs=%d pair=%d obj=0x%08X ok=%d "
+                "lvl=%d dispatch=%d timer=%u state=%u sig=0x%08X "
+                "input={sys:%04X/%04X/%04X player:%04X/%04X/%04X} "
+                "obj={model24=0x%08X ctx34=0x%08X child38=0x%08X model54=0x%08X} "
+                "regs={a1=0x%08X a2=0x%08X a3=0x%08X}\n",
+                site, pair >= 0 ? pair_counts[pair] : 0, lod_ni_telemetry_gamestate(rdram), pair,
+                obj, obj_ok, active_level_before, dispatch_level, state_timer, state_index, sig,
+                sys_conn, sys_held, sys_pressed, player_conn, player_held, player_pressed,
+                model24, ctx34, child38, model54,
+                (uint32_t)ctx->r5, (uint32_t)ctx->r6, (uint32_t)ctx->r7);
+        }
+    }
+
+    last_sys_held = sys_held;
+    last_sys_pressed = sys_pressed;
+}
+
+static void lod_pause_item_trace_log_pair99_item(uint8_t* rdram, recomp_context* ctx,
+                                                 const char* site) {
+    uint32_t obj = (uint32_t)ctx->r4;
+    uint32_t obj_phys = 0;
+    bool obj_ok = lod_pause_item_addr_phys(obj, 0x74, &obj_phys);
+    uint8_t state_index = lod_pause_item_current_state_index(rdram, obj);
+    uint32_t target = state_index != 0xFF
+        ? lod_pause_item_pair99_item_target(rdram, state_index) : 0;
+
+    uint16_t sys_held = lod_pause_item_u16(rdram, 0x001C87F4 + 2);
+    uint16_t sys_pressed = lod_pause_item_u16(rdram, 0x001C87F4 + 4);
+    bool input_event = sys_held != 0 || sys_pressed != 0;
+
+    uint32_t work = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x34) : 0;
+    uint32_t work_phys = 0;
+    bool work_ok = lod_pause_item_addr_phys(work, 0x70, &work_phys);
+    int16_t active_level = obj_ok ? lod_pause_item_s16(rdram, obj_phys + 0x0E) : 0;
+    uint16_t timer = obj_ok ? lod_pause_item_u16(rdram, obj_phys + 0x04) : 0;
+    uint32_t parent = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x14) : 0;
+    uint32_t child = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x1C) : 0;
+    uint32_t camera = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x38) : 0;
+    uint32_t state_flags = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x3C) : 0;
+    uint32_t scroll = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x44) : 0;
+    int32_t top = obj_ok ? (int32_t)lod_pause_item_u32(rdram, obj_phys + 0x48) : 0;
+    int32_t page = obj_ok ? (int32_t)lod_pause_item_u32(rdram, obj_phys + 0x4C) : 0;
+    int32_t selected = obj_ok ? (int32_t)lod_pause_item_u32(rdram, obj_phys + 0x54) : 0;
+    uint32_t empty = obj_ok ? lod_pause_item_u32(rdram, obj_phys + 0x58) : 0;
+
+    uint32_t rows[6] = {};
+    for (int i = 0; i < 6; i++) {
+        rows[i] = work_ok ? lod_pause_item_u32(rdram, work_phys + (uint32_t)i * 4) : 0;
+    }
+    uint32_t cursor = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x18) : 0;
+    uint32_t cursor_text = work_ok ? lod_pause_item_u32(rdram, work_phys + 0x1C) : 0;
+    int16_t list_count = work_ok ? lod_pause_item_s16(rdram, work_phys + 0x28) : 0;
+
+    int16_t list_id[8] = {};
+    int16_t list_amt[8] = {};
+    for (int i = 0; i < 8; i++) {
+        list_id[i] = MEM_H(0x4EA0 + i * 4, (gpr)(int32_t)0x0F000000);
+        list_amt[i] = MEM_H(0x4EA2 + i * 4, (gpr)(int32_t)0x0F000000);
+    }
+
+    uint32_t sig = 2166136261u;
+    sig = lod_pause_item_hash_step(sig, obj);
+    sig = lod_pause_item_hash_step(sig, state_index);
+    sig = lod_pause_item_hash_step(sig, target);
+    sig = lod_pause_item_hash_step(sig, work);
+    sig = lod_pause_item_hash_step(sig, (uint32_t)(uint16_t)list_count);
+    sig = lod_pause_item_hash_step(sig, state_flags);
+    sig = lod_pause_item_hash_step(sig, (uint32_t)top);
+    sig = lod_pause_item_hash_step(sig, (uint32_t)page);
+    sig = lod_pause_item_hash_step(sig, (uint32_t)selected);
+    sig = lod_pause_item_hash_step(sig, empty);
+    sig = lod_pause_item_hash_step(sig, rows[0]);
+    sig = lod_pause_item_hash_step(sig, rows[1]);
+    sig = lod_pause_item_hash_step(sig, rows[2]);
+    sig = lod_pause_item_hash_step(sig, rows[3]);
+    sig = lod_pause_item_hash_step(sig, rows[4]);
+    sig = lod_pause_item_hash_step(sig, rows[5]);
+    sig = lod_pause_item_hash_step(sig, (uint32_t)list_id[0] | ((uint32_t)list_amt[0] << 16));
+    sig = lod_pause_item_hash_step(sig, sys_held | ((uint32_t)sys_pressed << 16));
+
+    static int log_count = 0;
+    bool changed = !lod_pause_item_seen_signature(9900, obj, sig);
+    bool should_log = input_event || changed || log_count < 24;
+    if (!should_log || log_count >= 220) {
+        return;
+    }
+    log_count++;
+
+    fprintf(stderr,
+            "[ITEM_LIST] %s #%d gs=%d obj=0x%08X ok=%d lvl=%d timer=%u "
+            "state=%u->0x%08X(%s) sig=0x%08X input=%04X/%04X "
+            "parent=0x%08X child=0x%08X work=0x%08X ok=%d "
+            "obj={cam=0x%08X flags=0x%08X scroll=0x%08X top=%d page=%d selected=%d empty=%u} "
+            "work={rows=[0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X] cursor=0x%08X text=0x%08X count=%d} "
+            "list=[%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d,%d:%d] "
+            "regs={a0=0x%08X a1=0x%08X a2=0x%08X a3=0x%08X sp=0x%08X ra=0x%08X}\n",
+            site, log_count, lod_ni_telemetry_gamestate(rdram),
+            obj, obj_ok ? 1 : 0, active_level, timer,
+            state_index, target, lod_pause_item_state_name(target), sig,
+            sys_held, sys_pressed,
+            parent, child, work, work_ok ? 1 : 0,
+            camera, state_flags, scroll, top, page, selected, empty,
+            rows[0], rows[1], rows[2], rows[3], rows[4], rows[5],
+            cursor, cursor_text, list_count,
+            list_id[0], list_amt[0], list_id[1], list_amt[1],
+            list_id[2], list_amt[2], list_id[3], list_amt[3],
+            list_id[4], list_amt[4], list_id[5], list_amt[5],
+            list_id[6], list_amt[6], list_id[7], list_amt[7],
+            (uint32_t)ctx->r4, (uint32_t)ctx->r5, (uint32_t)ctx->r6,
+            (uint32_t)ctx->r7, (uint32_t)ctx->r29, (uint32_t)ctx->r31);
+
+    if ((site[0] == 's' || log_count <= 12) && work_ok) {
+        for (int i = 0; i < 6; i++) {
+            if (rows[i] != 0) {
+                char label[32];
+                snprintf(label, sizeof(label), "row%d", i);
+                lod_pause_item_dump_textbox_handle(rdram, site, log_count, label, rows[i]);
+            }
+        }
+        if (cursor != 0) {
+            lod_pause_item_dump_child(rdram, site, log_count, "cursor", cursor);
+        }
+    }
+}
+
+static void lod_trace_pause_item_entry(uint8_t* rdram, recomp_context* ctx) {
+    int pre_pair = loaded_0f_pair;
+    uint32_t pre_obj = (uint32_t)ctx->r4;
+    uint8_t pre_state = lod_pause_item_current_state_index(rdram, pre_obj);
+    bool post_log = (pre_pair == 99 && pre_state >= 3 && pre_state <= 7) ||
+                    (pre_pair == 101 && pre_state >= 1 && pre_state <= 4);
+
+    lod_pause_item_trace_log_generic(rdram, ctx, "entry-pre");
+    if (lod_orig_pause_item_entry != nullptr) {
+        lod_orig_pause_item_entry(rdram, ctx);
+    }
+    if (post_log) {
+        lod_pause_item_trace_log_generic(rdram, ctx, "entry-post");
+    }
+}
+
+static void lod_trace_pause_item_sub_entry(uint8_t* rdram, recomp_context* ctx) {
+    bool trace_pair = loaded_0f_pair == 99;
+    if (trace_pair) {
+        lod_pause_item_trace_log_pair99_item(rdram, ctx, "sub-pre");
+    }
+    if (lod_orig_pause_item_sub_entry != nullptr) {
+        lod_orig_pause_item_sub_entry(rdram, ctx);
+    }
+    if (trace_pair) {
+        lod_pause_item_trace_log_pair99_item(rdram, ctx, "sub-post");
+    }
+}
+
+static void lod_install_pause_item_trace_wrappers(int pair_index, uint32_t vram,
+                                                  const char* reason) {
+    if (vram != 0x0F000000) {
+        return;
+    }
+
+    lod_install_pause_item_text_trace_wrappers(reason);
+
+    recomp_func_t* entry_current = get_function((int32_t)0x0F000000);
+    if (entry_current != lod_trace_pause_item_entry) {
+        lod_orig_pause_item_entry = entry_current;
+    }
+    recomp::overlays::add_loaded_function((int32_t)0x0F000000,
+        lod_trace_pause_item_entry);
+
+    if (pair_index == 99) {
+        recomp_func_t* sub_current = get_function((int32_t)0x0F0027C0);
+        if (sub_current != lod_trace_pause_item_sub_entry) {
+            lod_orig_pause_item_sub_entry = sub_current;
+        }
+        recomp::overlays::add_loaded_function((int32_t)0x0F0027C0,
+            lod_trace_pause_item_sub_entry);
+    }
+
+    static int install_count = 0;
+    static int pair_install_counts[NI_OVL_COUNT] = {};
+    install_count++;
+    int pair_install_count = 0;
+    if (pair_index >= 0 && pair_index < NI_OVL_COUNT) {
+        pair_install_count = ++pair_install_counts[pair_index];
+    }
+    bool focused_pair = lod_pause_item_is_focused_pair(pair_index);
+    if (install_count <= 12 || pair_install_count <= 3 ||
+        (focused_pair && (pair_install_count % 100) == 0) ||
+        (install_count % 500) == 0) {
+        fprintf(stderr,
+            "[ITEM_MENU] installed NI0F entry trace #%d pair_count=%d reason=%s pair=%d "
+            "vram=0x%08X entry_orig=%p sub_orig=%p\n",
+            install_count, pair_install_count, reason, pair_index, vram,
+            (void*)lod_orig_pause_item_entry,
+            pair_index == 99 ? (void*)lod_orig_pause_item_sub_entry : nullptr);
+    }
+}
+#endif
+
 static int ni_index_to_pair(int ni_index) {
     if (ni_index < NI_TEXT_INDEX_START) return -1;
     int offset = ni_index - NI_TEXT_INDEX_START;
@@ -768,6 +1880,104 @@ static int ni_index_to_pair(int ni_index) {
 // and contains each overlay's text+data at the original compiler layout.
 // The segment region (rdram+0x8F000000 for 0x0F, rdram+0x8E000000 for 0x0E)
 // is what MEM_W(0x0F00XXXX) resolves to in recompiled code.
+#if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
+// Pair 99's pause item-list code keeps the built item table in its NI data
+// segment at 0x0F004EA0. In-game this survives the rapid pair99/pair101 TLB
+// alternation used by the scrolling menu child. Our single 0x8F segment mirror
+// would otherwise replace that mutable table with pristine ROM bytes whenever
+// another pair is copied into the mirror.
+static constexpr uint32_t NI_PAIR99_ITEM_LIST_OFF = 0x4EA0;
+static constexpr uint32_t NI_PAIR99_ITEM_LIST_SIZE = 0x00CC; // up to dispatch data at 0x4F6C
+
+static uint8_t ni_pair99_saved_item_list[NI_PAIR99_ITEM_LIST_SIZE] = {};
+static bool ni_pair99_saved_item_list_valid = false;
+
+static uint16_t ni_segment_u16(uint8_t* segment_base, uint32_t offset) {
+    return *(uint16_t*)(segment_base + (offset ^ 2));
+}
+
+static bool ni_pair99_item_list_looks_live(uint8_t* segment_base) {
+    int populated = 0;
+    for (int i = 0; i < 16; i++) {
+        uint32_t offset = NI_PAIR99_ITEM_LIST_OFF + (uint32_t)i * 4;
+        uint16_t id = ni_segment_u16(segment_base, offset + 0);
+        uint16_t amount = ni_segment_u16(segment_base, offset + 2);
+        if (id == 0 && amount == 0) {
+            continue;
+        }
+        if (id < 4 || id > 0x2D || amount == 0 || amount > 999) {
+            return false;
+        }
+        populated++;
+    }
+    return populated > 0;
+}
+
+static uint8_t* ni_segment_base(uint8_t* rdram, uint32_t vram) {
+    return rdram + (uint64_t)vram + 0x80000000ULL;
+}
+
+static void ni_pair99_save_item_list_if_live(uint8_t* rdram, uint32_t vram,
+                                             uint32_t old_size,
+                                             const char* reason) {
+    if (vram != 0x0F000000 ||
+        old_size < NI_PAIR99_ITEM_LIST_OFF + NI_PAIR99_ITEM_LIST_SIZE) {
+        return;
+    }
+
+    uint8_t* segment_base = ni_segment_base(rdram, vram);
+    if (!ni_pair99_item_list_looks_live(segment_base)) {
+        return;
+    }
+
+    memcpy(ni_pair99_saved_item_list,
+           segment_base + NI_PAIR99_ITEM_LIST_OFF,
+           sizeof(ni_pair99_saved_item_list));
+    ni_pair99_saved_item_list_valid = true;
+
+#if LOD_ENABLE_PAUSE_ITEM_TRACE
+    static int save_count = 0;
+    save_count++;
+    if (save_count <= 8 || (save_count % 100) == 0) {
+        fprintf(stderr,
+            "[ITEM_LIST_FIX] saved pair99 list #%d reason=%s first=%u:%u\n",
+            save_count, reason,
+            ni_segment_u16(segment_base, NI_PAIR99_ITEM_LIST_OFF + 0),
+            ni_segment_u16(segment_base, NI_PAIR99_ITEM_LIST_OFF + 2));
+    }
+#else
+    (void)reason;
+#endif
+}
+
+static void ni_pair99_restore_item_list_if_saved(uint8_t* segment_base,
+                                                 int pair_index,
+                                                 uint32_t vram,
+                                                 uint32_t size) {
+    if (pair_index != 99 || vram != 0x0F000000 ||
+        !ni_pair99_saved_item_list_valid ||
+        size < NI_PAIR99_ITEM_LIST_OFF + NI_PAIR99_ITEM_LIST_SIZE) {
+        return;
+    }
+
+    memcpy(segment_base + NI_PAIR99_ITEM_LIST_OFF,
+           ni_pair99_saved_item_list,
+           sizeof(ni_pair99_saved_item_list));
+
+#if LOD_ENABLE_PAUSE_ITEM_TRACE
+    static int restore_count = 0;
+    restore_count++;
+    if (restore_count <= 8 || (restore_count % 100) == 0) {
+        fprintf(stderr,
+            "[ITEM_LIST_FIX] restored pair99 list #%d first=%u:%u\n",
+            restore_count,
+            ni_segment_u16(segment_base, NI_PAIR99_ITEM_LIST_OFF + 0),
+            ni_segment_u16(segment_base, NI_PAIR99_ITEM_LIST_OFF + 2));
+    }
+#endif
+}
+#endif
+
 static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_t vram) {
     if (pair_index < 0 || pair_index >= NI_OVL_COUNT) return;
 
@@ -785,11 +1995,37 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
     mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
 
     memcpy(dst, src, size);
+
+#if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
+    ni_pair99_restore_item_list_if_saved(dst, pair_index, vram, size);
+#endif
 }
 
 static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vaddr) {
     uint32_t vram = mapped_vaddr;
     int& loaded_pair = (vram == 0x0E000000) ? loaded_0e_pair : loaded_0f_pair;
+
+#if LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA
+    // Repeated osMapTLB calls for the already-resident NI pair are page remaps,
+    // not a fresh overlay load. Re-copying the full ROM image here erases
+    // mutable overlay data that the game keeps in the 0x0E/0x0F segment (for
+    // example pause-menu item-list entries at pair 99's 0x0F004EA0), causing
+    // rows/icons to disappear after creation. Different pairs still unload and
+    // reload below, which resets overlay data when the game actually swaps NI
+    // overlays.
+    if (pair_index == loaded_pair) {
+        return;
+    }
+#endif
+
+    // Save mutable data that belongs to the outgoing NI pair before the shared
+    // 0x8F/0x8E mirror is overwritten by the incoming pair's pristine ROM data.
+#if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
+    if (vram == 0x0F000000 && loaded_pair == 99 && pair_index != loaded_pair) {
+        ni_pair99_save_item_list_if_live(rdram, vram,
+            ni_ovl_data[loaded_pair].full_size, "pair-swap");
+    }
+#endif
 
     // Always keep the actual TLB-mapped segment populated. Use the TLB vaddr as
     // the source of truth: some overlays generated with 0x0F comments are
@@ -797,7 +2033,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     // function pointers (for example pair 233).
     copy_overlay_data_to_segment(rdram, pair_index, mapped_vaddr);
 
+#if !LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA
     if (pair_index == loaded_pair) return;
+#endif
 
     if (loaded_pair >= 0) {
         unload_ni_overlay_segment(vram);
@@ -838,6 +2076,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #endif
 #if LOD_ENABLE_NI24_NULL_DISPATCH_TRACE
     lod_install_ni24_null_dispatch_trace_wrapper(pair_index, vram, "pair24-load");
+#endif
+#if LOD_ENABLE_PAUSE_ITEM_TRACE
+    lod_install_pause_item_trace_wrappers(pair_index, vram, "0f-load");
 #endif
 
     static int load_count = 0;

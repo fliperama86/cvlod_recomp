@@ -29,6 +29,14 @@
 #define LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT 0
 #endif
 
+#ifndef LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT
+#define LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT 0
+#endif
+
+#ifndef LOD_ITEM_MENU_SAVE_SLOT
+#define LOD_ITEM_MENU_SAVE_SLOT 1
+#endif
+
 #ifndef LOD_ENABLE_SAVE_HANDLER_TRACE
 #define LOD_ENABLE_SAVE_HANDLER_TRACE 0
 #endif
@@ -4864,23 +4872,96 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 } else if (boot_script_gs == 8) {
                     // New-game/character-select/book sequence. Use sparse A
                     // pulses so this remains regular controller interaction.
+                    int file_select_a_frame = (LOD_ITEM_MENU_SAVE_SLOT > 1) ? 1320 : 1200;
+                    bool data_menu_confirm_pulse =
+                        (boot_script_gs_frame >= 720 && boot_script_gs_frame < 726 &&
+                         LOD_ITEM_MENU_SAVE_SLOT <= 1);
                     bool pulse = (boot_script_gs_frame >= 60 && boot_script_gs_frame < 66) ||
                                  (boot_script_gs_frame >= 180 && boot_script_gs_frame < 186) ||
                                  (boot_script_gs_frame >= 360 && boot_script_gs_frame < 366) ||
-                                 (boot_script_gs_frame >= 720 && boot_script_gs_frame < 726) ||
-                                 (boot_script_gs_frame >= 1200 && boot_script_gs_frame < 1206);
+                                 data_menu_confirm_pulse ||
+                                 (boot_script_gs_frame >= file_select_a_frame &&
+                                  boot_script_gs_frame < file_select_a_frame + 6);
                     if (pulse) {
                         buttons |= 0x8000; // A
                         if (boot_script_gs_frame == 60 ||
                             boot_script_gs_frame == 180 ||
                             boot_script_gs_frame == 360 ||
-                            boot_script_gs_frame == 720 ||
-                            boot_script_gs_frame == 1200) {
+                            (boot_script_gs_frame == 720 && LOD_ITEM_MENU_SAVE_SLOT <= 1) ||
+                            boot_script_gs_frame == file_select_a_frame) {
                             fprintf(stderr, "[AUTO] gs=8 frame %d: A\n", boot_script_gs_frame);
+                        }
+                    }
+
+                    if (boot_script_gs == 8) {
+                        // The regular boot script reaches the file-select
+                        // screen around gs=8 frame ~1100 and presses A at
+                        // frame 1200. Pick save #2/#3 with ordinary D-pad
+                        // input before that existing A pulse lands.
+                        int desired_slot = LOD_ITEM_MENU_SAVE_SLOT;
+                        if (desired_slot < 1) desired_slot = 1;
+                        if (desired_slot > 3) desired_slot = 3;
+                        for (int slot = 2; slot <= desired_slot; slot++) {
+                            int pulse_start = 1140 + (slot - 2) * 40;
+                            bool slot_down_pulse =
+                                (boot_script_gs_frame >= pulse_start &&
+                                 boot_script_gs_frame < pulse_start + 24);
+                            if (slot_down_pulse) {
+                                y = -1.0f;          // analog-only down; D-pad opens the file submenu here
+                                if (boot_script_gs_frame == pulse_start) {
+                                    fprintf(stderr,
+                                            "[AUTO] item-menu gs=8 frame %d: AnalogDown (save slot %d)\n",
+                                            boot_script_gs_frame, slot);
+                                }
+                            }
                         }
                     }
                 }
 #endif
+#endif
+
+#if LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT
+                // Debug-only pause/menu repro harness. This deliberately uses
+                // normal PIF/controller input, after the natural boot/load
+                // route reaches gameplay, so screenshots/logs reflect the
+                // real menu path rather than a forced gamestate.
+                {
+                    static int32_t menu_script_last_gs = INT32_MIN;
+                    static int menu_script_gs_frame = 0;
+                    int32_t menu_script_gs = lod_current_gamestate(rdram);
+                    if (menu_script_gs != menu_script_last_gs) {
+                        menu_script_last_gs = menu_script_gs;
+                        menu_script_gs_frame = 0;
+                    }
+                    menu_script_gs_frame++;
+
+                    if (menu_script_gs == 3) {
+                        // Wait until the loaded save/gameplay frame is stable,
+                        // then pulse Start to open the pause menu. The menu
+                        // defaults to "Item", so a later A pulse enters the
+                        // item screen without cursor movement.
+                        bool start_pulse =
+                            (menu_script_gs_frame >= 240 && menu_script_gs_frame < 246);
+                        bool item_select_pulse =
+                            (menu_script_gs_frame >= 330 && menu_script_gs_frame < 332);
+                        if (start_pulse) {
+                            buttons |= 0x1000; // Start
+                            if (menu_script_gs_frame == 240) {
+                                fprintf(stderr,
+                                        "[AUTO] item-menu gs=3 frame %d: Start\n",
+                                        menu_script_gs_frame);
+                            }
+                        }
+                        if (item_select_pulse) {
+                            buttons |= 0x8000; // A
+                            if (menu_script_gs_frame == 330) {
+                                fprintf(stderr,
+                                        "[AUTO] item-menu gs=3 frame %d: A (select Item)\n",
+                                        menu_script_gs_frame);
+                            }
+                        }
+                    }
+                }
 #endif
 
                 uint8_t sx = (uint8_t)(int8_t)(x * 127);

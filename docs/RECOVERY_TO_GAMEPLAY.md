@@ -161,6 +161,28 @@ Regression checks:
 - Verify logs do not show repeated zero texture loads from `0x061A....` when render tracing is enabled.
 - Keep the fix scoped to segment-table bases only; do not globally rewrite arbitrary `0x86....` texture addresses unless future evidence requires it.
 
+## Pause Item Menu Rendering Fix (2026-06-06)
+
+Status: locally validated with automated controller input and built-in CFB snapshots; ready for user manual verification.
+
+What changed:
+
+- Added `LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA`, default ON, so repeated TLB maps for the already-loaded NI pair do not re-copy pristine overlay bytes over mutable segment data.
+- Added `LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST`, default ON, to preserve pair 99's pause-item list table at `0x0F004EA0` while the menu alternates between pair 99 and pair 101.
+- The fix is scoped to the item-list scratch/table range (`0x4EA0..0x4F6B`) and only saves data that looks like a live item list.
+
+Evidence:
+
+- Save slot 1 contains at least one menu item (`item_id=7`, amount `1`), but before the fix the item-list table was built as `7:1` and then overwritten back to zero during pair99/pair101 NI swaps.
+- With the fix, `LOD_ENABLE_PAUSE_ITEM_TRACE=ON` showed the list remain `7:1` through the same swap window and row text creation used item text index `6` (`Roast chicken`) instead of falling back to zero/blank data.
+- A trace-off validation run with `LOD_ENABLE_BOOT_INPUT_SCRIPT=ON`, `LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT=ON`, and `LOD_ENABLE_CFB_SNAPSHOT=ON` exited cleanly by timeout, produced no crash/RSP failure, and `/tmp/lod_cfb_gs3_us2487_dl1439_cfb225800.png` showed `Roast chicken x01` rendered in the item list.
+
+Regression checks:
+
+- Use the automated menu script on save slot 1 and verify the item list is not blank in the CFB snapshot around `gs=3`, `dl≈1439`.
+- Manually verify pause → Item after loading a save with at least one item.
+- Keep broader pause/menu traces default-off; the compatibility shims should work without `LOD_ENABLE_PAUSE_ITEM_TRACE`.
+
 ## Resolved Work Item
 
 ### G5-001 — Overlay-System and NI Overlay Registration
@@ -276,6 +298,8 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_OVERRIDE_FUNC_8009F400` | **off** | Retired stale direct PFS find shim; keep only for A/B regression checks | Confirm no future path depends on it; eventually remove |
 | `LOD_OVERRIDE_CONTPAK_INSERTED_STATUS` | on | Compile combo passed with this disabled while `FUNC_8001D398` stayed enabled | Build/run with `=0` |
 | `LOD_FIX_NI_PAIR120_RESULT_LABELS` | **on** | Validated scoped compatibility fix for pair-120 internal-label callback table | Keep on; use `=0` only for A/B regression |
+| `LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA` | **on** | Repeated TLB maps for an already-resident NI pair must not re-copy pristine ROM bytes over mutable segment data | Keep on; use `=0` only to reproduce disappearing pause-item list state |
+| `LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST` | **on** | Scoped preservation for pair 99 pause-item list table while pair99/pair101 alternate during item-menu rendering | Keep on; use `=0` only for item-menu A/B regression |
 | `LOD_ENABLE_SAVE_PAIR120_TRACE` | off | Debug-only trace for pair-120 dispatcher/table callback details | Enable only when investigating pair-120 regressions |
 | `LOD_ENABLE_SAVE_AUTO_INPUT` | off | Debug-only scripted input for `gs=4` save/Pak path | Replace or generalize for `gs=12` scripted input tests |
 | `LOD_ENABLE_SAVE_HANDLER_TRACE` | off | Debug-only function-map wrapper probe | Use only for targeted handler-entry confirmation |
@@ -288,6 +312,9 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_ENABLE_RSP_AUDIO_TRACE` | off | Debug-only RSP audio task telemetry, alist dumps, and ENVMIXER collapse summaries | Use to correlate RSP `cmd10/saved20/saved40` against CPU envmixer fields; keep default-off |
 | `LOD_USE_RECOMPILED_AUDIO_RSP` | **on** | Selects generated LoD audio RSP microcode instead of the timing-only stub | Required for audible audio in current testing; turn off only for A/B diagnostics where silence is expected |
 | `LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT` | off | Debug-only aggressive controller/PIF input to skip quickly to the gameplay idle signature; releases input at `gs=3 exec=0x38000000 ni=0x803241C0` | Use for KSEG0 idle repro loops instead of paying full prologue cost |
+| `LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT` | off | Debug-only controller/PIF input to load a save, open pause, and select Item for menu-rendering repros | Use with CFB snapshots for pause/item menu regressions |
+| `LOD_ENABLE_PAUSE_ITEM_TRACE` | off | Debug-only pause/item NI overlay and text-object tracing | Enable only when item-menu state or text creation regresses |
+| `LOD_ENABLE_CFB_SNAPSHOT` | off | Debug-only internal VI color framebuffer PPM snapshots | Use for visual regressions where OS screenshots are unreliable |
 | `LOD_POST_RDRAM_GUARD_SIZE` | `0x10000` | CMake cache variable for the zero-filled post-RDRAM guard at `rdram+0x80800000`; `0x20000` survived one 180s fast-idle diagnostic run | Keep default at `0x10000`; A/B test `0x20000` when validating open-bus/guard-width hypothesis |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; never a permanent fix | Use only for downstream comparison, never as baseline |
 
@@ -313,6 +340,8 @@ Record durable experiments here. Keep entries concise and technical.
 | OVLSYS-002 | `LOD_ENABLE_OVLSYS_CONCAT_INIT_COPY=1` A/B diagnostic | 20s | Did not restore PAK path and later hit `Signal 10` | Old concatenated overlay-system copy is unsafe and was removed |
 | NI-001 | Range-based NI overlay registration, diagnostic save/title traces and scripted input | 20s | Restored PAK path; progressed `gs=4 → -1 → 1 → -12 → 12 → -5 → 5 → -6 → 6`; user saw start/title screen | Hard-coded NI overlay IDs were the `gs=4` regression and `gs=5` crash cause after section additions |
 | CLEAN-004 | all debug/input/trace flags off | 12s | Built, codesigned, reached `gs=12`, timed out cleanly; no stale process | Clean baseline is buildable and reaches Expansion Pak screen without diagnostics |
+| ITEMMENU-001 | `LOD_ENABLE_PAUSE_ITEM_TRACE=ON`, boot/menu scripts, CFB snapshots, save slot 1 | 150s | Pair99 item list built as `7:1`, survived pair99/pair101 swaps after preservation fix, and row text creation used `Roast chicken`; no crash | Disappearing item rows were caused by mutable pair99 segment data being overwritten by NI overlay re-copy/swap behavior |
+| ITEMMENU-002 | trace off, boot/menu scripts, CFB snapshots, save slot 1 | 150s | Clean `lod.log` aside from automation markers; no crash/RSP failure; CFB snapshot showed `Roast chicken x01` in the pause Item list | Fix is not dependent on pause-item trace wrappers |
 | G6-001A | manual input from title/start into new game | user run | Character select worked; after book-close transition the state changed `gs=8 → -3 → 3`; `osViBlack active=0`, VI framebuffers continued rotating at 640px, map overlay `ROM 0x007A60F0` loaded, `overlay_system_2` (`ROM 0x0075A570`) registered, and NI pair `233` looped while the picture was black | Start/new-game flow is functional up to post-selection; next blocker is a live `gs=3` black-screen loop, not the old save/title blockers |
 | G6-001B | `LOD_ENABLE_BOOT_INPUT_SCRIPT=1`, `LOD_ENABLE_CFB_SNAPSHOT=1`, NI loader uses actual TLB `mapped_vaddr` | 85s | Reproduced `gs=6 → -8 → 8 → -3 → 3` locally; pair-233/0x0E dispatch no longer aborts; `gs=3` advances through `map_ovl_09` then `map_ovl_10`; CFB snapshots become non-black; later crashes with `Signal 10` at `0x380800002` | Static 0E/0F NI classification was wrong; mapped-vaddr registration is a real fix. New blocker is a later intro/cutscene stability crash in `gs=3` |
 | G6-001C | manual input, skip/advance intro after character select | user run | User reached actual gameplay; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text | Basic gameplay is reachable. Do not mark recovery complete until natural intro playout crash is characterized and a bounded gameplay stability pass is done |
