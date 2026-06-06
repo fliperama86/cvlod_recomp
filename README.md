@@ -94,13 +94,9 @@ From the extracted folder, double-click `LodRecomp.app`, or run:
 open ./LodRecomp.app
 ```
 
-If Gatekeeper quarantine was applied to the downloaded file, clear it with:
+On first launch, macOS may block the ad-hoc signed app. Open **System Settings → Privacy & Security**, choose **Open Anyway**, then confirm **Open**.
 
-```sh
-xattr -dr com.apple.quarantine ./LodRecomp.app
-```
-
-The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
+The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. If macOS launches the app through App Translocation and that adjacent ROM is hidden from the process, the app will ask you to select your stock LoD ROM once with a native file picker and remember that path for future launches. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
 
 ### Building from a release tag
 

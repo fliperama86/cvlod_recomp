@@ -42,6 +42,7 @@
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
+#include "nfd.h"
 
 #ifdef __APPLE__
 #include <CoreFoundation/CoreFoundation.h>
@@ -547,7 +548,92 @@ std::filesystem::path get_runtime_rom_path() {
 }
 }
 
-static std::filesystem::path find_rom_path(int argc, char** argv) {
+static std::filesystem::path stored_rom_path_file(const std::filesystem::path& config_path) {
+    return config_path / "rom_path.txt";
+}
+
+static std::filesystem::path read_stored_rom_path(const std::filesystem::path& config_path) {
+    std::ifstream f(stored_rom_path_file(config_path));
+    if (!f) {
+        return {};
+    }
+
+    std::string path;
+    std::getline(f, path);
+    if (path.empty()) {
+        return {};
+    }
+
+    std::filesystem::path stored(path);
+    if (std::filesystem::exists(stored)) {
+        return stored;
+    }
+
+    fprintf(stderr, "[LodRecomp] Stored ROM path no longer exists: %s\n", path.c_str());
+    return {};
+}
+
+static void write_stored_rom_path(const std::filesystem::path& config_path,
+                                  const std::filesystem::path& rom_path) {
+    std::ofstream f(stored_rom_path_file(config_path));
+    if (!f) {
+        fprintf(stderr, "[LodRecomp] Failed to save ROM path in %s\n",
+                config_path.string().c_str());
+        return;
+    }
+    f << rom_path.string() << "\n";
+}
+
+static std::filesystem::path prompt_for_rom_path(const std::filesystem::path& config_path) {
+    fprintf(stderr,
+            "[LodRecomp] No ROM found automatically. Asking user to select a stock LoD ROM.\n");
+
+    if (NFD_Init() != NFD_OKAY) {
+        fprintf(stderr, "[LodRecomp] Failed to initialize native file dialog: %s\n",
+                NFD_GetError());
+        return {};
+    }
+
+    nfdchar_t* out_path = nullptr;
+    nfdfilteritem_t filters[] = {
+        { "Nintendo 64 ROM", "z64,n64,v64" },
+    };
+
+    std::string default_path;
+    if (const char* home = std::getenv("HOME")) {
+        std::filesystem::path downloads = std::filesystem::path(home) / "Downloads";
+        if (std::filesystem::exists(downloads)) {
+            default_path = downloads.string();
+        }
+    }
+
+    nfdresult_t result = NFD_OpenDialog(&out_path, filters, 1,
+        default_path.empty() ? nullptr : default_path.c_str());
+
+    std::filesystem::path selected;
+    if (result == NFD_OKAY) {
+        selected = std::filesystem::path(out_path);
+        NFD_FreePath(out_path);
+        if (std::filesystem::exists(selected)) {
+            write_stored_rom_path(config_path, selected);
+            fprintf(stderr, "[LodRecomp] Selected ROM: %s\n", selected.string().c_str());
+        } else {
+            fprintf(stderr, "[LodRecomp] Selected ROM does not exist: %s\n",
+                    selected.string().c_str());
+            selected.clear();
+        }
+    } else if (result == NFD_CANCEL) {
+        fprintf(stderr, "[LodRecomp] ROM selection cancelled.\n");
+    } else {
+        fprintf(stderr, "[LodRecomp] Native file dialog failed: %s\n", NFD_GetError());
+    }
+
+    NFD_Quit();
+    return selected;
+}
+
+static std::filesystem::path find_rom_path(int argc, char** argv,
+                                           const std::filesystem::path& config_path) {
     // Check command line argument first
     if (argc > 1) {
         return std::filesystem::path(argv[1]);
@@ -558,6 +644,16 @@ static std::filesystem::path find_rom_path(int argc, char** argv) {
     std::filesystem::path default_rom = lod::get_runtime_rom_path();
     if (!default_rom.empty()) {
         return default_rom;
+    }
+
+    // macOS may launch quarantined/ad-hoc apps through App Translocation after
+    // Security Settings authorization. In that case the app bundle's apparent
+    // path is a randomized temp mount, so rom.z64 beside the original app is not
+    // visible. Remembering a previously selected ROM path keeps future launches
+    // working without asking again.
+    std::filesystem::path stored_rom = read_stored_rom_path(config_path);
+    if (!stored_rom.empty()) {
+        return stored_rom;
     }
 
     // Look for ROM in current directory
@@ -614,7 +710,7 @@ static std::filesystem::path find_rom_path(int argc, char** argv) {
         if (!p.empty()) return p;
     }
 
-    return {};
+    return prompt_for_rom_path(config_path);
 }
 
 static void auto_start_game(const std::filesystem::path& rom_path) {
@@ -793,9 +889,9 @@ int main(int argc, char** argv) {
     lod_register_overlays();
 
     // Find the ROM
-    std::filesystem::path rom_path = find_rom_path(argc, argv);
+    std::filesystem::path rom_path = find_rom_path(argc, argv, config_path);
     if (rom_path.empty()) {
-        fprintf(stderr, "No ROM file found. Pass a .z64 file as an argument or place one in the current directory.\n");
+        fprintf(stderr, "No ROM file found. Pass a .z64 file as an argument, place one in the current directory, or select one when prompted.\n");
         return EXIT_FAILURE;
     }
     fprintf(stderr, "[LodRecomp] Using ROM: %s\n", rom_path.string().c_str());
