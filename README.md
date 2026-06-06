@@ -75,33 +75,32 @@ That script verifies the tool, repairs known truncation issues, reapplies patche
 
 ### Running the macOS binary asset
 
-Download the macOS asset from the GitHub release, extract it, and place your prepared LoD runtime ROM next to the executable as `rom.z64`:
+Download the macOS `.app` asset from the GitHub release, extract it, and place your prepared LoD runtime ROM next to the app as `rom.z64`:
 
 ```text
-LodRecomp
+LodRecomp.app
 rom.z64
 ```
 
-The current macOS binary is Apple Silicon/arm64 and links against Homebrew SDL2 and Freetype. Install runtime dependencies if needed:
+The current macOS app is Apple Silicon/arm64, ad-hoc signed, and links against Homebrew SDL2 and Freetype. Install runtime dependencies if needed:
 
 ```sh
 brew install sdl2 freetype
 ```
 
-From the extracted folder:
+From the extracted folder, double-click `LodRecomp.app`, or run:
 
 ```sh
-chmod +x ./LodRecomp
-./LodRecomp
+open ./LodRecomp.app
 ```
 
 If Gatekeeper quarantine was applied to the downloaded file, clear it with:
 
 ```sh
-xattr -d com.apple.quarantine ./LodRecomp
+xattr -dr com.apple.quarantine ./LodRecomp.app
 ```
 
-The executable intentionally looks for `./rom.z64` in the current working directory, so run it from the folder containing `rom.z64`.
+The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder.
 
 ### Building from a release tag
 
@@ -114,10 +113,10 @@ xcode-select --install
 brew install cmake ninja pkg-config sdl2 freetype
 ```
 
-Checkout a release tag, for example `v0.1.1`:
+Checkout a release tag, for example `v0.1.2`:
 
 ```sh
-git clone --recursive --branch v0.1.1 https://github.com/fliperama86/cvlod_recomp.git
+git clone --recursive --branch v0.1.2 https://github.com/fliperama86/cvlod_recomp.git
 cd cvlod_recomp
 git submodule sync --recursive
 git submodule update --init --recursive

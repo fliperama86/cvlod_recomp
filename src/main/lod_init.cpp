@@ -13,6 +13,7 @@
 #include <zlib.h>
 
 #include "recomp.h"
+#include "lod/lod_paths.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 
@@ -90,8 +91,8 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     std::vector<uint8_t> rom_storage;
     std::span<const uint8_t> rom;
     {
-        std::filesystem::path orig_path = "rom.z64";
-        if (!std::filesystem::exists(orig_path)) {
+        std::filesystem::path orig_path = lod::get_runtime_rom_path();
+        if (orig_path.empty() || !std::filesystem::exists(orig_path)) {
             orig_path = "resources/castlevania_legacy_of_darkness.z64";
         }
         if (std::filesystem::exists(orig_path)) {
@@ -397,8 +398,8 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         // Load the extended ROM's NI overlay data (text+data at offsets 0x1000000+).
         // This is separate from the runtime ROM (which may be the 52MB decompressed version).
         constexpr uint32_t rom_rdram_base = 0x10000000;
-        std::filesystem::path ext_rom_path = "rom.z64";
-        if (!std::filesystem::exists(ext_rom_path) ||
+        std::filesystem::path ext_rom_path = lod::get_runtime_rom_path();
+        if (ext_rom_path.empty() || !std::filesystem::exists(ext_rom_path) ||
             std::filesystem::file_size(ext_rom_path) <= 0x01000000) {
             ext_rom_path = "resources/castlevania2_ni_extended.z64";
         }

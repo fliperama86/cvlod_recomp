@@ -13,6 +13,7 @@
 #include <chrono>
 #include <filesystem>
 #include <cmath>
+#include <limits.h>
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #endif
@@ -36,10 +37,15 @@
 #include "lod/lod_render.h"
 #include "lod/lod_support.h"
 #include "lod/lod_fault_trace.hpp"
+#include "lod/lod_paths.hpp"
 #include "lod/target_rom.hpp"
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
+
+#ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#endif
 
 #ifndef LOD_ENABLE_AUDIO_TRACE
 #define LOD_ENABLE_AUDIO_TRACE 0
@@ -502,6 +508,45 @@ void message_box_stub(const char* msg) {
 
 // ── ROM loading ─────────────────────────────────────────────────────
 
+namespace lod {
+std::filesystem::path get_runtime_rom_path() {
+    std::filesystem::path cwd_rom = "rom.z64";
+    if (std::filesystem::exists(cwd_rom)) {
+        return cwd_rom;
+    }
+
+#ifdef __APPLE__
+    // When launched as LodRecomp.app, prefer a user-provided ROM next to the
+    // .app bundle: LodRecomp.app and rom.z64 in the same folder.
+    if (CFBundleRef bundle = CFBundleGetMainBundle()) {
+        if (CFURLRef bundle_url = CFBundleCopyBundleURL(bundle)) {
+            char path_buf[PATH_MAX] = {};
+            if (CFURLGetFileSystemRepresentation(bundle_url, true,
+                                                 reinterpret_cast<UInt8*>(path_buf),
+                                                 sizeof(path_buf))) {
+                std::filesystem::path bundle_path(path_buf);
+                std::filesystem::path beside_app = bundle_path.parent_path() / "rom.z64";
+                if (std::filesystem::exists(beside_app)) {
+                    CFRelease(bundle_url);
+                    return beside_app;
+                }
+
+                std::filesystem::path bundled_rom =
+                    bundle_path / "Contents" / "Resources" / "rom.z64";
+                if (std::filesystem::exists(bundled_rom)) {
+                    CFRelease(bundle_url);
+                    return bundled_rom;
+                }
+            }
+            CFRelease(bundle_url);
+        }
+    }
+#endif
+
+    return {};
+}
+}
+
 static std::filesystem::path find_rom_path(int argc, char** argv) {
     // Check command line argument first
     if (argc > 1) {
@@ -510,8 +555,8 @@ static std::filesystem::path find_rom_path(int argc, char** argv) {
 
     // Release/default path: keep runtime setup simple for testers.
     // Put the prepared LoD ROM next to the executable/run directory as rom.z64.
-    std::filesystem::path default_rom = "rom.z64";
-    if (std::filesystem::exists(default_rom)) {
+    std::filesystem::path default_rom = lod::get_runtime_rom_path();
+    if (!default_rom.empty()) {
         return default_rom;
     }
 
