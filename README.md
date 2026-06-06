@@ -41,7 +41,7 @@ The exact pins are determined by the checked-out top-level commit. For reference
 
 ```text
 lib/N64ModernRuntime  366e1499288f78a2dc91100bb6083afa51dc7639
-lib/rt64              20d75f59c5fd67f20063aec056dd2da08479815e
+lib/rt64              6ae43833c5d796e3cdf945798ebff40e6c124324
 lib/RmlUi             7a06f27db04fe5d13a5dacc19b2b4544673a4eca
 lib/lunasvg           4166d0cccfc059b39d5ecfc372524375e59448f9
 ```
@@ -70,6 +70,33 @@ For source regeneration, do **not** run N64Recomp directly. Use:
 ```
 
 That script verifies the tool, repairs known truncation issues, reapplies patches, and keeps symbol replacements consistent. If external testers are only validating Windows builds/gameplay, the maintainer should provide a prepared source/resources bundle or generated artifact bundle matching the top-level commit.
+
+## Linux build
+
+Validated on Ubuntu 24.04/aarch64 in Docker with Clang 18. GCC currently fails at the final link step because generated `RECOMP_FUNC` symbols are strong under GCC, which conflicts with the project override shims. Use Clang for Linux builds.
+
+Prerequisites on Ubuntu 24.04:
+
+```sh
+sudo apt-get update
+sudo apt-get install -y \
+  git build-essential cmake ninja-build pkg-config python3 clang lld \
+  libsdl2-dev libfreetype-dev zlib1g-dev libvulkan-dev libgtk-3-dev \
+  libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+```
+
+From the repository root, after `git submodule update --init --recursive` and after copying/providing the generated/local files listed above:
+
+```sh
+CC=clang CXX=clang++ cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-linux --target LodRecomp --parallel
+```
+
+Run from the repository root so relative `resources/...` paths resolve:
+
+```sh
+./build-linux/LodRecomp
+```
 
 ## Windows build
 
