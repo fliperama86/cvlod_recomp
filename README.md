@@ -131,6 +131,21 @@ Run from the repository root so relative `resources/...` paths resolve:
 
 If using a single-config generator such as Ninja, the executable is typically under `build-win\LodRecomp.exe` instead.
 
+## Audio baseline and useful CMake flags
+
+The default build is intended to produce audible game audio. The current audio baseline is:
+
+- `LOD_USE_RECOMPILED_AUDIO_RSP=ON` — uses the generated LoD audio RSP microcode instead of the timing-only stub.
+- `LOD_OVERRIDE_ALENVMIXERPULL=OFF` — keeps the real `alEnvmixerPull` path active. Turning this override on mutes synthesis and is only useful for A/B diagnostics.
+
+These are the defaults, so normal testers should not need to pass audio flags. If you need to state them explicitly:
+
+```sh
+cmake -S . -B build -DLOD_USE_RECOMPILED_AUDIO_RSP=ON -DLOD_OVERRIDE_ALENVMIXERPULL=OFF
+```
+
+Debug audio traces remain default-off. Use `LOD_ENABLE_AUDIO_TRACE`, `LOD_ENABLE_RSP_AUDIO_TRACE`, `LOD_ENABLE_AUDIO_PULL_TRACE`, or `LOD_ENABLE_AUDIO_RAW_DUMP` only for targeted diagnostics, and include those flags in crash/test reports.
+
 ## Controls
 
 Keyboard input remains available:

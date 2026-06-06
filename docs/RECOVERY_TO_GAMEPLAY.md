@@ -108,14 +108,14 @@ Next action:
 
 Objective:
 
-- Keep audio investigation diagnostic-only and default-off.
-- Avoid app-side gain or fake audio hacks; identify the real CPU/RSP handoff issue.
-- Preserve the validated gameplay route while testing audio with bounded runs.
+- Keep debug audio traces diagnostic-only and default-off.
+- Avoid app-side gain or fake audio hacks; preserve the real CPU/RSP handoff.
+- Keep the audible audio configuration in the normal baseline while continuing bounded stability/quality tests.
 
 Current evidence:
 
 - The SDL/AI handoff is alive: the app queues buffers and SDL drains them.
-- The old default `alEnvmixerPull` no-op suppresses synthesis; audio tests must build with `LOD_OVERRIDE_ALENVMIXERPULL=0`.
+- The previous default `alEnvmixerPull` no-op suppressed synthesis; the baseline now builds with `LOD_OVERRIDE_ALENVMIXERPULL=OFF` so the real pull path is active.
 - The list-helper fix for `0x80096EC0` / `0x80096EF0` is a real compatibility fix: these routines are libaudio doubly-linked-list helpers in this ROM, despite their old misleading OS-thread names.
 - CV64 fingerprint matches identified and renamed LoD libaudio functions, including `alSynNew`, `alAudioFrame`, `alEnvmixerNew`, `alEnvmixerPull`, `alEnvmixerParam`, and the `alSyn*Voice*` helpers.
 - The `osPiStartDma` rename/fix changed the evidence materially: RSP sample `LOADBUFF` now reads nonzero sample/codebook data instead of zero source buffers.
@@ -134,8 +134,8 @@ Next audio step:
 
 1. Classify audible quality issues separately: volume, crackle, missing instruments, channel/order, and timing.
 2. Keep the audio fix path clean: no app-side gain/fake audio; investigate only specific audible defects.
-3. Consider promoting the minimal required pieces only after stability/quality is acceptable: `alEnvmixerPull` no-op disabled for audio builds, generated audio RSP enabled, list-helper compatibility fix, `osPiStartDma` naming/callsite fix, and LoD-local AI pointer wrapper.
-4. Keep audio RSP, pull traces, and raw dumps default-off.
+3. Keep the promoted audio baseline minimal: generated audio RSP enabled, `alEnvmixerPull` no-op disabled, list-helper compatibility fix, `osPiStartDma` naming/callsite fix, and the LoD-local AI pointer wrapper.
+4. Keep pull traces, RSP traces, and raw dumps default-off.
 
 ## Resolved Work Item
 
@@ -246,7 +246,7 @@ Each override should be removed or documented as a required compatibility shim.
 
 | Flag | Default | Current disposition | Next test |
 |------|---------|---------------------|-----------|
-| `LOD_OVERRIDE_ALENVMIXERPULL` | on | `alEnvmixerPull` (`func_8009E480`) libultra envmixer hard no-op; suppresses audio command generation | Build/run with `=0` once audio traces are needed; old `LOD_OVERRIDE_FUNC_8009E480=0` alias is still accepted |
+| `LOD_OVERRIDE_ALENVMIXERPULL` | **off** | `alEnvmixerPull` (`func_8009E480`) no-op override is retained only for A/B diagnostics; enabling it suppresses audio command generation and mutes synthesis | Keep off for normal/audio builds; old `LOD_OVERRIDE_FUNC_8009E480=0` source-level alias remains accepted, but the CMake option is preferred |
 | `LOD_OVERRIDE_FUNC_8001D398` | on | Runtime necessity unknown; build-gate combo with inserted-status disabled is fixed | Build/run with `=0` |
 | `LOD_OVERRIDE_FUNC_8001C93C` | on | Unknown; Pak validation gate | Build/run with `=0` |
 | `LOD_OVERRIDE_FUNC_8009F400` | **off** | Retired stale direct PFS find shim; keep only for A/B regression checks | Confirm no future path depends on it; eventually remove |
@@ -258,11 +258,11 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use only if `gs=4` regresses |
 | `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only state-4/5 schedule-helper trace | Use only if `gs=4` regresses |
 | `LOD_ENABLE_KSEG0_FAULT_TRACE` | off | Debug-only lightweight crash-context snapshot for post-RDRAM/KSEG0 faults; current low-perturbation form wraps only `DMAMgr_updatePendingFileLoad` and records active/current DMA RAM validity | Use with faster skip-to-gameplay harness; add PI DMA destination evidence if active/current fields stay valid before crash |
-| `LOD_ENABLE_AUDIO_TRACE` | off | Debug-only app-layer audio telemetry: SDL device open, frequency changes, queued sample min/max/nonzero counts, SDL queued byte count, and AI pointer validation | Use with `LOD_OVERRIDE_ALENVMIXERPULL=0`; latest evidence shows sustained nonzero buffers after the `osPiStartDma` rename and AI pointer wrapper, and the user confirmed audible audio |
+| `LOD_ENABLE_AUDIO_TRACE` | off | Debug-only app-layer audio telemetry: SDL device open, frequency changes, queued sample min/max/nonzero counts, SDL queued byte count, and AI pointer validation | Use for targeted quality/stability diagnostics; latest evidence shows sustained nonzero buffers after the `osPiStartDma` rename and AI pointer wrapper, and the user confirmed audible audio |
 | `LOD_ENABLE_AUDIO_RAW_DUMP` | off | Debug-only app-layer raw `s16le` AI queue dump to `/tmp/lod_audio_queue_s16le.raw` | Use only for short local diagnostics, then disable again; convert to WAV for amplitude/RMS checks |
 | `LOD_ENABLE_AUDIO_PULL_TRACE` | off | Debug-only CPU libaudio pull-chain wrappers for source/envmixer/resample/ADPCM functions and current CPU envmixer event evidence | Use for targeted `alEnvmixerPull`/command-emission correlation; broad voice wrappers are installed but may not fire after init in short runs |
 | `LOD_ENABLE_RSP_AUDIO_TRACE` | off | Debug-only RSP audio task telemetry, alist dumps, and ENVMIXER collapse summaries | Use to correlate RSP `cmd10/saved20/saved40` against CPU envmixer fields; keep default-off |
-| `LOD_USE_RECOMPILED_AUDIO_RSP` | off | Selects experimental generated LoD audio RSP microcode instead of the timing-only stub | Required for audible audio in current testing; keep off in baseline until quality/stability and required companion fixes are accepted |
+| `LOD_USE_RECOMPILED_AUDIO_RSP` | **on** | Selects generated LoD audio RSP microcode instead of the timing-only stub | Required for audible audio in current testing; turn off only for A/B diagnostics where silence is expected |
 | `LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT` | off | Debug-only aggressive controller/PIF input to skip quickly to the gameplay idle signature; releases input at `gs=3 exec=0x38000000 ni=0x803241C0` | Use for KSEG0 idle repro loops instead of paying full prologue cost |
 | `LOD_POST_RDRAM_GUARD_SIZE` | `0x10000` | CMake cache variable for the zero-filled post-RDRAM guard at `rdram+0x80800000`; `0x20000` survived one 180s fast-idle diagnostic run | Keep default at `0x10000`; A/B test `0x20000` when validating open-bus/guard-width hypothesis |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; never a permanent fix | Use only for downstream comparison, never as baseline |
@@ -328,6 +328,7 @@ Record durable experiments here. Keep entries concise and technical.
 | AUDIO-014 | `osPiStartDma` symbol rename, LoD-local `lod_osAiSetNextBuffer_recomp` wrapper, `LOD_USE_RECOMPILED_AUDIO_RSP=ON`, `LOD_ENABLE_AUDIO_TRACE=ON`, `LOD_ENABLE_RSP_AUDIO_TRACE=ON`, `LOD_ENABLE_AUDIO_PULL_TRACE=ON`, `LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT=ON`, `LOD_OVERRIDE_ALENVMIXERPULL=0` | 20s bounded local run, `/tmp/lod_audio_ai_normalized_trace_20260605.log` | Built/codesigned and timed out cleanly (`rc=124`), no stale process and no `[CRASH]`. `osPiStartDma` rename fixed sample DMA evidence: first audio DMA/RSP loads now contain nonzero source data. The AI wrapper prevents the low/physical AI-buffer `rdram+0x80810000` crash and leaves submodules clean. Queue telemetry improved from sparse to sustained output: 449/1,043 traced queue buffers were nonzero, 657,559 nonzero sample words total, peak abs `19225`, with late full buffers like `queue_samples#1098 min=-5592 max=4443 nonzero=1440`. Two invalid `osAiSetNextBuffer` calls (`raw=0x80136D40 bytes=0xFFFFED00`) were skipped instead of crashing. | Audio data path is now alive enough for audible/manual validation. If sound is heard, classify quality/timing issues next; if still silent despite nonzero queue buffers, investigate SDL/host output rather than returning first to ENVMIXER math. |
 | AUDIO-015 | same current audio build as AUDIO-014 | user manual test | User confirmed audible game audio. | Audio is no longer blocked at SDL/AI/RSP data-path level. Next work is quality/stability triage and deciding which minimal audio pieces can graduate from experimental/default-off to accepted baseline. |
 | AUDIO-016 | `build-audio-manual/LodRecomp`; `LOD_USE_RECOMPILED_AUDIO_RSP=ON`, `LOD_OVERRIDE_ALENVMIXERPULL=0`, no audio traces, no fast input | user manual, ~340s | User confirmed audible game audio including music, then the run crashed with `exit=139` / `Signal 11` around `gs=3`, `DL#10300`, `VI#20200`. Native backtrace was an ObjC autorelease-pool/thread-exit path and printed twice; last recomp lookups repeatedly included `0x8009092C`, `alEnvmixerPull`, `0x8009F1EC`, `0x8009FC7C`, then `0x80000578`, `0x8001BB3C`, `func_80011D10`, `DMAMgr_updatePendingFileLoad`. | Audio output is real, but the manual audio build still needs long-run crash classification. Next useful run should preserve the manual route and add targeted low-noise crash context rather than broad audio traces. |
+| AUDIO-017 | default baseline cleanup: `LOD_USE_RECOMPILED_AUDIO_RSP=ON`, `LOD_OVERRIDE_ALENVMIXERPULL=OFF`, no audio traces | local build/user manual confirmation | Added a real CMake option for `LOD_OVERRIDE_ALENVMIXERPULL`, removed the need for manual `CMAKE_CXX_FLAGS`, restored generated audio RSP as the default path, and documented the audio baseline in README/recovery notes. User confirmed the preceding equivalent build restored audible audio. | Audio should remain on in normal tester builds; future audio regressions should first verify these two flags before adding traces. |
 
 ## Open Questions
 
@@ -396,4 +397,4 @@ pgrep -la LodRecomp
 
 Work item `G6-001`: preserve the now-validated low-resolution natural route into gameplay, then stabilize long-idle gameplay and high-resolution intro/gameplay `gs=3`. The NI TLB skip-window bug and `0x8E`/`0x8F` mirror dispatch miss have concrete local fixes. The post-RDRAM guard fixed the first `rdram+0x80800002` SIGBUS but the default 64KB guard did not cover the later `rdram+0x80810002` idle crash. `LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT` now reaches the idle target around `DL#972`; active/current DMAMgr RAM was valid in the reproduced crash snapshot. Telemetry is now good enough to move on: native backtrace, RDRAM-relative fault decoding, DMAMgr snapshot, last-`DMA_ROMCopy` snapshot, and enhanced NI no-match context are available for future crashes. Do not keep looping on the guard unless a new crash provides fresh evidence.
 
-Parallel audio work is now a real milestone: generated audio RSP is wired, the libaudio PVoice free-list bug was traced to empty `__osDequeueThread`/`__osEnqueueThread` stubs that must behave as ALLink list helpers, `osPiStartDma` naming fixed sample DMA evidence, and the LoD-local AI pointer wrapper prevents the physical-buffer queue crash. The user confirmed audible game audio, including music, from `build-audio-manual/LodRecomp`. Audio is no longer blocked at SDL/AI/RSP data-path level; remaining audio work is quality/stability triage and deciding what minimal pieces can graduate from experimental flags. The latest manual audio run still crashed after about 340s in `gs=3` with `Signal 11`, so next focus is real progression: high-res/base-NI no-match `0x3880006d0` classification, longer gameplay/manual crash capture, and targeted low-noise crash context for the manual audio build. Use fast-skip for KSEG0 idle loops; reserve full natural prologue runs for intro-stability checks. Keep debug-only input/CFB/audio snapshots as test harnesses and avoid gamestate skips or app-side audio gain as permanent fixes.
+Parallel audio work is now a real milestone: generated audio RSP is wired, the libaudio PVoice free-list bug was traced to empty `__osDequeueThread`/`__osEnqueueThread` stubs that must behave as ALLink list helpers, `osPiStartDma` naming fixed sample DMA evidence, and the LoD-local AI pointer wrapper prevents the physical-buffer queue crash. The user confirmed audible game audio, including music. The minimal audible config has now graduated into the default baseline: generated audio RSP on and `alEnvmixerPull` no-op override off. Remaining audio work is quality/stability triage. The latest manual audio run still crashed after about 340s in `gs=3` with `Signal 11`, so next focus is real progression: high-res/base-NI no-match `0x3880006d0` classification, longer gameplay/manual crash capture, and targeted low-noise crash context for manual audio builds. Use fast-skip for KSEG0 idle loops; reserve full natural prologue runs for intro-stability checks. Keep debug-only input/CFB/audio snapshots as test harnesses and avoid gamestate skips or app-side audio gain as permanent fixes.
