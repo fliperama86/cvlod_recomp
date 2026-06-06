@@ -90,12 +90,16 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     std::vector<uint8_t> rom_storage;
     std::span<const uint8_t> rom;
     {
-        std::filesystem::path orig_path = "resources/castlevania_legacy_of_darkness.z64";
+        std::filesystem::path orig_path = "rom.z64";
+        if (!std::filesystem::exists(orig_path)) {
+            orig_path = "resources/castlevania_legacy_of_darkness.z64";
+        }
         if (std::filesystem::exists(orig_path)) {
             std::ifstream f(orig_path, std::ios::binary);
             rom_storage.assign(std::istreambuf_iterator<char>(f), {});
             rom = rom_storage;
-            fprintf(stderr, "[lod_init] rdram=%p, original ROM: %zu bytes\n", (void*)rdram, rom.size());
+            fprintf(stderr, "[lod_init] rdram=%p, init ROM %s: %zu bytes\n",
+                    (void*)rdram, orig_path.string().c_str(), rom.size());
         } else {
             rom = recomp::get_rom();
             fprintf(stderr, "[lod_init] Using runtime ROM: %zu bytes\n", rom.size());
@@ -393,7 +397,11 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
         // Load the extended ROM's NI overlay data (text+data at offsets 0x1000000+).
         // This is separate from the runtime ROM (which may be the 52MB decompressed version).
         constexpr uint32_t rom_rdram_base = 0x10000000;
-        std::filesystem::path ext_rom_path = "resources/castlevania2_ni_extended.z64";
+        std::filesystem::path ext_rom_path = "rom.z64";
+        if (!std::filesystem::exists(ext_rom_path) ||
+            std::filesystem::file_size(ext_rom_path) <= 0x01000000) {
+            ext_rom_path = "resources/castlevania2_ni_extended.z64";
+        }
         if (std::filesystem::exists(ext_rom_path)) {
             std::ifstream ef(ext_rom_path, std::ios::binary);
             ef.seekg(0, std::ios::end);

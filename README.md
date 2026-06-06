@@ -52,16 +52,16 @@ Use `git submodule status --recursive` to report the actual SHAs when filing bui
 
 ROMs and generated artifacts are intentionally not fully distributed through Git.
 
-A build/test checkout needs, at minimum, the generated `RecompiledFuncs/` outputs and runtime resources expected by the project, including:
+A source build/test checkout needs, at minimum, the generated `RecompiledFuncs/` outputs and runtime ROM resources expected by the project, including:
 
 ```text
 RecompiledFuncs/funcs.h
 RecompiledFuncs/recomp_overlays.inl
 RecompiledFuncs/*.c              # full generated set, not only tracked patched files
-resources/castlevania_legacy_of_darkness.z64
-resources/castlevania2_decompressed.z64
-resources/castlevania2_ni_extended.z64
+rom.z64                          # preferred runtime name; prepared extended LoD ROM image
 ```
+
+Developer checkouts may also use the older `resources/*.z64` layout as a fallback, but release binaries prefer `./rom.z64`.
 
 For source regeneration, do **not** run N64Recomp directly. Use:
 
@@ -73,7 +73,39 @@ That script verifies the tool, repairs known truncation issues, reapplies patche
 
 ## macOS release / tag run instructions
 
-GitHub releases for this WIP project are tagged source baselines. Use the release tag with `git clone --recursive`; do **not** rely on GitHub's auto-generated "Source code" zip/tarball for a fresh build because it does not include submodule contents and it still requires the local/generated files listed above.
+### Running the macOS binary asset
+
+Download the macOS asset from the GitHub release, extract it, and place your prepared LoD runtime ROM next to the executable as `rom.z64`:
+
+```text
+LodRecomp
+rom.z64
+```
+
+The current macOS binary is Apple Silicon/arm64 and links against Homebrew SDL2 and Freetype. Install runtime dependencies if needed:
+
+```sh
+brew install sdl2 freetype
+```
+
+From the extracted folder:
+
+```sh
+chmod +x ./LodRecomp
+./LodRecomp
+```
+
+If Gatekeeper quarantine was applied to the downloaded file, clear it with:
+
+```sh
+xattr -d com.apple.quarantine ./LodRecomp
+```
+
+The executable intentionally looks for `./rom.z64` in the current working directory, so run it from the folder containing `rom.z64`.
+
+### Building from a release tag
+
+GitHub releases are also tagged source baselines. Use the release tag with `git clone --recursive`; do **not** rely on GitHub's auto-generated "Source code" zip/tarball for a fresh build because it does not include submodule contents and it still requires the local/generated files listed above.
 
 Prerequisites:
 
@@ -82,17 +114,17 @@ xcode-select --install
 brew install cmake ninja pkg-config sdl2 freetype
 ```
 
-Checkout a release tag, for example `v0.1.0`:
+Checkout a release tag, for example `v0.1.1`:
 
 ```sh
-git clone --recursive --branch v0.1.0 https://github.com/fliperama86/cvlod_recomp.git
+git clone --recursive --branch v0.1.1 https://github.com/fliperama86/cvlod_recomp.git
 cd cvlod_recomp
 git submodule sync --recursive
 git submodule update --init --recursive
 git submodule status --recursive
 ```
 
-Before building, provide the generated/local files listed in [Generated/local files](#generatedlocal-files), especially the runtime `resources/*.z64` files and the full generated `RecompiledFuncs/` output matching the release tag.
+Before building, provide the generated/local files listed in [Generated/local files](#generatedlocal-files), especially `rom.z64` and the full generated `RecompiledFuncs/` output matching the release tag.
 
 Build:
 
@@ -107,7 +139,7 @@ Codesign before running on macOS:
 codesign -s - --entitlements .github/macos/entitlements.plist -f build-macos/LodRecomp
 ```
 
-Run from the repository root so relative `resources/...` paths resolve:
+Run from the repository root so `./rom.z64` resolves:
 
 ```sh
 ./build-macos/LodRecomp

@@ -508,6 +508,13 @@ static std::filesystem::path find_rom_path(int argc, char** argv) {
         return std::filesystem::path(argv[1]);
     }
 
+    // Release/default path: keep runtime setup simple for testers.
+    // Put the prepared LoD ROM next to the executable/run directory as rom.z64.
+    std::filesystem::path default_rom = "rom.z64";
+    if (std::filesystem::exists(default_rom)) {
+        return default_rom;
+    }
+
     // Look for ROM in current directory
     for (const auto& entry : std::filesystem::directory_iterator(".")) {
         auto ext = entry.path().extension().string();
@@ -574,7 +581,8 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
     // Try the decompressed ROM first (NI files pre-decompressed for direct DMA)
     std::filesystem::path decomp_rom = "resources/castlevania2_decompressed.z64";
     bool using_decomp = false;
-    if (std::filesystem::exists(decomp_rom) && std::filesystem::file_size(decomp_rom) > 0) {
+    if (rom_path.filename() != std::filesystem::path("rom.z64") &&
+        std::filesystem::exists(decomp_rom) && std::filesystem::file_size(decomp_rom) > 0) {
         auto result = recomp::select_rom(decomp_rom, game_id);
         if (result == recomp::RomValidationError::Good) {
             fprintf(stderr, "[LodRecomp] Using decompressed ROM\n");
@@ -595,11 +603,18 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
         auto result = recomp::select_rom(rom_path, game_id);
         if (result != recomp::RomValidationError::Good) {
             fprintf(stderr, "ROM validation failed (error %d) for: %s\n", (int)result, rom_path.string().c_str());
-            if (!recomp::load_stored_rom(game_id)) {
+            std::ifstream rom_file(rom_path, std::ios::binary);
+            if (rom_file) {
+                std::vector<uint8_t> rom_data((std::istreambuf_iterator<char>(rom_file)),
+                                              std::istreambuf_iterator<char>());
+                recomp::set_rom_contents(std::move(rom_data));
+                fprintf(stderr, "[LodRecomp] Force-loaded runtime ROM (%zu bytes)\n", recomp::get_rom().size());
+            } else if (!recomp::load_stored_rom(game_id)) {
                 fprintf(stderr, "No stored ROM found either, cannot start game.\n");
                 return;
+            } else {
+                fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
             }
-            fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
         }
     }
 
