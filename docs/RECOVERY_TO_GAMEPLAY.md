@@ -137,6 +137,30 @@ Next audio step:
 3. Keep the promoted audio baseline minimal: generated audio RSP enabled, `alEnvmixerPull` no-op disabled, list-helper compatibility fix, `osPiStartDma` naming/callsite fix, and the LoD-local AI pointer wrapper.
 4. Keep pull traces, RSP traces, and raw dumps default-off.
 
+## Visual Effects / Small Texture Fix (2026-06-06)
+
+Status: validated by user manual test; promoted to default-on compatibility shim.
+
+What changed:
+
+- Added `LOD_FIX_SEGMENT_86_BASES` for RT64, default ON.
+- When RT64 receives a display-list segment base in the invalid `0x86xxxxxx` range, normalize it to `0x80xxxxxx` before storing it in the RSP segment table.
+- Removed the one-off render/asset-bank trace-only edits from the committed baseline; the accepted fix is the small segment-base normalization only.
+
+Evidence:
+
+- Missing visuals affected small HUD/effect/item assets: clock/item HUD elements, red jewels/save crystals/pickups, prologue fire/Dracula-style effects, and similar small textured elements, while most world geometry/HUD rendered correctly.
+- Trace build showed bad texture/TLUT loads came from segments `5` and `9`, not segment `6`: e.g. `segaddr=0x05000000` with base `0x861A0B20`, and `segaddr=0x09000400` resolving to `0x861A0F20`.
+- RT64 then masked those to empty `rdram+0x061A....`; no PI DMA populated that region.
+- With the normalization experiment enabled, the same loads became `0x801A.... -> rdram+0x001A....` and contained nonzero texture/TLUT data. The log showed `0` remaining `0x061A....` loads and no crash.
+- User confirmed visually that the missing elements rendered after the fix.
+
+Regression checks:
+
+- Start gameplay and verify HUD item/clock elements plus small world pickups/save crystals render.
+- Verify logs do not show repeated zero texture loads from `0x061A....` when render tracing is enabled.
+- Keep the fix scoped to segment-table bases only; do not globally rewrite arbitrary `0x86....` texture addresses unless future evidence requires it.
+
 ## Resolved Work Item
 
 ### G5-001 — Overlay-System and NI Overlay Registration
@@ -397,4 +421,4 @@ pgrep -la LodRecomp
 
 Work item `G6-001`: preserve the now-validated low-resolution natural route into gameplay, then stabilize long-idle gameplay and high-resolution intro/gameplay `gs=3`. The NI TLB skip-window bug and `0x8E`/`0x8F` mirror dispatch miss have concrete local fixes. The post-RDRAM guard fixed the first `rdram+0x80800002` SIGBUS but the default 64KB guard did not cover the later `rdram+0x80810002` idle crash. `LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT` now reaches the idle target around `DL#972`; active/current DMAMgr RAM was valid in the reproduced crash snapshot. Telemetry is now good enough to move on: native backtrace, RDRAM-relative fault decoding, DMAMgr snapshot, last-`DMA_ROMCopy` snapshot, and enhanced NI no-match context are available for future crashes. Do not keep looping on the guard unless a new crash provides fresh evidence.
 
-Parallel audio work is now a real milestone: generated audio RSP is wired, the libaudio PVoice free-list bug was traced to empty `__osDequeueThread`/`__osEnqueueThread` stubs that must behave as ALLink list helpers, `osPiStartDma` naming fixed sample DMA evidence, and the LoD-local AI pointer wrapper prevents the physical-buffer queue crash. The user confirmed audible game audio, including music. The minimal audible config has now graduated into the default baseline: generated audio RSP on and `alEnvmixerPull` no-op override off. Remaining audio work is quality/stability triage. The latest manual audio run still crashed after about 340s in `gs=3` with `Signal 11`, so next focus is real progression: high-res/base-NI no-match `0x3880006d0` classification, longer gameplay/manual crash capture, and targeted low-noise crash context for manual audio builds. Use fast-skip for KSEG0 idle loops; reserve full natural prologue runs for intro-stability checks. Keep debug-only input/CFB/audio snapshots as test harnesses and avoid gamestate skips or app-side audio gain as permanent fixes.
+Parallel audio work is now a real milestone: generated audio RSP is wired, the libaudio PVoice free-list bug was traced to empty `__osDequeueThread`/`__osEnqueueThread` stubs that must behave as ALLink list helpers, `osPiStartDma` naming fixed sample DMA evidence, and the LoD-local AI pointer wrapper prevents the physical-buffer queue crash. The user confirmed audible game audio, including music. The minimal audible config has now graduated into the default baseline: generated audio RSP on and `alEnvmixerPull` no-op override off. Small visual effects/HUD item textures also have a validated baseline fix: `LOD_FIX_SEGMENT_86_BASES` normalizes RT64 segment bases from `0x86xxxxxx` to `0x80xxxxxx`, restoring assets that previously loaded from empty `0x061A....` addresses. Remaining work is quality/stability/progression triage: high-res/base-NI no-match `0x3880006d0` classification, longer gameplay/manual crash capture, and targeted low-noise crash context for manual audio builds. Use fast-skip for KSEG0 idle loops; reserve full natural prologue runs for intro-stability checks. Keep debug-only input/CFB/audio snapshots as test harnesses and avoid gamestate skips, app-side audio gain, or broad address rewrites as permanent fixes.

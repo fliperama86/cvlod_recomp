@@ -45,6 +45,11 @@ add_subdirectory(${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime)
 
 target_include_directories(rt64 PRIVATE ${CMAKE_BINARY_DIR}/rt64/src)
 
+option(LOD_FIX_SEGMENT_86_BASES "Normalize LoD RT64 segment bases in the invalid 0x86xxxxxx range to 0x80xxxxxx" ON)
+if (LOD_FIX_SEGMENT_86_BASES)
+    target_compile_definitions(rt64 PRIVATE LOD_FIX_SEGMENT_86_BASES=1)
+endif()
+
 # ── RecompiledFuncs ─────────────────────────────────────────────────
 add_library(RecompiledFuncs STATIC)
 
