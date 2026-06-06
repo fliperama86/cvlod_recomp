@@ -41,7 +41,7 @@ The exact pins are determined by the checked-out top-level commit. For reference
 
 ```text
 lib/N64ModernRuntime  366e1499288f78a2dc91100bb6083afa51dc7639
-lib/rt64              6ae43833c5d796e3cdf945798ebff40e6c124324
+lib/rt64              589e172da86f8390cb7d31b904494c522a8f46ba
 lib/RmlUi             7a06f27db04fe5d13a5dacc19b2b4544673a4eca
 lib/lunasvg           4166d0cccfc059b39d5ecfc372524375e59448f9
 ```
@@ -70,6 +70,56 @@ For source regeneration, do **not** run N64Recomp directly. Use:
 ```
 
 That script verifies the tool, repairs known truncation issues, reapplies patches, and keeps symbol replacements consistent. If external testers are only validating Windows builds/gameplay, the maintainer should provide a prepared source/resources bundle or generated artifact bundle matching the top-level commit.
+
+## macOS release / tag run instructions
+
+GitHub releases for this WIP project are tagged source baselines. Use the release tag with `git clone --recursive`; do **not** rely on GitHub's auto-generated "Source code" zip/tarball for a fresh build because it does not include submodule contents and it still requires the local/generated files listed above.
+
+Prerequisites:
+
+```sh
+xcode-select --install
+brew install cmake ninja pkg-config sdl2 freetype
+```
+
+Checkout a release tag, for example `v0.1.0`:
+
+```sh
+git clone --recursive --branch v0.1.0 https://github.com/fliperama86/cvlod_recomp.git
+cd cvlod_recomp
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status --recursive
+```
+
+Before building, provide the generated/local files listed in [Generated/local files](#generatedlocal-files), especially the runtime `resources/*.z64` files and the full generated `RecompiledFuncs/` output matching the release tag.
+
+Build:
+
+```sh
+cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+cmake --build build-macos --target LodRecomp --parallel
+```
+
+Codesign before running on macOS:
+
+```sh
+codesign -s - --entitlements .github/macos/entitlements.plist -f build-macos/LodRecomp
+```
+
+Run from the repository root so relative `resources/...` paths resolve:
+
+```sh
+./build-macos/LodRecomp
+```
+
+For tester reports against a release, include:
+
+```sh
+git rev-parse HEAD
+git describe --tags --always --dirty
+git submodule status --recursive
+```
 
 ## Linux build
 
