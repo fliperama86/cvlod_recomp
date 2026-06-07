@@ -203,9 +203,24 @@ Known state-3 inputs:
 | Address | Name | Description |
 |---------|------|-------------|
 | 0x801CB5CC | NI_systemInit | Creates NI file management object at sys+0x295C |
+| 0x0F00469C (NI pair 23) | ni_ovl_023_bike_skeleton_spawn_dispatch | Pair-23 bike-skeleton spawn sub-dispatcher: dispatches two-entry table `0x0F006FC8[state]`; entry `1` is internal label `0x0F004A24`, and entry `2` falls into adjacent `"No memory..."` string data |
+| 0x0F004744 (NI pair 23) | ni_ovl_023_bike_skeleton_spawn_init | Pair-23 bike-skeleton spawn/init state; contains internal update label `0x0F004A24` used by the `0x0F006FC8` table |
 | 0x0F000000 (NI pair 104) | ni_ovl_104_schedule_dispatch | Pair-104 schedule dispatcher: dispatches table `0x0F0026F8[obj schedule state]`; current post-Expansion-Pak `gs=5` crash path enters here |
 | 0x0F000130 (NI pair 104) | ni_ovl_104_func_0F000130 | Pair-104 state handler in current `gs=5` crash path; role still under investigation |
 | 0x0F000484 (NI pair 120) | ni_ovl_120_result_schedule_dispatch | Pair-120 result dispatcher: calls callback table `0x0F0016BC[obj+0x48]`, stores `v0` at `obj+0x38`, resets current schedule to `0` when result is nonzero, otherwise sets `obj+0x44=1` and advances |
+
+Pair-23 bike-skeleton spawn callback table at `0x0F006FC8`:
+
+| Index | Target | Notes |
+|-------|--------|-------|
+| 0 | 0x0F004744 | Function start (`ni_ovl_023_bike_skeleton_spawn_init`) |
+| 1 | 0x0F004A24 | Internal label inside `ni_ovl_023_bike_skeleton_spawn_init`; update path for the spawn timer/child display bytes |
+| 2 | 0x4E6F206D | Not a function; first word of adjacent string data (`"No memory..."`) |
+
+Notes:
+
+- Pair 23 has the same internal-label hazard as pair 120: N64Recomp's range fallback resolves `0x0F004A24` to `0x0F004744`, which reruns initialization instead of the intended update label.
+- The compatibility fix is scoped to `ni_ovl_023_bike_skeleton_spawn_dispatch`; it does not globally register `0x0F004A24` in the reused `0x0F...` NI address range.
 
 Pair-120 result callback table at `0x0F0016BC`:
 

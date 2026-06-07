@@ -287,3 +287,7 @@ contpak_uninserted = 0x800F2260; // type:data  // byte[4]: per-controller "no pa
 max_controllers = 0x8013EDB1; // type:data  // byte: number of detected controllers
 pif_buffer = 0x8013ED70; // type:data  // 64-byte PIF command/response buffer
 scene_table = 0x800ACFDC; // type:data  // scene descriptor table, 80 bytes per entry
+
+// NI pair 23 / bike skeleton spawn path
+ni_ovl_023_bike_skeleton_spawn_dispatch = 0x0F00469C; // type:func  // pair 23: two-entry sub-dispatch table at 0x0F006FC8; entry 1 targets internal label 0x0F004A24
+ni_ovl_023_bike_skeleton_spawn_init = 0x0F004744; // type:func  // pair 23: state-0 bike skeleton spawn/init path; contains internal update label 0x0F004A24

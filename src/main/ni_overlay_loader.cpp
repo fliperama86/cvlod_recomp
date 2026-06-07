@@ -10,6 +10,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include "lod/lod_mem_compat.h"
 #if defined(__APPLE__) || defined(__linux__)
 #include <dlfcn.h>
@@ -48,6 +49,10 @@
 
 #ifndef LOD_FIX_NI_PAIR24_INTERNAL_LABELS
 #define LOD_FIX_NI_PAIR24_INTERNAL_LABELS 1
+#endif
+
+#ifndef LOD_FIX_NI_PAIR23_INTERNAL_LABELS
+#define LOD_FIX_NI_PAIR23_INTERNAL_LABELS 1
 #endif
 
 #ifndef LOD_FIX_NI_PRESERVE_SAME_PAIR_DATA
@@ -308,6 +313,140 @@ static void lod_install_ni_pair24_internal_label_fix(const char* reason) {
         fprintf(stderr,
             "[PAIR24-FIX] installed internal label alias 0x0F00ADEC reason=%s\n",
             reason);
+    }
+}
+#endif
+
+#if LOD_FIX_NI_PAIR23_INTERNAL_LABELS
+static float lod_ni_u32_as_f32(uint32_t value) {
+    float ret = 0.0f;
+    memcpy(&ret, &value, sizeof(ret));
+    return ret;
+}
+
+static uint32_t lod_ni_f32_as_u32(float value) {
+    uint32_t ret = 0;
+    memcpy(&ret, &value, sizeof(ret));
+    return ret;
+}
+
+static int32_t lod_ni_trunc_nonnegative_f32_to_i32(float value) {
+    if (!(value >= 0.0f) || !std::isfinite(value) || value >= 2147483648.0f) {
+        return -1;
+    }
+    return (int32_t)value;
+}
+
+static void lod_ni_pair23_internal_label_0F004A24(uint8_t* rdram, recomp_context* ctx) {
+    (void)rdram;
+
+    // Original internal label 0x0F004A24 inside ni_ovl_023_func_0F004744.
+    // The pair-23 sub-dispatch table at 0x0F006FC8 uses this label as state 1.
+    // N64Recomp's range fallback resolves it to function start 0x0F004744,
+    // re-running state-0 initialization instead of this update path.
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t data0 = (uint32_t)MEM_W(0x34, obj);
+    const uint32_t work = (uint32_t)MEM_W(0x24, obj);
+
+    float timer = lod_ni_u32_as_f32((uint32_t)MEM_W(0x1B0, data0));
+    timer += 25.5f;
+    MEM_W(0x1B0, data0) = lod_ni_f32_as_u32(timer);
+
+    const uint32_t child = (uint32_t)MEM_W(0x14, work);
+    const int32_t timer_byte = lod_ni_trunc_nonnegative_f32_to_i32(timer);
+    MEM_B(0x1B, child) = timer_byte;
+    MEM_B(0x19, child) = timer_byte;
+    MEM_B(0x18, child) = lod_ni_trunc_nonnegative_f32_to_i32(timer * 0.2f);
+
+    if (timer >= 254.0f) {
+        MEM_B(0x9, obj) = 2;
+    }
+}
+
+static void lod_call_ni_pair23_spawn_callback(uint8_t* rdram, recomp_context* ctx,
+                                               uint32_t state, uint32_t target) {
+    switch (target) {
+        case 0x0F004744:
+            LOOKUP_FUNC((int32_t)target)(rdram, ctx);
+            return;
+        case 0x0F004A24:
+            lod_ni_pair23_internal_label_0F004A24(rdram, ctx);
+            return;
+        default:
+            static int warn_count = 0;
+            warn_count++;
+            if (warn_count <= 8 || (warn_count % 100) == 0) {
+                fprintf(stderr,
+                    "[PAIR23-FIX] skipped invalid spawn callback state=%u target=0x%08X (#%d)\n",
+                    state, target, warn_count);
+            }
+            return;
+    }
+}
+
+static void lod_fixed_ni_pair23_spawn_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    // Scoped compatibility shim for ni_ovl_023_func_0F00469C.
+    // Its table at 0x0F006FC8 has two valid entries. Entry 1 is an internal
+    // label (0x0F004A24) inside 0x0F004744; if it falls through the generic
+    // range fallback, state 1 re-enters state-0 initialization and can advance
+    // to state 2, whose table word is adjacent string data ("No memory...").
+    ctx->r29 = ADD32(ctx->r29, -0x18);
+    MEM_W(0x14, ctx->r29) = ctx->r31;
+
+    ctx->r2 = MEM_W(ctx->r4, 0x34);
+    ctx->f0.u32l = 0;
+    ctx->r1 = S32(0x4000 << 16);
+    ctx->r15 = MEM_BU(ctx->r2, 0xAC);
+    MEM_W(0x128, ctx->r2) = ctx->f0.u32l;
+    MEM_W(0x12C, ctx->r2) = ctx->f0.u32l;
+    ctx->r24 = ctx->r15 | 0x8;
+    MEM_B(0xAC, ctx->r2) = ctx->r24;
+    MEM_W(0xA4, ctx->r2) = ctx->f0.u32l;
+    MEM_W(0x9C, ctx->r2) = ctx->f0.u32l;
+
+    ctx->r5 = MEM_W(ctx->r4, 0x3C);
+    ctx->r25 = MEM_W(ctx->r5, 0x60);
+    ctx->r8 = ctx->r25 | ctx->r1;
+    MEM_W(0x60, ctx->r5) = ctx->r8;
+
+    ctx->r6 = MEM_H(ctx->r4, 0xE);
+    ctx->r25 = S32(0x0F00 << 16);
+    ctx->r6 = ADD32(ctx->r6, 0x1);
+    ctx->r6 = S32(ctx->r6 << 16);
+    ctx->r6 = S32(SIGNED(ctx->r6) >> 16);
+    ctx->r9 = S32(ctx->r6 << 1);
+    ctx->r3 = ADD32(ctx->r4, ctx->r9);
+    MEM_H(0xE, ctx->r4) = ctx->r6;
+    ctx->r10 = MEM_BU(ctx->r3, 0x8);
+    ctx->r11 = ADD32(ctx->r10, 0x1);
+    MEM_B(0x8, ctx->r3) = ctx->r11;
+    MEM_W(0x18, ctx->r29) = ctx->r4;
+
+    ctx->r12 = MEM_BU(ctx->r3, 0x9);
+    ctx->r13 = S32(ctx->r12 << 2);
+    ctx->r25 = ADD32(ctx->r25, ctx->r13);
+    ctx->r25 = MEM_W(ctx->r25, 0x6FC8);
+
+    lod_call_ni_pair23_spawn_callback(rdram, ctx, (uint32_t)ctx->r12, (uint32_t)ctx->r25);
+
+    ctx->r4 = MEM_W(ctx->r29, 0x18);
+    ctx->r14 = MEM_H(ctx->r4, 0xE);
+    ctx->r15 = ADD32(ctx->r14, -0x1);
+    MEM_H(0xE, ctx->r4) = ctx->r15;
+    ctx->r31 = MEM_W(ctx->r29, 0x14);
+    ctx->r29 = ADD32(ctx->r29, 0x18);
+}
+
+static void lod_install_ni_pair23_internal_label_fix(const char* reason) {
+    recomp::overlays::add_loaded_function((int32_t)0x0F00469C,
+        lod_fixed_ni_pair23_spawn_dispatch);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 8 || (install_count % 100) == 0) {
+        fprintf(stderr,
+            "[PAIR23-FIX] installed scoped spawn dispatcher fix #%d reason=%s\n",
+            install_count, reason);
     }
 }
 #endif
@@ -2077,6 +2216,11 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #if LOD_FIX_NI_PAIR24_INTERNAL_LABELS
     if (pair_index == 24 && vram == 0x0F000000) {
         lod_install_ni_pair24_internal_label_fix("pair24-load");
+    }
+#endif
+#if LOD_FIX_NI_PAIR23_INTERNAL_LABELS
+    if (pair_index == 23 && vram == 0x0F000000) {
+        lod_install_ni_pair23_internal_label_fix("pair23-load");
     }
 #endif
 #if LOD_ENABLE_SAVE_PAIR120_TRACE
