@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cassert>
+#include <cstdlib>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -54,6 +55,15 @@
     ((format) == RenderShaderFormat::SPIRV ? std::size(name##BlobSPIRV) : 0)
 #endif
 
+
+
+extern uint8_t* rdram_ptr_for_debug;
+extern "C" uint32_t lod_current_map_overlay_rom();
+extern "C" uint32_t lod_current_map_overlay_size();
+extern "C" int lod_current_map_overlay_load_count();
+extern "C" int lod_ni_overlay_loaded_0f_pair();
+extern "C" int lod_ni_overlay_loaded_0e_pair();
+
 namespace {
 
 struct RmlPushConstants {
@@ -80,6 +90,7 @@ enum class UiTab {
     Graphics,
     Controls,
     Audio,
+    Debug,
 };
 
 enum class PromptAction {
@@ -103,6 +114,8 @@ std::vector<SDL_Event> g_queued_events;
 
 std::mutex g_callback_mutex;
 lod::ui::GraphicsApplyCallback g_graphics_apply_callback;
+std::string g_config_path_display;
+std::string g_connected_controller_name = "None detected";
 
 constexpr RenderFormat kRmlTextureFormat = RenderFormat::R8G8B8A8_UNORM;
 constexpr RenderFormat kRmlTextureFormatBgra = RenderFormat::B8G8R8A8_UNORM;
@@ -223,6 +236,41 @@ std::string yes_no(bool value) {
 
 std::string escape_rml(const std::string& text) {
     return Rml::StringUtilities::EncodeRml(text);
+}
+
+std::string hex_u32(uint32_t value) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%08X", value);
+    return buf;
+}
+
+int32_t current_gamestate() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return 0;
+    }
+
+    uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+    if (gsm_addr == 0) {
+        return 0;
+    }
+
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_phys + 0x2C > 0x800000) {
+        return 0;
+    }
+
+    return *(int32_t*)(rdram + gsm_phys + 0x24);
+}
+
+uint32_t current_exec_flags() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    return rdram != nullptr ? *(uint32_t*)(rdram + 0x001CABC8) : 0;
+}
+
+bool show_debug_tab() {
+    const char* value = std::getenv("RECOMP_UI_SHOW_DEBUG");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
 std::string make_document_rml() {
@@ -790,6 +838,8 @@ public:
             else if (param == "graphics") active_tab_ = UiTab::Graphics;
             else if (param == "controls") active_tab_ = UiTab::Controls;
             else if (param == "audio") active_tab_ = UiTab::Audio;
+            else if (param == "debug" && show_debug_tab()) active_tab_ = UiTab::Debug;
+            pending_focus_id_ = first_focus_for_tab(active_tab_);
             dirty_document_ = true;
             return;
         }
@@ -857,6 +907,7 @@ private:
         active_tab_ = UiTab::Graphics;
         close_prompt();
         sync_from_active_graphics(true);
+        pending_focus_id_ = first_focus_for_tab(active_tab_);
         dirty_document_ = true;
     }
 
@@ -892,6 +943,7 @@ private:
         prompt_cancel_label_ = std::move(cancel_label);
         prompt_action_ = action;
         prompt_destructive_ = destructive;
+        pending_focus_id_ = destructive ? "prompt_cancel" : "prompt_confirm";
         dirty_document_ = true;
     }
 
@@ -903,6 +955,7 @@ private:
         prompt_cancel_label_.clear();
         prompt_action_ = PromptAction::None;
         prompt_destructive_ = false;
+        pending_focus_id_ = first_focus_for_tab(active_tab_);
         dirty_document_ = true;
     }
 
@@ -975,6 +1028,128 @@ private:
         dirty_document_ = true;
     }
 
+    std::string first_focus_for_tab(UiTab tab) const {
+        switch (tab) {
+            case UiTab::General: return "tab_general";
+            case UiTab::Graphics: return "window_mode_next";
+            case UiTab::Controls: return "tab_controls";
+            case UiTab::Audio: return "tab_audio";
+            case UiTab::Debug: return "tab_debug";
+        }
+        return "tab_graphics";
+    }
+
+    std::vector<std::string> focus_order() const {
+        if (prompt_open_) {
+            return {"prompt_cancel", "prompt_confirm"};
+        }
+
+        std::vector<std::string> ids{
+            "tab_general", "tab_graphics", "tab_controls", "tab_audio",
+        };
+        if (show_debug_tab()) {
+            ids.emplace_back("tab_debug");
+        }
+
+        if (active_tab_ == UiTab::Graphics) {
+            const char* fields[] = {
+                "window_mode", "resolution", "downsample", "aspect_ratio",
+                "antialiasing", "refresh_rate", "refresh_rate_manual",
+                "high_precision_framebuffer",
+            };
+            for (const char* field : fields) {
+                ids.emplace_back(std::string(field) + "_prev");
+                ids.emplace_back(std::string(field) + "_next");
+            }
+            ids.emplace_back("reset_graphics");
+            ids.emplace_back("discard_graphics");
+            ids.emplace_back("apply_graphics");
+            ids.emplace_back("close_settings_graphics");
+        } else {
+            switch (active_tab_) {
+                case UiTab::General: ids.emplace_back("close_settings_general"); break;
+                case UiTab::Controls: ids.emplace_back("close_settings_controls"); break;
+                case UiTab::Audio: ids.emplace_back("close_settings_audio"); break;
+                case UiTab::Debug: ids.emplace_back("close_settings_debug"); break;
+                case UiTab::Graphics: break;
+            }
+        }
+        return ids;
+    }
+
+    bool focus_element_by_id(const std::string& id) {
+        if (!document_ || id.empty()) {
+            return false;
+        }
+        Rml::Element* element = document_->GetElementById(id);
+        if (!element) {
+            return false;
+        }
+        element->Focus(true);
+        return true;
+    }
+
+    void apply_pending_focus() {
+        if (!pending_focus_id_.empty()) {
+            if (focus_element_by_id(pending_focus_id_)) {
+                pending_focus_id_.clear();
+                return;
+            }
+            pending_focus_id_.clear();
+        }
+        if (!context_->GetFocusElement()) {
+            focus_element_by_id(first_focus_for_tab(active_tab_));
+        }
+    }
+
+    void move_focus(int delta) {
+        std::vector<std::string> ids = focus_order();
+        if (ids.empty()) {
+            return;
+        }
+
+        std::string focused_id;
+        if (Rml::Element* focused = context_->GetFocusElement()) {
+            focused_id = focused->GetId();
+        }
+
+        int index = 0;
+        auto it = std::find(ids.begin(), ids.end(), focused_id);
+        if (it != ids.end()) {
+            index = int(std::distance(ids.begin(), it));
+        }
+        index = (index + delta) % int(ids.size());
+        if (index < 0) {
+            index += int(ids.size());
+        }
+        focus_element_by_id(ids[size_t(index)]);
+    }
+
+    void click_focused() {
+        if (Rml::Element* focused = context_->GetFocusElement()) {
+            focused->Click();
+        } else {
+            focus_element_by_id(first_focus_for_tab(active_tab_));
+        }
+    }
+
+    void select_adjacent_tab(int delta) {
+        std::vector<UiTab> tabs{UiTab::General, UiTab::Graphics, UiTab::Controls, UiTab::Audio};
+        if (show_debug_tab()) {
+            tabs.emplace_back(UiTab::Debug);
+        }
+
+        auto it = std::find(tabs.begin(), tabs.end(), active_tab_);
+        int index = it != tabs.end() ? int(std::distance(tabs.begin(), it)) : 1;
+        index = (index + delta) % int(tabs.size());
+        if (index < 0) {
+            index += int(tabs.size());
+        }
+        active_tab_ = tabs[size_t(index)];
+        pending_focus_id_ = first_focus_for_tab(active_tab_);
+        dirty_document_ = true;
+    }
+
     void drain_platform_events() {
         std::vector<SDL_Event> events;
         {
@@ -983,42 +1158,60 @@ private:
         }
 
         for (SDL_Event& event : events) {
-            if (event.type == SDL_KEYDOWN && event.key.repeat == 0 && event.key.keysym.sym == SDLK_ESCAPE) {
-                request_close_from_ui();
-                continue;
+            if (event.type == SDL_KEYDOWN && event.key.repeat == 0) {
+                switch (event.key.keysym.sym) {
+                    case SDLK_ESCAPE:
+                        request_close_from_ui();
+                        continue;
+                    case SDLK_UP:
+                        move_focus(-1);
+                        continue;
+                    case SDLK_DOWN:
+                        move_focus(1);
+                        continue;
+                    case SDLK_LEFT:
+                        move_focus(-1);
+                        continue;
+                    case SDLK_RIGHT:
+                        move_focus(1);
+                        continue;
+                    case SDLK_RETURN:
+                    case SDLK_KP_ENTER:
+                    case SDLK_SPACE:
+                        click_focused();
+                        continue;
+                    default:
+                        break;
+                }
             }
 
             if (event.type == SDL_CONTROLLERBUTTONDOWN) {
-                SDL_Event key_event{};
-                key_event.type = SDL_KEYDOWN;
-                key_event.key.state = SDL_PRESSED;
-                key_event.key.repeat = 0;
                 switch (event.cbutton.button) {
-                    case SDL_CONTROLLER_BUTTON_A: key_event.key.keysym.sym = SDLK_RETURN; break;
+                    case SDL_CONTROLLER_BUTTON_A: click_focused(); continue;
                     case SDL_CONTROLLER_BUTTON_B: request_close_from_ui(); continue;
-                    case SDL_CONTROLLER_BUTTON_DPAD_UP: key_event.key.keysym.sym = SDLK_UP; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: key_event.key.keysym.sym = SDLK_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: key_event.key.keysym.sym = SDLK_LEFT; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: key_event.key.keysym.sym = SDLK_RIGHT; break;
+                    case SDL_CONTROLLER_BUTTON_DPAD_UP: move_focus(-1); continue;
+                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: move_focus(1); continue;
+                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: move_focus(-1); continue;
+                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: move_focus(1); continue;
+                    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: select_adjacent_tab(-1); continue;
+                    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: select_adjacent_tab(1); continue;
                     default: continue;
                 }
-                RmlSDL::InputEventHandler(context_, key_event);
-                continue;
             }
 
-            if (event.type == SDL_CONTROLLERBUTTONUP) {
-                SDL_Event key_event{};
-                key_event.type = SDL_KEYUP;
-                key_event.key.state = SDL_RELEASED;
-                switch (event.cbutton.button) {
-                    case SDL_CONTROLLER_BUTTON_A: key_event.key.keysym.sym = SDLK_RETURN; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_UP: key_event.key.keysym.sym = SDLK_UP; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_DOWN: key_event.key.keysym.sym = SDLK_DOWN; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_LEFT: key_event.key.keysym.sym = SDLK_LEFT; break;
-                    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: key_event.key.keysym.sym = SDLK_RIGHT; break;
-                    default: continue;
+            if (event.type == SDL_CONTROLLERAXISMOTION &&
+                (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTX || event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY)) {
+                constexpr int kAxisThreshold = 21000;
+                constexpr uint32_t kRepeatMs = 180;
+                const uint32_t now = SDL_GetTicks();
+                if (now >= next_axis_nav_ms_ && (event.caxis.value <= -kAxisThreshold || event.caxis.value >= kAxisThreshold)) {
+                    next_axis_nav_ms_ = now + kRepeatMs;
+                    if (event.caxis.axis == SDL_CONTROLLER_AXIS_LEFTY) {
+                        move_focus(event.caxis.value < 0 ? -1 : 1);
+                    } else {
+                        move_focus(event.caxis.value < 0 ? -1 : 1);
+                    }
                 }
-                RmlSDL::InputEventHandler(context_, key_event);
                 continue;
             }
 
@@ -1039,6 +1232,9 @@ private:
         out << tab_button("tab_graphics", "Graphics", UiTab::Graphics);
         out << tab_button("tab_controls", "Controls", UiTab::Controls);
         out << tab_button("tab_audio", "Audio", UiTab::Audio);
+        if (show_debug_tab()) {
+            out << tab_button("tab_debug", "Debug", UiTab::Debug);
+        }
         return out.str();
     }
 
@@ -1052,7 +1248,7 @@ private:
     std::string make_graphics_row(const char* field, const std::string& title, const std::string& description,
                                   const std::string& value, bool changed) const {
         std::ostringstream out;
-        out << "<div class='recomp-setting-row" << (changed ? " changed" : "") << "'><div><h2>"
+        out << "<div class='recomp-setting-row" << (changed ? " changed" : "") << "'><div class='recomp-setting-copy'><h2>"
             << escape_rml(title) << "</h2><p>" << escape_rml(description)
             << "</p></div><div class='recomp-setting-control'>"
             << "<button id='" << field << "_prev' class='choice secondary'>&lt;</button>"
@@ -1069,7 +1265,8 @@ private:
         out << make_readonly_row("Version", "Current project version from main configuration.", "0.1.0");
         out << make_readonly_row("ROM", "Normal releases look for a legally dumped LoD ROM named rom.z64 beside the app.", "Loaded before runtime start");
         out << make_readonly_row("Settings Overlay", "The overlay starts hidden and does not affect gameplay until opened.", "F1 toggles");
-        out << make_readonly_row("Config Files", "Graphics and controls settings are stored in the platform config folder.", "graphics.json / controls.json");
+        out << make_readonly_row("Config Folder", "Graphics and controls settings are stored in the platform config folder.", g_config_path_display.empty() ? "Registered at startup" : g_config_path_display);
+        out << make_readonly_row("Debug Tab", "Developer-only diagnostics are hidden unless explicitly enabled.", show_debug_tab() ? "Visible" : "Set RECOMP_UI_SHOW_DEBUG=1");
         out << "<div class='recomp-actions'><button id='close_settings_general' class='secondary'>Close</button></div>";
         return out.str();
     }
@@ -1103,6 +1300,8 @@ private:
         std::ostringstream out;
         out << "<h1 class='recomp-page-title'>Controls</h1>";
         out << "<p class='recomp-page-help'>Read-only first pass showing the current LoD-specific controller and keyboard defaults. Rebinding will come after the persistence model is extended.</p>";
+        out << make_readonly_row("Connected Controller", "First SDL GameController opened by the runtime.", g_connected_controller_name);
+        out << make_readonly_row("Controls Config", "Controller mappings are persisted in controls.json.", g_config_path_display.empty() ? "controls.json" : (g_config_path_display + "/controls.json"));
         out << make_readonly_row("Jump", "Controller A / Cross maps to N64 A.", "A / Cross → N64 A");
         out << make_readonly_row("Attack 1", "Controller X / Square maps to N64 B.", "X / Square → N64 B");
         out << make_readonly_row("Attack 2", "Controller Y / Triangle maps to N64 C-Left.", "Y / Triangle → C-Left");
@@ -1127,12 +1326,29 @@ private:
         return out.str();
     }
 
+    std::string make_debug_page() const {
+        std::ostringstream out;
+        out << "<h1 class='recomp-page-title'>Debug</h1>";
+        out << "<p class='recomp-page-help'>Developer-only read-only runtime diagnostics. Compile-time features are intentionally not exposed as live toggles.</p>";
+        out << make_readonly_row("Gamestate", "Current game-state manager value, if RDRAM is initialized.", std::to_string(current_gamestate()));
+        out << make_readonly_row("Exec Flags", "Runtime execution flags snapshot.", hex_u32(current_exec_flags()));
+        out << make_readonly_row("Map Overlay ROM", "Most recent map overlay ROM offset tracked by runtime hooks.", hex_u32(lod_current_map_overlay_rom()));
+        out << make_readonly_row("Map Overlay Size", "Most recent map overlay size.", hex_u32(lod_current_map_overlay_size()));
+        out << make_readonly_row("Map Overlay Loads", "Map overlay load counter.", std::to_string(lod_current_map_overlay_load_count()));
+        out << make_readonly_row("NI 0F Pair", "Currently loaded NI pair in 0x0F segment.", std::to_string(lod_ni_overlay_loaded_0f_pair()));
+        out << make_readonly_row("NI 0E Pair", "Currently loaded NI pair in 0x0E segment.", std::to_string(lod_ni_overlay_loaded_0e_pair()));
+        out << make_readonly_row("Reported RDRAM", "Default builds report 4MB to stay on the validated low-resolution route.", "0x00400000");
+        out << "<div class='recomp-actions'><button id='close_settings_debug' class='secondary'>Close</button></div>";
+        return out.str();
+    }
+
     std::string make_content_rml() const {
         switch (active_tab_) {
             case UiTab::General: return make_general_page();
             case UiTab::Graphics: return make_graphics_page();
             case UiTab::Controls: return make_controls_page();
             case UiTab::Audio: return make_audio_page();
+            case UiTab::Debug: return show_debug_tab() ? make_debug_page() : make_general_page();
         }
         return make_graphics_page();
     }
@@ -1200,11 +1416,13 @@ private:
         bind_action("tab_graphics", "set_tab", "graphics");
         bind_action("tab_controls", "set_tab", "controls");
         bind_action("tab_audio", "set_tab", "audio");
+        bind_action("tab_debug", "set_tab", "debug");
 
         bind_action("close_settings_general", "close_settings");
         bind_action("close_settings_graphics", "close_settings");
         bind_action("close_settings_controls", "close_settings");
         bind_action("close_settings_audio", "close_settings");
+        bind_action("close_settings_debug", "close_settings");
 
         bind_graphics_field("window_mode");
         bind_graphics_field("resolution");
@@ -1220,6 +1438,7 @@ private:
 
         bind_action("prompt_confirm", "prompt_confirm");
         bind_action("prompt_cancel", "prompt_cancel");
+        apply_pending_focus();
     }
 
     void recalculate_mvp() {
@@ -1350,6 +1569,8 @@ private:
     ultramodern::renderer::GraphicsConfig pending_graphics_ = make_default_graphics_config();
     bool dirty_document_ = true;
     bool was_visible_ = false;
+    uint32_t next_axis_nav_ms_ = 0;
+    std::string pending_focus_id_{};
 
     bool prompt_open_ = false;
     bool prompt_destructive_ = false;
@@ -1388,6 +1609,17 @@ void lod::ui::set_render_hooks() {
 void lod::ui::set_graphics_apply_callback(GraphicsApplyCallback callback) {
     std::lock_guard<std::mutex> lock(g_callback_mutex);
     g_graphics_apply_callback = std::move(callback);
+}
+
+void lod::ui::set_config_path_display(std::string path) {
+    std::lock_guard<std::mutex> lock(g_ui_mutex);
+    g_config_path_display = std::move(path);
+}
+
+void lod::ui::set_connected_controller_name(std::string name) {
+    std::lock_guard<std::mutex> lock(g_ui_mutex);
+    g_connected_controller_name = name.empty() ? "None detected" : std::move(name);
+    g_controls_config_changed.store(true, std::memory_order_relaxed);
 }
 
 void lod::ui::toggle_overlay() {

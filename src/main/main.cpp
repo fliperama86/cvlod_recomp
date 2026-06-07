@@ -673,7 +673,9 @@ static void open_first_game_controller() {
         SDL_Joystick* joystick = SDL_GameControllerGetJoystick(opened);
         game_controller = opened;
         game_controller_instance = joystick != nullptr ? SDL_JoystickInstanceID(joystick) : -1;
-        fprintf(stderr, "[INPUT] opened game controller: %s\n", SDL_GameControllerName(opened));
+        const char* controller_name = SDL_GameControllerName(opened);
+        lod::ui::set_connected_controller_name(controller_name != nullptr ? controller_name : "Unknown controller");
+        fprintf(stderr, "[INPUT] opened game controller: %s\n", controller_name != nullptr ? controller_name : "Unknown controller");
         return;
     }
 }
@@ -684,6 +686,7 @@ static void close_game_controller() {
         SDL_GameControllerClose(game_controller);
         game_controller = nullptr;
         game_controller_instance = -1;
+        lod::ui::set_connected_controller_name("None detected");
     }
 }
 
@@ -751,6 +754,7 @@ void update_gfx(void*) {
             case SDL_MOUSEWHEEL:
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP:
+            case SDL_CONTROLLERAXISMOTION:
             case SDL_WINDOWEVENT:
                 if (lod::ui::queue_platform_event(event)) {
                     break;
@@ -1503,6 +1507,7 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
     g_config_path = config_path;
+    lod::ui::set_config_path_display(g_config_path.string());
 
     auto graphics_config = load_graphics_config();
     ultramodern::renderer::set_graphics_config(graphics_config);

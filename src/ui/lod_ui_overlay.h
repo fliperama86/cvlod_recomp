@@ -1,6 +1,7 @@
 #pragma once
 
 #include <functional>
+#include <string>
 
 #include "ultramodern/config.hpp"
 
@@ -11,6 +12,8 @@ namespace lod::ui {
 
     void set_render_hooks();
     void set_graphics_apply_callback(GraphicsApplyCallback callback);
+    void set_config_path_display(std::string path);
+    void set_connected_controller_name(std::string name);
 
     void toggle_overlay();
     void show_overlay();
