@@ -42,7 +42,7 @@ def ensure_include(filepath, header):
             last_include = i
     lines.insert(last_include + 1, header)
     content = '\n'.join(lines)
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', newline='\n') as f:
         f.write(content)
     return content
 
@@ -112,7 +112,7 @@ def patch_gsm_bootstrap():
 
     # Insert before the first MIPS instruction
     content = content.replace(marker, patch_code + marker, 1)
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:
         f.write(content)
     return True
 
@@ -163,7 +163,7 @@ def patch_ni_4c_bypass():
         return False
 
     content = content.replace(old, new, 1)
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:
         f.write(content)
     return True
 
@@ -211,7 +211,7 @@ def patch_pool_tick_hook():
 """
 
     content = content.replace(marker, patch_code + marker, 1)
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:
         f.write(content)
     return True
 

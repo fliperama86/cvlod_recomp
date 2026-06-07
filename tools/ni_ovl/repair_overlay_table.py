@@ -63,9 +63,27 @@ def load_expected_text_sizes() -> dict[int, int]:
 
 
 def load_0e_pairs() -> set[int]:
-    with CLASSIFICATION_PATH.open() as f:
-        data = json.load(f)
-    return {int(x) for x in data["0x0E_pairs"]}
+    if CLASSIFICATION_PATH.exists():
+        with CLASSIFICATION_PATH.open() as f:
+            data = json.load(f)
+        return {int(x) for x in data["0x0E_pairs"]}
+
+    # vram_classification.json is an untracked artifact of the original NI
+    # analysis with no generator script in the repo. Reconstruct the 0x0E set
+    # from src/main/ni_ovl_data.h, which records vram per pair and is tracked.
+    text = NI_DATA_PATH.read_text()
+    pairs = {
+        int(m.group(1))
+        for m in re.finditer(r"ni_ovl_(\d+)\s+vram=0x0E000000", text)
+    }
+    if not pairs:
+        raise RuntimeError(
+            f"{CLASSIFICATION_PATH} is missing and no vram=0x0E000000 pairs "
+            "could be derived from ni_ovl_data.h"
+        )
+    print(f"NOTE: {CLASSIFICATION_PATH.name} missing; derived "
+          f"{len(pairs)} 0x0E pairs from ni_ovl_data.h")
+    return pairs
 
 
 def expected_ram_addr(pair: int, pairs_0e: set[int]) -> int:
@@ -168,7 +186,7 @@ def validate_and_optionally_fix(do_fix: bool) -> int:
         return 1
 
     if do_fix and changes > 0:
-        INL_PATH.write_text("\n".join(lines) + "\n")
+        INL_PATH.write_text("\n".join(lines) + "\n", newline="\n")
         print(f"Fixed {changes} NI section_table entries in {INL_PATH}")
 
     if mismatches:

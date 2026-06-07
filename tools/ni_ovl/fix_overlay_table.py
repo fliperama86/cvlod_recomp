@@ -145,7 +145,7 @@ def main():
     new_content += "\n".join(idx_lines)
     new_content += "\n};\n"
 
-    with open(INL_PATH, 'w') as f:
+    with open(INL_PATH, 'w', newline='\n') as f:
         f.write(new_content)
 
     print(f"Added {len(all_functions)} NI overlay sections")

@@ -158,7 +158,7 @@ def ensure_symbols_include(filepath):
             insert_after = i
     lines.insert(insert_after + 1, SYMBOLS_INCLUDE)
     content = '\n'.join(lines)
-    with open(filepath, 'w') as f:
+    with open(filepath, 'w', newline='\n') as f:
         f.write(content)
     return content, True
 
@@ -173,7 +173,7 @@ def apply_global_replacements(filepath):
             content = content.replace(old, new)
             changed = True
     if changed:
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', newline='\n') as f:
             f.write(content)
     return changed
 
@@ -197,7 +197,7 @@ def apply_function_symbols(vram_hex, description, get_replacements):
 
     if applied > 0:
         content = content[:func_start] + new_body + content[func_end:]
-        with open(path, 'w') as f:
+        with open(path, 'w', newline='\n') as f:
             f.write(content)
         return True
     return False

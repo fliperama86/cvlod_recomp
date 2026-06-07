@@ -7,7 +7,14 @@ N64Recomp crashes while writing the overlay_system section, truncating:
   - recomp_overlays.inl: cut mid-line, missing section entries + index array
   - funcs_102.c: last function truncated mid-instruction
 
-This script detects and fixes all three issues deterministically.
+The exact abort point differs per platform. The Windows build of N64Recomp
+gets a few lines further than the macOS one: it emits the num_sections line
+plus a dangling overlay_sections_by_index opener in recomp_overlays.inl, and
+it fully emits the static_*_0E0037A0 function in its own funcs_*.c file on
+top of the headerless inline copy (a duplicate definition). Both variants
+are detected and repaired here.
+
+This script detects and fixes all of these issues deterministically.
 """
 
 import os
@@ -113,7 +120,7 @@ def fix_funcs_h():
 
     content += "\n#ifdef __cplusplus\n}\n#endif\n"
 
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:
         f.write(content)
     return True
 
@@ -125,7 +132,12 @@ def fix_recomp_overlays():
         content = f.read()
 
     changed = False
-    already_has_index = "overlay_sections_by_index" in content
+    # N64Recomp's overlay_system abort lands at slightly different points per
+    # platform: on Windows it gets far enough to emit the num_sections line and
+    # a dangling "overlay_sections_by_index[] = {" opener with no body. Only
+    # treat the index as present when its array is actually closed.
+    index_open = re.search(r'static int overlay_sections_by_index\[\] = \{', content)
+    already_has_index = bool(index_open and '};' in content[index_open.end():])
     lines = content.rstrip().split('\n')
 
     # Older fixer versions could append the missing entries after a partial
@@ -157,11 +169,26 @@ def fix_recomp_overlays():
 
     if already_has_index:
         if changed:
-            with open(path, 'w') as f:
+            with open(path, 'w', newline='\n') as f:
                 f.write('\n'.join(lines) + '\n')
         return changed  # already fixed otherwise
 
     print("  Fixing recomp_overlays.inl...")
+
+    # Drop a dangling, unterminated index array (opener emitted but body lost)
+    # and any stray num_sections line so the clean append below owns both.
+    for i, l in enumerate(lines):
+        if 'overlay_sections_by_index[] = {' in l:
+            print(f"    Removed dangling overlay_sections_by_index ({len(lines) - i} line(s))")
+            lines = lines[:i]
+            changed = True
+            break
+    before = len(lines)
+    lines = [l for l in lines
+             if not re.match(r'\s*(static\s+constexpr\s+size_t|const\s+size_t)\s+num_sections\s*=', l)]
+    if len(lines) != before:
+        print("    Removed stale num_sections line")
+        changed = True
 
     # Fix truncated last line
     if lines and 'nullp' in lines[-1] and 'nullptr' not in lines[-1]:
@@ -231,7 +258,7 @@ def fix_recomp_overlays():
     lines.extend(idx_lines)
     lines.append("};")
 
-    with open(path, 'w') as f:
+    with open(path, 'w', newline='\n') as f:
         f.write('\n'.join(lines) + '\n')
     return True
 
@@ -262,7 +289,7 @@ def fix_truncated_c_files():
                 print(f"  Fixing {fname} (incomplete tail before existing truncation patch)")
                 print("    Dropped 1 incomplete tail line")
                 del lines[existing_patch_idx - 1]
-                with open(path, 'w') as f:
+                with open(path, 'w', newline='\n') as f:
                     f.write("\n".join(lines).rstrip() + "\n")
                 fixed = True
                 continue
@@ -306,7 +333,7 @@ def fix_truncated_c_files():
             ";}",
         ])
 
-        with open(path, 'w') as f:
+        with open(path, 'w', newline='\n') as f:
             f.write("\n".join(lines).rstrip() + "\n")
             f.write("\n".join(stub_lines) + "\n")
         fixed = True
@@ -335,8 +362,6 @@ def fix_static_0e0037a0_split():
         "    ctx->r29 = ADD32(ctx->r29, 0X78);\n"
         "    // 0x0E0037A0: lw          $v0, 0x34($a0)\n"
     )
-    if needle not in content:
-        return False
 
     replacement = (
         "    // 0x0E00379C: addiu       $sp, $sp, 0x78\n"
@@ -348,6 +373,9 @@ def fix_static_0e0037a0_split():
         "    // 0x0E0037A0: lw          $v0, 0x34($a0)\n"
     )
 
+    changed = False
+
+    # Insert the missing RECOMP_FUNC header where the body was emitted inline.
     for fname in sorted(os.listdir(FUNC_DIR)):
         if not (fname.startswith("funcs_") and fname.endswith(".c")):
             continue
@@ -356,19 +384,46 @@ def fix_static_0e0037a0_split():
         with open(path) as f:
             content = f.read()
 
-        if f"RECOMP_FUNC void {function_name}" in content:
-            return False
-        if needle not in content:
+        if f"RECOMP_FUNC void {function_name}" in content or needle not in content:
             continue
 
         content = content.replace(needle, replacement, 1)
-        with open(path, 'w') as f:
+        with open(path, 'w', newline='\n') as f:
             f.write(content)
 
         print(f"  Fixed missing RECOMP_FUNC split for {function_name} in {fname}")
-        return True
+        changed = True
+        break
 
-    return False
+    # Windows N64Recomp gets further before aborting and ALSO emits this
+    # function as a complete definition in its own later file, which would
+    # collide with the split above. Keep only the first definition (the split
+    # target sorts first) and drop the duplicates.
+    defining = []
+    for fname in sorted(os.listdir(FUNC_DIR)):
+        if not (fname.startswith("funcs_") and fname.endswith(".c")):
+            continue
+        with open(os.path.join(FUNC_DIR, fname)) as f:
+            if f"RECOMP_FUNC void {function_name}(" in f.read():
+                defining.append(fname)
+
+    for fname in defining[1:]:
+        path = os.path.join(FUNC_DIR, fname)
+        with open(path) as f:
+            content = f.read()
+        pattern = re.compile(
+            rf'RECOMP_FUNC void {re.escape(function_name)}'
+            rf'\(uint8_t\* rdram, recomp_context\* ctx\) \{{.*?\n;?\}}\n?',
+            re.DOTALL,
+        )
+        new_content, n = pattern.subn('', content, count=1)
+        if n:
+            with open(path, 'w', newline='\n') as f:
+                f.write(new_content)
+            print(f"  Removed duplicate {function_name} definition from {fname}")
+            changed = True
+
+    return changed
 
 
 def fix_audio_task_ai_buffer_wrapper():
@@ -397,7 +452,7 @@ def fix_audio_task_ai_buffer_wrapper():
             print("  WARNING: Cannot find audioTask_build osAiSetNextBuffer call site")
         else:
             content = content.replace(old_call, new_call, 1)
-            with open(path, "w") as f:
+            with open(path, "w", newline='\n') as f:
                 f.write(content)
             print(f"  Patched audioTask_build AI buffer queue wrapper in {os.path.basename(path)}")
             changed = True
@@ -416,7 +471,7 @@ def fix_audio_task_ai_buffer_wrapper():
                 header = header.replace(trailer, "\n" + declaration + trailer, 1)
             else:
                 header += "\n" + declaration
-        with open(header_path, "w") as f:
+        with open(header_path, "w", newline='\n') as f:
             f.write(header)
         print("  Added lod_osAiSetNextBuffer_recomp declaration to funcs.h")
         changed = True

@@ -51,7 +51,7 @@ def fix_file(filepath):
                 fixes += 1
 
     if fixes > 0:
-        with open(filepath, 'w') as f:
+        with open(filepath, 'w', newline='\n') as f:
             f.writelines(lines)
 
     return fixes
