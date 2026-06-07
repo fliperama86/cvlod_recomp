@@ -8,9 +8,10 @@
 #include <vector>
 #include <fstream>
 #include <filesystem>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <zlib.h>
+
+#include "lod/lod_mem_compat.h"
 
 #include "recomp.h"
 #include "ni_ovl_data.h"

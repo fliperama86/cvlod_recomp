@@ -10,8 +10,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
-#include <unistd.h>
-#include <sys/mman.h>
+#include "lod/lod_mem_compat.h"
 #if defined(__APPLE__) || defined(__linux__)
 #include <dlfcn.h>
 #endif

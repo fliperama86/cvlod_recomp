@@ -2,7 +2,17 @@
 #include <cassert>
 #include <csignal>
 #include <cstdlib>
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
 #include <unistd.h>
+#endif
 #include <vector>
 #include <array>
 #include <numeric>
@@ -25,6 +35,7 @@
 #define SDL_MAIN_HANDLED
 #ifdef _WIN32
 #include "SDL.h"
+#include "SDL_syswm.h"
 #else
 #include "SDL2/SDL.h"
 #include "SDL2/SDL_syswm.h"
@@ -1154,7 +1165,12 @@ static std::filesystem::path prompt_for_rom_path(const std::filesystem::path& co
     };
 
     std::string default_path;
-    if (const char* home = std::getenv("HOME")) {
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
+    const char* home = std::getenv("HOME");
+#endif
+    if (home) {
         std::filesystem::path downloads = std::filesystem::path(home) / "Downloads";
         if (std::filesystem::exists(downloads)) {
             default_path = downloads.string();
@@ -1329,19 +1345,9 @@ extern "C" {
 LodKseg0FaultTraceSnapshot lod_kseg0_fault_trace_snapshot = {};
 }
 
-static void crash_handler(int sig, siginfo_t* info, void* ctx) {
-    fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
-            sig, info->si_addr, info->si_code);
-#if defined(__APPLE__) || defined(__linux__)
-    {
-        void* frames[64];
-        int frame_count = backtrace(frames, 64);
-        fprintf(stderr, "  Native backtrace (%d frames):\n", frame_count);
-        backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
-    }
-#endif
-    if (rdram_ptr_for_debug != nullptr && info->si_addr != nullptr) {
-        uintptr_t fault = reinterpret_cast<uintptr_t>(info->si_addr);
+static void report_crash_details(void* fault_addr) {
+    if (rdram_ptr_for_debug != nullptr && fault_addr != nullptr) {
+        uintptr_t fault = reinterpret_cast<uintptr_t>(fault_addr);
         uintptr_t base = reinterpret_cast<uintptr_t>(rdram_ptr_for_debug);
         if (fault >= base) {
             uint64_t off = static_cast<uint64_t>(fault - base);
@@ -1393,8 +1399,37 @@ static void crash_handler(int sig, siginfo_t* info, void* ctx) {
             fprintf(stderr, "    [-%d] 0x%08X\n", count - i, trace_ring[idx]);
         }
     }
+}
+
+#ifdef _WIN32
+static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
+    const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
+    void* fault_addr = nullptr;
+    if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters >= 2) {
+        fault_addr = reinterpret_cast<void*>(rec->ExceptionInformation[1]);
+    }
+    fprintf(stderr, "\n[CRASH] Exception 0x%08lX at address %p (ip=%p)\n",
+            static_cast<unsigned long>(rec->ExceptionCode), fault_addr, rec->ExceptionAddress);
+    report_crash_details(fault_addr);
+    _exit(127);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+#else
+static void crash_handler(int sig, siginfo_t* info, void* ctx) {
+    fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
+            sig, info->si_addr, info->si_code);
+#if defined(__APPLE__) || defined(__linux__)
+    {
+        void* frames[64];
+        int frame_count = backtrace(frames, 64);
+        fprintf(stderr, "  Native backtrace (%d frames):\n", frame_count);
+        backtrace_symbols_fd(frames, frame_count, STDERR_FILENO);
+    }
+#endif
+    report_crash_details(info->si_addr);
     _exit(128 + sig);
 }
+#endif
 
 static void signal_handler(int sig) {
     fprintf(stderr, "\n[LodRecomp] Caught signal %d, shutting down...\n", sig);
@@ -1409,12 +1444,16 @@ static void signal_handler(int sig) {
 int main(int argc, char** argv) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
-    // Catch SIGSEGV/SIGBUS to get fault address
+    // Catch SIGSEGV/SIGBUS (or the SEH equivalent) to get fault address
+#ifdef _WIN32
+    SetUnhandledExceptionFilter(crash_handler);
+#else
     struct sigaction sa = {};
     sa.sa_sigaction = crash_handler;
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &sa, nullptr);
     sigaction(SIGBUS, &sa, nullptr);
+#endif
     recomp::Version project_version{};
     recomp::Version::from_string("0.1.0", project_version);
 
@@ -1426,6 +1465,12 @@ int main(int argc, char** argv) {
         config_path = *app_support / "LodRecomp";
     } else {
         config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
+    }
+#elif defined(_WIN32)
+    if (const char* appdata = std::getenv("APPDATA")) {
+        config_path = std::filesystem::path(appdata) / "LodRecomp";
+    } else {
+        config_path = std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : ".") / ".lodrecomp";
     }
 #else
     config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";

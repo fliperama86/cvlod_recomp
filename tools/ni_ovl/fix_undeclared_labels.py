@@ -7,7 +7,7 @@ Replaces such gotos with 'return;'.
 
 import os, re
 
-FUNC_DIR = '/Users/dudu/Projects/recomp/lod/RecompiledFuncs'
+FUNC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'RecompiledFuncs')
 
 def fix_file(filepath):
     with open(filepath) as f:

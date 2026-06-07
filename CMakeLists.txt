@@ -325,6 +325,17 @@ if (WIN32)
 
     target_link_libraries(LodRecomp PRIVATE SDL2 Winmm.lib)
 
+    # librecomp's RSP vector unit (rsp_vu_impl.hpp) uses SSSE3/SSE4.1 intrinsics;
+    # clang-cl gates intrinsics behind target features (MSVC cl does not).
+    target_compile_options(LodRecomp PRIVATE -mssse3 -msse4.1)
+
+    # COFF has no ELF-style weak-symbol interposition, so the strong override
+    # shims in src/main would collide with the weak RECOMP_FUNC definitions in
+    # RecompiledFuncs. Keep the first definition seen instead: the executable's
+    # own objects precede the RecompiledFuncs archive on the link line, so the
+    # overrides win — matching the macOS/Linux weak-interposition semantics.
+    target_link_options(LodRecomp PRIVATE /FORCE:MULTIPLE)
+
     add_compile_definitions(NOMINMAX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
 endif()

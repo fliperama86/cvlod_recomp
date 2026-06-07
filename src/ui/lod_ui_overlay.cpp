@@ -268,8 +268,8 @@ button {
 
 class RmlOverlayRenderer final : public Rml::RenderInterfaceCompatibility {
 public:
-    void init(RenderInterface* interface, RenderDevice* device) {
-        interface_ = interface;
+    void init(RenderInterface* render_interface, RenderDevice* device) {
+        interface_ = render_interface;
         device_ = device;
         g_logged_first_draw.store(false, std::memory_order_relaxed);
 
@@ -685,8 +685,8 @@ private:
 
 RmlOverlayRenderer g_renderer;
 
-void overlay_hook_init(RenderInterface* interface, RenderDevice* device) {
-    g_renderer.init(interface, device);
+void overlay_hook_init(RenderInterface* render_interface, RenderDevice* device) {
+    g_renderer.init(render_interface, device);
 }
 
 void overlay_hook_draw(RenderCommandList* list, RenderFramebuffer* swap_chain_framebuffer) {
