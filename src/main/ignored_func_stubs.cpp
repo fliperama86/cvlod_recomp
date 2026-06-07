@@ -61,6 +61,18 @@
 #define LOD_ENABLE_KSEG0_FAULT_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_B2_ASSET_TRACE
+#define LOD_ENABLE_B2_ASSET_TRACE 0
+#endif
+
+#ifndef LOD_MAP76_TRACE_SI_INTERVAL
+#define LOD_MAP76_TRACE_SI_INTERVAL 6
+#endif
+
+#ifndef LOD_MAP76_BOSS_FIG_INTERVAL
+#define LOD_MAP76_BOSS_FIG_INTERVAL 10
+#endif
+
 #ifndef LOD_ENABLE_ITEM_KSEG0_TRACE
 #define LOD_ENABLE_ITEM_KSEG0_TRACE 0
 #endif
@@ -163,7 +175,7 @@ static void lod_install_bgstate_trace_wrappers(const char* reason);
 #if LOD_ENABLE_GS3_ANIM_TRACE
 static void lod_install_gs3_anim_trace_wrappers(const char* reason);
 #endif
-#if LOD_ENABLE_KSEG0_FAULT_TRACE
+#if LOD_ENABLE_KSEG0_FAULT_TRACE || LOD_ENABLE_B2_ASSET_TRACE
 static void lod_install_kseg0_fault_trace_wrappers(const char* reason);
 #endif
 #if LOD_ENABLE_ITEM_KSEG0_TRACE
@@ -177,6 +189,9 @@ extern "C" void lod_install_input_action_trace_wrappers_early();
 #endif
 #if LOD_ENABLE_FOG_LAKE_TRIGGER_TRACE
 static void lod_install_fog_lake_trigger_trace_wrappers(const char* reason);
+#endif
+#if LOD_ENABLE_B2_ASSET_TRACE
+static void lod_install_map76_boss_lifecycle_trace_wrappers(const char* reason);
 #endif
 
 // ── Map overlay table: ROM start → full DMA size ────────────────────
@@ -205,9 +220,28 @@ static constexpr uint32_t LOD_MAP_OVL_RAM = 0x802E3B70;
 static constexpr uint32_t LOD_MAP_OVL_UNLOAD_SIZE = 0x00200000;
 static constexpr uint32_t LOD_OVLSYS_RAM = 0x801CAEA0;
 static constexpr uint32_t LOD_OVLSYS_UNLOAD_SIZE = 0x00020000;
+#if LOD_ENABLE_B2_ASSET_TRACE
+static constexpr uint32_t LOD_B2_TRACE_MAP_ROM = 0x0076CD00;
+static constexpr uint32_t LOD_B2_TRACE_ROM = 0x00C3FE4E;
+static constexpr uint32_t LOD_B2_TRACE_RAM = 0x802A3B70;
+static constexpr uint32_t LOD_B2_TRACE_SIZE = 0x0000F3B2;
+static constexpr uint32_t LOD_B2_TRACE_FILE = 0x000000B2;
+#endif
 static uint32_t lod_current_map_ovl_rom = 0;
 static uint32_t lod_current_map_ovl_size = 0;
 static int lod_map_ovl_load_count = 0;
+
+extern "C" uint32_t lod_current_map_overlay_rom() {
+    return lod_current_map_ovl_rom;
+}
+
+extern "C" uint32_t lod_current_map_overlay_size() {
+    return lod_current_map_ovl_size;
+}
+
+extern "C" int lod_current_map_overlay_load_count() {
+    return lod_map_ovl_load_count;
+}
 
 static bool lod_decode_rdram_phys_addr(uint32_t addr, uint32_t size, uint32_t* phys_out) {
     if (size > 0x800000) {
@@ -305,6 +339,18 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                 lod_map_ovl_load_count++;
                 lod_current_map_ovl_rom = rom_start;
                 lod_current_map_ovl_size = full_size;
+#if LOD_ENABLE_B2_ASSET_TRACE
+                if (rom_start == LOD_B2_TRACE_MAP_ROM) {
+                    const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+                    fprintf(stderr,
+                            "[B2_ASSET] map76-loaded map#%d rom=0x%08X size=0x%X requested=0x%X "
+                            "last_dma={count=%u gs=%u rom=0x%08X ram=0x%08X size=0x%08X phys=0x%08X ok=%u}\n",
+                            lod_map_ovl_load_count, rom_start, full_size, size,
+                            s.romcopy_count, s.romcopy_gs, s.romcopy_rom, s.romcopy_ram,
+                            s.romcopy_size, s.romcopy_ram_phys, s.romcopy_ram_ok);
+                    lod_install_map76_boss_lifecycle_trace_wrappers("map76-load");
+                }
+#endif
 #if LOD_ENABLE_SAVE_HANDLER_TRACE
                 if (rom_start == 0x007EF5E0) {
                     lod_install_save_trace_wrappers("map_ovl_34-load");
@@ -1747,12 +1793,27 @@ static int32_t lod_current_gamestate(uint8_t* rdram) {
     return *(int32_t*)(rdram + gsm_phys + 0x24);
 }
 
-#if LOD_ENABLE_NI24_WRITER_TRACE
+#if LOD_ENABLE_NI24_WRITER_TRACE || LOD_ENABLE_B2_ASSET_TRACE
 extern "C" int lod_ni_overlay_loaded_0f_pair();
 extern "C" int lod_ni_overlay_loaded_0e_pair();
 
 static recomp_func_t* lod_orig_object_curlevel_goto_next_clear_timer = nullptr; // 0x80001CE8
 static recomp_func_t* lod_orig_object_curlevel_goto_func = nullptr;             // 0x80001E30
+
+static bool lod_writer_trace_is_map76_boss_obj_id(uint16_t obj_id) {
+    switch (obj_id) {
+        case 0x08B:
+        case 0x0EF:
+        case 0x0FE:
+        case 0x0FF:
+        case 0x1E1:
+        case 0x1E2:
+        case 0x1E3:
+            return true;
+        default:
+            return false;
+    }
+}
 
 static void lod_ni24_writer_host_symbol(const char** symbol_out, uintptr_t* offset_out) {
     const char* symbol = "(unknown)";
@@ -1800,19 +1861,37 @@ static void lod_log_ni24_writer(uint8_t* rdram, recomp_context* ctx, const char*
     const int32_t gamestate = lod_current_gamestate(rdram);
     const int loaded_0f = lod_ni_overlay_loaded_0f_pair();
     const int loaded_0e = lod_ni_overlay_loaded_0e_pair();
+    uint32_t obj_phys = 0;
+    const bool obj_ok = lod_decode_rdram_phys_addr(obj, 0x74, &obj_phys);
+    uint16_t obj_raw = 0;
+    uint16_t obj_flags = 0;
+    uint16_t obj_id = 0;
+    if (obj_ok) {
+        obj_raw = (uint16_t)lod_rdram_s16(rdram, obj_phys + 0x00);
+        obj_flags = (uint16_t)lod_rdram_s16(rdram, obj_phys + 0x02);
+        obj_id = obj_raw & 0x07FF;
+    }
 
     const bool target_obj = obj == 0x80324A5C;
     const bool suspicious = before_state >= 4 || after_state >= 4 ||
                             (target_func >= 4 && target_func < 0x100);
     const bool pair24_gameplay = gamestate == 3 && loaded_0f == 24;
-    if (!shape_ok || !base_ok || !level_ok || !pair24_gameplay ||
-        (!target_obj && !suspicious)) {
+#if LOD_ENABLE_B2_ASSET_TRACE
+    const bool map76_boss = gamestate == 3 &&
+                            lod_current_map_ovl_rom == LOD_B2_TRACE_MAP_ROM &&
+                            obj_ok &&
+                            lod_writer_trace_is_map76_boss_obj_id(obj_id);
+#else
+    const bool map76_boss = false;
+#endif
+    if (!shape_ok || !base_ok || !level_ok ||
+        ((!pair24_gameplay || (!target_obj && !suspicious)) && !map76_boss)) {
         return;
     }
 
     static uint32_t trace_count = 0;
     trace_count++;
-    if (!target_obj && trace_count > 120 && (trace_count % 500) != 0) {
+    if (!map76_boss && !target_obj && trace_count > 120 && (trace_count % 500) != 0) {
         return;
     }
 
@@ -1823,13 +1902,17 @@ static void lod_log_ni24_writer(uint8_t* rdram, recomp_context* ctx, const char*
     uintptr_t offset = 0;
     lod_ni24_writer_host_symbol(&symbol, &offset);
 
+    const char* tag = map76_boss ? "[MAP76_WRITE]" : "[NI24_WRITE]";
+
     fprintf(stderr,
-        "[NI24_WRITE] #%u op=%s gs=%d loaded0f=%d loaded0e=%d obj=0x%08X level=%d target=%d "
+        "%s #%u op=%s gs=%d map#%d map_rom=0x%08X loaded0f=%d loaded0e=%d "
+        "obj=0x%08X obj_id=0x%03X raw=0x%04X flags=0x%04X level=%d target=%d "
         "slot=0x%08X state=%u->%u timer=%u->%u "
         "sched_before=%02X%02X,%02X%02X,%02X%02X,%02X%02X "
         "sched_after=%02X%02X,%02X%02X,%02X%02X,%02X%02X "
         "a0=0x%08X a1=0x%08X a2=0x%08X caller=%s+0x%zX\n",
-        trace_count, op, gamestate, loaded_0f, loaded_0e, obj, level, target_func,
+        tag, trace_count, op, gamestate, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+        loaded_0f, loaded_0e, obj, obj_id, obj_raw, obj_flags, level, target_func,
         slot_ok ? (schedule_base + (uint32_t)((int32_t)level * 2)) : 0,
         before_state, after_state, before_timer, after_timer,
         before_sched[0], before_sched[1], before_sched[2], before_sched[3],
@@ -2068,9 +2151,35 @@ extern "C" void lod_install_gs3_anim_trace_wrappers_early() {
 }
 #endif
 
-#if LOD_ENABLE_KSEG0_FAULT_TRACE
+#if LOD_ENABLE_KSEG0_FAULT_TRACE || LOD_ENABLE_B2_ASSET_TRACE
 static recomp_func_t* lod_orig_kseg0_dmamgr_update = nullptr; // 0x80011E48
 static recomp_func_t* lod_orig_kseg0_dmamgr_romcopy = nullptr; // 0x8001A42C
+
+#if LOD_ENABLE_B2_ASSET_TRACE
+static bool lod_b2_trace_matches_asset(uint32_t rom, uint32_t ram, uint32_t size, uint32_t file_id) {
+    return rom == LOD_B2_TRACE_ROM ||
+           ram == LOD_B2_TRACE_RAM ||
+           size == LOD_B2_TRACE_SIZE ||
+           file_id == LOD_B2_TRACE_FILE;
+}
+
+static uint32_t lod_b2_trace_hash_rdram(uint8_t* rdram, uint32_t phys, uint32_t size) {
+    uint32_t n = size;
+    if (n > 0x100) {
+        n = 0x100;
+    }
+    if (n == 0 || !lod_rdram_range_ok(phys, n)) {
+        return 0;
+    }
+
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < n; i++) {
+        h ^= rdram[phys + i];
+        h *= 16777619u;
+    }
+    return h;
+}
+#endif
 
 static uint32_t lod_kseg0_trace_u32_or_zero(uint8_t* rdram, uint32_t phys, bool ok) {
     return ok && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
@@ -2178,8 +2287,93 @@ static void lod_kseg0_record_snapshot(uint8_t* rdram, recomp_context* ctx, uint3
 static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
     lod_kseg0_record_snapshot(rdram, ctx, 0x80011E48);
     const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
     bool active_bad = s.pending != 0 && s.entry_ram_ok == 0;
     bool current_bad = s.cur_ram_ok == 0;
+#endif
+#if LOD_ENABLE_B2_ASSET_TRACE
+    bool active_b2 = lod_b2_trace_matches_asset(s.entry_rom, s.entry_ram, s.entry_size, s.entry_file_id);
+    bool current_b2 = lod_b2_trace_matches_asset(s.cur_rom, s.cur_ram, s.cur_size, s.cur_file_id);
+    uint32_t b2_pre_count = s.count;
+    uint32_t b2_pre_gs = s.gs;
+    uint32_t b2_pre_map_count = s.map_load_count;
+    uint32_t b2_pre_map_rom = s.map_rom;
+    uint32_t b2_pre_chunk = s.chunk_addr;
+    uint32_t b2_pre_slot = s.slot;
+    uint32_t b2_pre_pending = s.pending;
+    uint32_t b2_pre_entry_rom = s.entry_rom;
+    uint32_t b2_pre_entry_ram = s.entry_ram;
+    uint32_t b2_pre_entry_size = s.entry_size;
+    uint32_t b2_pre_entry_file = s.entry_file_id;
+    uint32_t b2_pre_entry_user = s.entry_user_ptr;
+    uint32_t b2_pre_cur_ram = s.cur_ram;
+    uint32_t b2_pre_cur_size = s.cur_size;
+    bool b2_pre_interesting = active_b2 || current_b2;
+    uint32_t b2_pre_target_phys = 0;
+    bool b2_pre_target_ok = (b2_pre_entry_ram == LOD_B2_TRACE_RAM) &&
+        lod_decode_rdram_phys_addr(b2_pre_entry_ram, 0x100, &b2_pre_target_phys);
+    uint32_t b2_pre_hash = b2_pre_target_ok
+        ? lod_b2_trace_hash_rdram(rdram, b2_pre_target_phys, 0x100)
+        : 0;
+    if (active_b2 || current_b2) {
+        static int b2_update_count = 0;
+        static uint32_t last_map_rom = 0;
+        static uint32_t last_chunk = 0;
+        static uint32_t last_slot = 0xFFFFFFFF;
+        static uint32_t last_pending = 0xFFFFFFFF;
+        static uint32_t last_entry_rom = 0;
+        static uint32_t last_entry_ram = 0;
+        static uint32_t last_entry_size = 0;
+        static uint32_t last_entry_file = 0;
+        static uint32_t last_cur_rom = 0;
+        static uint32_t last_cur_ram = 0;
+        static uint32_t last_cur_size = 0;
+        static uint32_t last_cur_file = 0;
+
+        b2_update_count++;
+        bool changed =
+            s.map_rom != last_map_rom ||
+            s.chunk_addr != last_chunk ||
+            s.slot != last_slot ||
+            s.pending != last_pending ||
+            s.entry_rom != last_entry_rom ||
+            s.entry_ram != last_entry_ram ||
+            s.entry_size != last_entry_size ||
+            s.entry_file_id != last_entry_file ||
+            s.cur_rom != last_cur_rom ||
+            s.cur_ram != last_cur_ram ||
+            s.cur_size != last_cur_size ||
+            s.cur_file_id != last_cur_file;
+
+        if (changed || b2_update_count <= 24 || (b2_update_count % 120) == 0) {
+            fprintf(stderr,
+                    "[B2_ASSET] update#%d call#%u gs=%u map#%u map_rom=0x%08X "
+                    "chunk=0x%08X slot=%u pending=%u active_match=%d current_match=%d "
+                    "active={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X user=0x%08X ram_ok=%u} "
+                    "cur={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X ram_ok=%u} "
+                    "ra=0x%08X sp=0x%08X a={0x%08X,0x%08X,0x%08X,0x%08X}\n",
+                    b2_update_count, s.count, s.gs, s.map_load_count, s.map_rom,
+                    s.chunk_addr, s.slot, s.pending, active_b2 ? 1 : 0, current_b2 ? 1 : 0,
+                    s.entry_rom, s.entry_ram, s.entry_size, s.entry_file_id, s.entry_user_ptr, s.entry_ram_ok,
+                    s.cur_rom, s.cur_ram, s.cur_size, s.cur_file_id, s.cur_ram_ok,
+                    s.ra, s.sp, s.a0, s.a1, s.a2, s.a3);
+        }
+
+        last_map_rom = s.map_rom;
+        last_chunk = s.chunk_addr;
+        last_slot = s.slot;
+        last_pending = s.pending;
+        last_entry_rom = s.entry_rom;
+        last_entry_ram = s.entry_ram;
+        last_entry_size = s.entry_size;
+        last_entry_file = s.entry_file_id;
+        last_cur_rom = s.cur_rom;
+        last_cur_ram = s.cur_ram;
+        last_cur_size = s.cur_size;
+        last_cur_file = s.cur_file_id;
+    }
+#endif
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
     if (active_bad || current_bad) {
         static int suspicious_count = 0;
         suspicious_count++;
@@ -2196,14 +2390,56 @@ static void lod_kseg0_trace_dmamgr_update(uint8_t* rdram, recomp_context* ctx) {
                     active_bad ? 1 : 0, current_bad ? 1 : 0);
         }
     }
+#endif
     if (lod_orig_kseg0_dmamgr_update != nullptr) {
         lod_orig_kseg0_dmamgr_update(rdram, ctx);
     }
+#if LOD_ENABLE_B2_ASSET_TRACE
+    if (b2_pre_interesting && b2_pre_target_ok) {
+        lod_kseg0_record_snapshot(rdram, ctx, 0x80011E48);
+        const LodKseg0FaultTraceSnapshot& post = lod_kseg0_fault_trace_snapshot;
+        uint32_t decomp_size_guess = 0;
+        if (post.cur_ram > b2_pre_entry_ram && post.cur_ram < 0x80800000) {
+            decomp_size_guess = post.cur_ram - b2_pre_entry_ram;
+        }
+        uint32_t hash_size = decomp_size_guess != 0 ? decomp_size_guess : 0x100;
+        uint32_t b2_post_hash = lod_b2_trace_hash_rdram(rdram, b2_pre_target_phys, hash_size);
+        uint32_t b2_w0 = lod_rdram_range_ok(b2_pre_target_phys, 4) ? lod_rdram_u32(rdram, b2_pre_target_phys + 0x00) : 0;
+        uint32_t b2_w4 = lod_rdram_range_ok(b2_pre_target_phys + 0x04, 4) ? lod_rdram_u32(rdram, b2_pre_target_phys + 0x04) : 0;
+        uint32_t b2_w18 = lod_rdram_range_ok(b2_pre_target_phys + 0x18, 4) ? lod_rdram_u32(rdram, b2_pre_target_phys + 0x18) : 0;
+        static int b2_after_count = 0;
+        b2_after_count++;
+        bool changed = b2_pre_hash != b2_post_hash || decomp_size_guess == 0x3E720;
+        if (changed || b2_after_count <= 24 || (b2_after_count % 120) == 0) {
+            fprintf(stderr,
+                    "[B2_ASSET] after_update#%d call#%u gs=%u map#%u map_rom=0x%08X "
+                    "chunk=0x%08X slot=%u pending=%u "
+                    "entry={rom=0x%08X ram=0x%08X size=0x%08X file=0x%08X user=0x%08X} "
+                    "pre_cur={ram=0x%08X size=0x%08X} post_cur={ram=0x%08X size=0x%08X file=0x%08X} "
+                    "decomp_guess=0x%X target_phys=0x%06X hash=0x%08X->0x%08X "
+                    "w={0x%08X,0x%08X,0x%08X}\n",
+                    b2_after_count, b2_pre_count, b2_pre_gs, b2_pre_map_count, b2_pre_map_rom,
+                    b2_pre_chunk, b2_pre_slot, b2_pre_pending,
+                    b2_pre_entry_rom, b2_pre_entry_ram, b2_pre_entry_size, b2_pre_entry_file,
+                    b2_pre_entry_user, b2_pre_cur_ram, b2_pre_cur_size,
+                    post.cur_ram, post.cur_size, post.cur_file_id,
+                    decomp_size_guess, b2_pre_target_phys, b2_pre_hash, b2_post_hash,
+                    b2_w0, b2_w4, b2_w18);
+        }
+    }
+#endif
 }
 
 static void lod_kseg0_trace_dmamgr_romcopy(uint8_t* rdram, recomp_context* ctx) {
     lod_kseg0_record_dmamgr_romcopy(rdram, ctx);
     const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
+#if LOD_ENABLE_B2_ASSET_TRACE
+    bool b2_romcopy = lod_b2_trace_matches_asset(s.romcopy_rom, s.romcopy_ram, s.romcopy_size, 0);
+    uint32_t b2_before_hash = (b2_romcopy && s.romcopy_ram_ok != 0)
+        ? lod_b2_trace_hash_rdram(rdram, s.romcopy_ram_phys, s.romcopy_size)
+        : 0;
+#endif
+#if LOD_ENABLE_KSEG0_FAULT_TRACE
     bool suspicious =
         s.romcopy_ram_ok == 0 ||
         s.romcopy_ram >= 0x80800000 ||
@@ -2221,10 +2457,1460 @@ static void lod_kseg0_trace_dmamgr_romcopy(uint8_t* rdram, recomp_context* ctx) 
                     s.romcopy_ram_phys, s.romcopy_ra, s.romcopy_ram_ok);
         }
     }
+#endif
     if (lod_orig_kseg0_dmamgr_romcopy != nullptr) {
         lod_orig_kseg0_dmamgr_romcopy(rdram, ctx);
     }
+#if LOD_ENABLE_B2_ASSET_TRACE
+    if (b2_romcopy) {
+        static int b2_romcopy_count = 0;
+        b2_romcopy_count++;
+        uint32_t b2_after_hash = s.romcopy_ram_ok != 0
+            ? lod_b2_trace_hash_rdram(rdram, s.romcopy_ram_phys, s.romcopy_size)
+            : 0;
+        if (b2_romcopy_count <= 24 || (b2_romcopy_count % 120) == 0) {
+            fprintf(stderr,
+                    "[B2_ASSET] romcopy#%d call#%u gs=%u map#%d map_rom=0x%08X "
+                    "rom=0x%08X ram=0x%08X size=0x%08X phys=0x%08X "
+                    "before_hash=0x%08X after_hash=0x%08X ra=0x%08X ram_ok=%u\n",
+                    b2_romcopy_count, s.romcopy_count, s.romcopy_gs,
+                    lod_map_ovl_load_count, lod_current_map_ovl_rom,
+                    s.romcopy_rom, s.romcopy_ram, s.romcopy_size, s.romcopy_ram_phys,
+                    b2_before_hash, b2_after_hash, s.romcopy_ra, s.romcopy_ram_ok);
+        }
+    }
+#endif
 }
+
+#if LOD_ENABLE_B2_ASSET_TRACE
+static constexpr int LOD_MAP76_MAX_OBJECTS = 384;
+
+static uint32_t lod_map76_object_signature(uint8_t* rdram, uint32_t obj_phys) {
+    if (!lod_rdram_range_ok(obj_phys, 0x74)) {
+        return 0;
+    }
+
+    uint32_t h = 2166136261u;
+    auto mix = [&](uint32_t v) {
+        h ^= v;
+        h *= 16777619u;
+    };
+
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x00));
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x02));
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x04));
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x06));
+    mix(lod_rdram_u32(rdram, obj_phys + 0x08));
+    mix(lod_rdram_u32(rdram, obj_phys + 0x0C));
+    mix(lod_rdram_u32(rdram, obj_phys + 0x10));
+    mix(lod_rdram_u32(rdram, obj_phys + 0x14));
+    mix(lod_rdram_u32(rdram, obj_phys + 0x1C));
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x20));
+    mix((uint16_t)lod_rdram_s16(rdram, obj_phys + 0x22));
+    for (uint32_t off = 0x24; off <= 0x70; off += 4) {
+        mix(lod_rdram_u32(rdram, obj_phys + off));
+    }
+    return h;
+}
+
+static bool lod_map76_is_boss_trace_obj(uint16_t obj_id) {
+    switch (obj_id) {
+        case 0x08B:
+        case 0x0EF:
+        case 0x0FE:
+        case 0x0FF:
+        case 0x1E1:
+        case 0x1E2:
+        case 0x1E3:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool lod_map76_is_boss_chain_obj(uint16_t obj_id) {
+    switch (obj_id) {
+        case 0x0EF: // werewolf intro/appearance model that vanishes
+        case 0x1E1:
+        case 0x1E2:
+        case 0x1E3:
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool lod_map76_is_combat_boss_obj(uint16_t obj_id) {
+    switch (obj_id) {
+        case 0x1E1:
+        case 0x1E2:
+        case 0x1E3:
+            return true;
+        default:
+            return false;
+    }
+}
+
+extern uint32_t trace_ring[];
+extern int trace_ring_pos;
+extern int trace_total;
+
+static void lod_map76_print_trace_ring(const char* tag) {
+    int count = trace_total < 32 ? trace_total : 32;
+    if (count <= 0) {
+        return;
+    }
+
+    fprintf(stderr, "%s last_func_lookups:", tag);
+    for (int i = 0; i < count; i++) {
+        int idx = (trace_ring_pos - count + i + 32) % 32;
+        fprintf(stderr, " 0x%08X", trace_ring[idx]);
+    }
+    fprintf(stderr, "\n");
+}
+
+static float lod_map76_f32(uint32_t bits) {
+    float out = 0.0f;
+    std::memcpy(&out, &bits, sizeof(out));
+    return out;
+}
+
+static bool lod_map76_find_fig_owner(uint8_t* rdram, uint32_t first_phys, uint32_t end_phys,
+                                     uint32_t fig_addr, int* owner_slot,
+                                     uint16_t* owner_id, int* owner_fig_index) {
+    if (owner_slot) {
+        *owner_slot = -1;
+    }
+    if (owner_id) {
+        *owner_id = 0;
+    }
+    if (owner_fig_index) {
+        *owner_fig_index = -1;
+    }
+
+    if (fig_addr == 0) {
+        return false;
+    }
+
+    int slot = 0;
+    for (uint32_t phys = first_phys; phys < end_phys && slot < LOD_MAP76_MAX_OBJECTS; phys += 0x74, slot++) {
+        if (!lod_rdram_range_ok(phys, 0x74)) {
+            break;
+        }
+
+        uint16_t raw_id = (uint16_t)lod_rdram_s16(rdram, phys + 0x00);
+        uint16_t obj_id = raw_id & 0x07FF;
+        if (obj_id == 0) {
+            continue;
+        }
+
+        for (int i = 0; i < 4; i++) {
+            if (lod_rdram_u32(rdram, phys + 0x24 + (uint32_t)i * 4) == fig_addr) {
+                if (owner_slot) {
+                    *owner_slot = slot;
+                }
+                if (owner_id) {
+                    *owner_id = obj_id;
+                }
+                if (owner_fig_index) {
+                    *owner_fig_index = i;
+                }
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+static uint32_t lod_map76_figure_chain_hash(uint8_t* rdram, uint32_t fig_addr) {
+    uint32_t h = 2166136261u;
+    auto mix = [&](uint32_t v) {
+        h ^= v;
+        h *= 16777619u;
+    };
+
+    uint32_t seen[8] = {};
+    uint32_t cur = fig_addr;
+    for (int depth = 0; depth < 8 && cur != 0; depth++) {
+        for (int i = 0; i < depth; i++) {
+            if (seen[i] == cur) {
+                mix(0xC1C1C1C1u);
+                return h;
+            }
+        }
+        seen[depth] = cur;
+
+        uint32_t phys = 0;
+        if (!lod_decode_rdram_phys_addr(cur, 0x6C, &phys)) {
+            mix(0xBAD00000u ^ cur);
+            return h;
+        }
+
+        mix(cur);
+        mix((uint16_t)lod_rdram_s16(rdram, phys + 0x00)); // type/hidden
+        mix((uint16_t)lod_rdram_s16(rdram, phys + 0x02)); // flags
+        mix(lod_rdram_u32(rdram, phys + 0x04));           // prev
+        mix(lod_rdram_u32(rdram, phys + 0x08));           // sibling
+        mix(lod_rdram_u32(rdram, phys + 0x0C));           // next
+        mix(lod_rdram_u32(rdram, phys + 0x10));           // parent
+        mix(lod_rdram_u32(rdram, phys + 0x14));           // child/model child
+        mix(lod_rdram_u32(rdram, phys + 0x38));           // asset/material-ish
+        mix(lod_rdram_u32(rdram, phys + 0x3C));           // asset/dlist-ish
+
+        cur = lod_rdram_u32(rdram, phys + 0x10);
+    }
+
+    return h;
+}
+
+static uint32_t lod_map76_figure_signature(uint8_t* rdram, uint32_t fig_phys) {
+    uint32_t h = 2166136261u;
+    auto mix = [&](uint32_t v) {
+        h ^= v;
+        h *= 16777619u;
+    };
+
+    // Keep this structural. Position/animation words change every frame and
+    // drown the useful lifecycle transitions (hidden/visible, link, asset).
+    mix((uint16_t)lod_rdram_s16(rdram, fig_phys + 0x00)); // type/hidden
+    mix((uint16_t)lod_rdram_s16(rdram, fig_phys + 0x02)); // flags
+    mix(lod_rdram_u32(rdram, fig_phys + 0x04));           // prev
+    mix(lod_rdram_u32(rdram, fig_phys + 0x08));           // sibling
+    mix(lod_rdram_u32(rdram, fig_phys + 0x0C));           // next
+    mix(lod_rdram_u32(rdram, fig_phys + 0x10));           // parent
+    mix(lod_rdram_u32(rdram, fig_phys + 0x14));           // child/model child
+    mix(lod_rdram_u32(rdram, fig_phys + 0x30));           // material-ish
+    mix(lod_rdram_u32(rdram, fig_phys + 0x34));           // display-list-ish
+    mix(lod_rdram_u32(rdram, fig_phys + 0x38));           // asset/material-ish
+    mix(lod_rdram_u32(rdram, fig_phys + 0x3C));           // asset/dlist-ish
+    mix(lod_rdram_u32(rdram, fig_phys + 0x64));           // map/extra ptr-ish
+    return h;
+}
+
+static bool lod_map76_force_chain_dump(int dump_count) {
+    (void)dump_count;
+    return false;
+}
+
+static bool lod_map76_focus_window(bool trace_armed) {
+    return trace_armed;
+}
+
+static void lod_map76_active_object_dump(uint8_t* rdram, uint32_t first_phys, uint32_t end_phys,
+                                         int dump_count, int si_dma_count, const char* reason,
+                                         int trigger_slot, uint16_t trigger_id) {
+    fprintf(stderr,
+            "[MAP76_ACTIVE] dump#%d si=%d reason=%s trigger_slot=%d trigger_id=0x%03X "
+            "base=0x%08X end=0x%08X\n",
+            dump_count, si_dma_count, reason ? reason : "unknown", trigger_slot, trigger_id,
+            first_phys | 0x80000000, end_phys | 0x80000000);
+
+    int slot = 0;
+    int lines = 0;
+    int active = 0;
+    for (uint32_t phys = first_phys; phys < end_phys && slot < LOD_MAP76_MAX_OBJECTS; phys += 0x74, slot++) {
+        if (!lod_rdram_range_ok(phys, 0x74)) {
+            break;
+        }
+
+        uint16_t raw_id = (uint16_t)lod_rdram_s16(rdram, phys + 0x00);
+        uint16_t obj_id = raw_id & 0x07FF;
+        if (obj_id == 0) {
+            continue;
+        }
+
+        active++;
+        if (lines >= 180) {
+            continue;
+        }
+
+        uint16_t flags = (uint16_t)lod_rdram_s16(rdram, phys + 0x02);
+        uint8_t s08 = lod_rdram_u8(rdram, phys + 0x08);
+        uint8_t s09 = lod_rdram_u8(rdram, phys + 0x09);
+        uint8_t s0a = lod_rdram_u8(rdram, phys + 0x0A);
+        uint8_t s0b = lod_rdram_u8(rdram, phys + 0x0B);
+        uint8_t s0c = lod_rdram_u8(rdram, phys + 0x0C);
+        uint8_t s0d = lod_rdram_u8(rdram, phys + 0x0D);
+        int16_t func_id = lod_rdram_s16(rdram, phys + 0x0E);
+        uint8_t dispatch = lod_object_dispatch_state(rdram, phys);
+        uint32_t destroy = lod_rdram_u32(rdram, phys + 0x10);
+        uint32_t parent = lod_rdram_u32(rdram, phys + 0x14);
+        uint32_t child = lod_rdram_u32(rdram, phys + 0x1C);
+        uint16_t alloc = (uint16_t)lod_rdram_s16(rdram, phys + 0x20);
+        uint16_t gfx = (uint16_t)lod_rdram_s16(rdram, phys + 0x22);
+        uint32_t fig0 = lod_rdram_u32(rdram, phys + 0x24);
+        uint32_t fig1 = lod_rdram_u32(rdram, phys + 0x28);
+        uint32_t fig2 = lod_rdram_u32(rdram, phys + 0x2C);
+        uint32_t fig3 = lod_rdram_u32(rdram, phys + 0x30);
+        uint32_t data0 = lod_rdram_u32(rdram, phys + 0x34);
+        uint32_t data1 = lod_rdram_u32(rdram, phys + 0x38);
+        uint32_t data2 = lod_rdram_u32(rdram, phys + 0x3C);
+        uint32_t data3 = lod_rdram_u32(rdram, phys + 0x40);
+        bool boss_related = lod_map76_is_boss_trace_obj(obj_id) ||
+                            parent == ((uint32_t)(first_phys + (uint32_t)trigger_slot * 0x74) | 0x80000000) ||
+                            child == ((uint32_t)(first_phys + (uint32_t)trigger_slot * 0x74) | 0x80000000);
+
+        fprintf(stderr,
+                "[MAP76_ACTIVE] slot=%d addr=0x%08X id=0x%03X raw=0x%04X flags=0x%04X boss_related=%d "
+                "sched=%02X/%02X %02X/%02X %02X/%02X func=%d disp=%u "
+                "destroy=0x%08X parent=0x%08X child=0x%08X bits={alloc=0x%04X gfx=0x%04X} "
+                "fig={0x%08X,0x%08X,0x%08X,0x%08X} data={0x%08X,0x%08X,0x%08X,0x%08X}\n",
+                slot, phys | 0x80000000, obj_id, raw_id, flags, boss_related ? 1 : 0,
+                s08, s09, s0a, s0b, s0c, s0d, func_id, dispatch,
+                destroy, parent, child, alloc, gfx,
+                fig0, fig1, fig2, fig3, data0, data1, data2, data3);
+        lines++;
+    }
+
+    fprintf(stderr,
+            "[MAP76_ACTIVE] summary dump#%d si=%d active=%d printed=%d total_slots=%d\n",
+            dump_count, si_dma_count, active, lines, slot);
+}
+
+static void lod_map76_figure_chain_trace(uint8_t* rdram, uint32_t first_phys, uint32_t end_phys,
+                                         int dump_count, int si_dma_count,
+                                         int slot, uint16_t obj_id, int fig_index,
+                                         uint32_t fig_addr) {
+    if (slot < 0 || slot >= LOD_MAP76_MAX_OBJECTS || fig_index < 0 || fig_index >= 4 || fig_addr == 0) {
+        return;
+    }
+
+    static uint32_t last_ptr[LOD_MAP76_MAX_OBJECTS][4] = {};
+    static uint32_t last_hash[LOD_MAP76_MAX_OBJECTS][4] = {};
+
+    uint32_t chain_hash = lod_map76_figure_chain_hash(rdram, fig_addr);
+    const bool force_dump = lod_map76_force_chain_dump(dump_count);
+    bool changed = fig_addr != last_ptr[slot][fig_index] ||
+                   (force_dump && chain_hash != last_hash[slot][fig_index]);
+    if (!changed) {
+        return;
+    }
+
+    last_ptr[slot][fig_index] = fig_addr;
+    last_hash[slot][fig_index] = chain_hash;
+
+    fprintf(stderr,
+            "[MAP76_CHAIN] dump#%d si=%d slot=%d id=0x%03X fig%d root=0x%08X hash=0x%08X changed=%d\n",
+            dump_count, si_dma_count, slot, obj_id, fig_index, fig_addr,
+            chain_hash, changed ? 1 : 0);
+
+    uint32_t seen[8] = {};
+    uint32_t cur = fig_addr;
+    for (int depth = 0; depth < 8 && cur != 0; depth++) {
+        bool cycle = false;
+        for (int i = 0; i < depth; i++) {
+            if (seen[i] == cur) {
+                cycle = true;
+                break;
+            }
+        }
+        if (cycle) {
+            fprintf(stderr,
+                    "[MAP76_CHAIN] dump#%d slot=%d id=0x%03X fig%d depth=%d ptr=0x%08X CYCLE\n",
+                    dump_count, slot, obj_id, fig_index, depth, cur);
+            return;
+        }
+        seen[depth] = cur;
+
+        uint32_t phys = 0;
+        if (!lod_decode_rdram_phys_addr(cur, 0x6C, &phys)) {
+            fprintf(stderr,
+                    "[MAP76_CHAIN] dump#%d slot=%d id=0x%03X fig%d depth=%d ptr=0x%08X BAD_PTR\n",
+                    dump_count, slot, obj_id, fig_index, depth, cur);
+            return;
+        }
+
+        int owner_slot = -1;
+        uint16_t owner_id = 0;
+        int owner_fig = -1;
+        lod_map76_find_fig_owner(rdram, first_phys, end_phys, cur,
+                                 &owner_slot, &owner_id, &owner_fig);
+
+        int16_t type = lod_rdram_s16(rdram, phys + 0x00);
+        uint16_t flags = (uint16_t)lod_rdram_s16(rdram, phys + 0x02);
+        uint32_t prev = lod_rdram_u32(rdram, phys + 0x04);
+        uint32_t sibling = lod_rdram_u32(rdram, phys + 0x08);
+        uint32_t next = lod_rdram_u32(rdram, phys + 0x0C);
+        uint32_t parent = lod_rdram_u32(rdram, phys + 0x10);
+        uint32_t child = lod_rdram_u32(rdram, phys + 0x14);
+        uint32_t w38 = lod_rdram_u32(rdram, phys + 0x38);
+        uint32_t w3c = lod_rdram_u32(rdram, phys + 0x3C);
+        uint32_t w40 = lod_rdram_u32(rdram, phys + 0x40);
+        uint32_t w44 = lod_rdram_u32(rdram, phys + 0x44);
+        uint32_t w48 = lod_rdram_u32(rdram, phys + 0x48);
+
+        fprintf(stderr,
+                "[MAP76_CHAIN] dump#%d slot=%d id=0x%03X fig%d depth=%d ptr=0x%08X phys=0x%06X "
+                "owner=%d/0x%03X/fig%d type=0x%04X(%d) hidden=%d flags=0x%04X "
+                "links={prev=0x%08X sib=0x%08X next=0x%08X parent=0x%08X child=0x%08X} "
+                "asset={w38=0x%08X w3c=0x%08X} pos={%.2f,%.2f,%.2f}\n",
+                dump_count, slot, obj_id, fig_index, depth, cur, phys,
+                owner_slot, owner_id, owner_fig,
+                (uint16_t)type, type, type < 0 ? 1 : 0, flags,
+                prev, sibling, next, parent, child,
+                w38, w3c,
+                lod_map76_f32(w40), lod_map76_f32(w44), lod_map76_f32(w48));
+
+        cur = parent;
+    }
+}
+
+static void lod_map76_figure_trace(uint8_t* rdram, int dump_count, int si_dma_count,
+                                   int slot, uint16_t obj_id, int fig_index,
+                                   uint32_t fig_addr) {
+    if (slot < 0 || slot >= LOD_MAP76_MAX_OBJECTS || fig_index < 0 || fig_index >= 4) {
+        return;
+    }
+
+    static uint32_t last_ptr[LOD_MAP76_MAX_OBJECTS][4] = {};
+    static uint32_t last_hash[LOD_MAP76_MAX_OBJECTS][4] = {};
+
+    uint32_t fig_phys = 0;
+    bool fig_ok = fig_addr != 0 && lod_decode_rdram_phys_addr(fig_addr, 0xA8, &fig_phys);
+    uint32_t fig_hash = fig_ok ? lod_map76_figure_signature(rdram, fig_phys) : 0;
+    bool changed = fig_addr != last_ptr[slot][fig_index] ||
+                   fig_hash != last_hash[slot][fig_index];
+
+    if (fig_addr == 0 && !changed) {
+        return;
+    }
+
+    if (!changed) {
+        return;
+    }
+
+    last_ptr[slot][fig_index] = fig_addr;
+    last_hash[slot][fig_index] = fig_hash;
+
+    if (fig_addr == 0 || !fig_ok) {
+        fprintf(stderr,
+                "[MAP76_FIG] dump#%d si=%d slot=%d id=0x%03X fig%d ptr=0x%08X ok=%d hash=0x%08X changed=%d\n",
+                dump_count, si_dma_count, slot, obj_id, fig_index, fig_addr,
+                fig_ok ? 1 : 0, fig_hash, changed ? 1 : 0);
+        return;
+    }
+
+    int16_t type = lod_rdram_s16(rdram, fig_phys + 0x00);
+    uint16_t flags = (uint16_t)lod_rdram_s16(rdram, fig_phys + 0x02);
+    uint32_t prev = lod_rdram_u32(rdram, fig_phys + 0x04);
+    uint32_t sibling = lod_rdram_u32(rdram, fig_phys + 0x08);
+    uint32_t next = lod_rdram_u32(rdram, fig_phys + 0x0C);
+    uint32_t parent = lod_rdram_u32(rdram, fig_phys + 0x10);
+    uint32_t w14 = lod_rdram_u32(rdram, fig_phys + 0x14);
+    uint32_t w18 = lod_rdram_u32(rdram, fig_phys + 0x18);
+    uint32_t w1c = lod_rdram_u32(rdram, fig_phys + 0x1C);
+    uint32_t w20 = lod_rdram_u32(rdram, fig_phys + 0x20);
+    uint32_t w24 = lod_rdram_u32(rdram, fig_phys + 0x24);
+    uint32_t w28 = lod_rdram_u32(rdram, fig_phys + 0x28);
+    uint32_t w2c = lod_rdram_u32(rdram, fig_phys + 0x2C);
+    uint32_t w30 = lod_rdram_u32(rdram, fig_phys + 0x30);
+    uint32_t w34 = lod_rdram_u32(rdram, fig_phys + 0x34);
+    uint32_t w38 = lod_rdram_u32(rdram, fig_phys + 0x38);
+    uint32_t w3c = lod_rdram_u32(rdram, fig_phys + 0x3C);
+    uint32_t w40 = lod_rdram_u32(rdram, fig_phys + 0x40);
+    uint32_t w44 = lod_rdram_u32(rdram, fig_phys + 0x44);
+    uint32_t w48 = lod_rdram_u32(rdram, fig_phys + 0x48);
+    uint32_t w4c = lod_rdram_u32(rdram, fig_phys + 0x4C);
+    uint32_t w50 = lod_rdram_u32(rdram, fig_phys + 0x50);
+    uint32_t w54 = lod_rdram_u32(rdram, fig_phys + 0x54);
+    uint32_t w58 = lod_rdram_u32(rdram, fig_phys + 0x58);
+    uint32_t w5c = lod_rdram_u32(rdram, fig_phys + 0x5C);
+    uint32_t w60 = lod_rdram_u32(rdram, fig_phys + 0x60);
+    uint32_t w64 = lod_rdram_u32(rdram, fig_phys + 0x64);
+    uint32_t w68 = lod_rdram_u32(rdram, fig_phys + 0x68);
+
+    fprintf(stderr,
+            "[MAP76_FIG] dump#%d si=%d slot=%d id=0x%03X fig%d ptr=0x%08X phys=0x%06X "
+            "type=0x%04X(%d) hidden=%d flags=0x%04X hash=0x%08X changed=%d "
+            "links={prev=0x%08X sib=0x%08X next=0x%08X parent=0x%08X} "
+            "model={mat=0x%08X dl=0x%08X f38=0x%08X f3c=0x%08X map=0x%08X} "
+            "pos={%.2f,%.2f,%.2f} scale={%.3f,%.3f,%.3f} "
+            "w14-68={0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,"
+            "0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,"
+            "0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X}\n",
+            dump_count, si_dma_count, slot, obj_id, fig_index, fig_addr, fig_phys,
+            (uint16_t)type, type, type < 0 ? 1 : 0, flags, fig_hash, changed ? 1 : 0,
+            prev, sibling, next, parent,
+            w30, w34, w38, w3c, w64,
+            lod_map76_f32(w40), lod_map76_f32(w44), lod_map76_f32(w48),
+            lod_map76_f32(w58), lod_map76_f32(w5c), lod_map76_f32(w60),
+            w14, w18, w1c, w20, w24, w28, w2c, w30, w34, w38, w3c,
+            w40, w44, w48, w4c, w50, w54, w58, w5c, w60, w64, w68);
+}
+
+static void lod_map76_boss_figure_periodic_trace(uint8_t* rdram, int dump_count, int si_dma_count,
+                                                 int slot, uint16_t obj_id, int fig_index,
+                                                 uint32_t fig_addr) {
+    if (!lod_map76_is_combat_boss_obj(obj_id) ||
+        slot < 0 || slot >= LOD_MAP76_MAX_OBJECTS ||
+        fig_index < 0 || fig_index >= 4) {
+        return;
+    }
+
+    static bool printed_once[LOD_MAP76_MAX_OBJECTS][4] = {};
+    bool due = !printed_once[slot][fig_index] ||
+               (LOD_MAP76_BOSS_FIG_INTERVAL > 0 &&
+                (dump_count % LOD_MAP76_BOSS_FIG_INTERVAL) == 0);
+    if (!due) {
+        return;
+    }
+
+    printed_once[slot][fig_index] = true;
+
+    if (fig_addr == 0) {
+        fprintf(stderr,
+                "[MAP76_BOSS_FIG] dump#%d si=%d slot=%d id=0x%03X fig%d ptr=0x00000000 ok=0\n",
+                dump_count, si_dma_count, slot, obj_id, fig_index);
+        return;
+    }
+
+    uint32_t fig_phys = 0;
+    if (!lod_decode_rdram_phys_addr(fig_addr, 0xA8, &fig_phys)) {
+        fprintf(stderr,
+                "[MAP76_BOSS_FIG] dump#%d si=%d slot=%d id=0x%03X fig%d ptr=0x%08X ok=0\n",
+                dump_count, si_dma_count, slot, obj_id, fig_index, fig_addr);
+        return;
+    }
+
+    int16_t type = lod_rdram_s16(rdram, fig_phys + 0x00);
+    uint16_t flags = (uint16_t)lod_rdram_s16(rdram, fig_phys + 0x02);
+    uint32_t prev = lod_rdram_u32(rdram, fig_phys + 0x04);
+    uint32_t sibling = lod_rdram_u32(rdram, fig_phys + 0x08);
+    uint32_t next = lod_rdram_u32(rdram, fig_phys + 0x0C);
+    uint32_t parent = lod_rdram_u32(rdram, fig_phys + 0x10);
+    uint32_t w14 = lod_rdram_u32(rdram, fig_phys + 0x14);
+    uint32_t w18 = lod_rdram_u32(rdram, fig_phys + 0x18);
+    uint32_t w1c = lod_rdram_u32(rdram, fig_phys + 0x1C);
+    uint32_t w20 = lod_rdram_u32(rdram, fig_phys + 0x20);
+    uint32_t w24 = lod_rdram_u32(rdram, fig_phys + 0x24);
+    uint32_t w28 = lod_rdram_u32(rdram, fig_phys + 0x28);
+    uint32_t w2c = lod_rdram_u32(rdram, fig_phys + 0x2C);
+    uint32_t w30 = lod_rdram_u32(rdram, fig_phys + 0x30);
+    uint32_t w34 = lod_rdram_u32(rdram, fig_phys + 0x34);
+    uint32_t w38 = lod_rdram_u32(rdram, fig_phys + 0x38);
+    uint32_t w3c = lod_rdram_u32(rdram, fig_phys + 0x3C);
+    uint32_t w40 = lod_rdram_u32(rdram, fig_phys + 0x40);
+    uint32_t w44 = lod_rdram_u32(rdram, fig_phys + 0x44);
+    uint32_t w48 = lod_rdram_u32(rdram, fig_phys + 0x48);
+    uint32_t w4c = lod_rdram_u32(rdram, fig_phys + 0x4C);
+    uint32_t w50 = lod_rdram_u32(rdram, fig_phys + 0x50);
+    uint32_t w54 = lod_rdram_u32(rdram, fig_phys + 0x54);
+    uint32_t w58 = lod_rdram_u32(rdram, fig_phys + 0x58);
+    uint32_t w5c = lod_rdram_u32(rdram, fig_phys + 0x5C);
+    uint32_t w60 = lod_rdram_u32(rdram, fig_phys + 0x60);
+    uint32_t w64 = lod_rdram_u32(rdram, fig_phys + 0x64);
+    uint32_t w68 = lod_rdram_u32(rdram, fig_phys + 0x68);
+    uint32_t chain_hash = lod_map76_figure_chain_hash(rdram, fig_addr);
+
+    fprintf(stderr,
+            "[MAP76_BOSS_FIG] dump#%d si=%d slot=%d id=0x%03X fig%d ptr=0x%08X phys=0x%06X "
+            "type=0x%04X(%d) hidden=%d flags=0x%04X chain=0x%08X "
+            "links={prev=0x%08X sib=0x%08X next=0x%08X parent=0x%08X} "
+            "model={mat=0x%08X dl=0x%08X f38=0x%08X f3c=0x%08X map=0x%08X} "
+            "pos={%.2f,%.2f,%.2f} scale={%.3f,%.3f,%.3f} "
+            "w14-68={0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,"
+            "0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,"
+            "0x%08X,0x%08X,0x%08X,0x%08X,0x%08X,0x%08X}\n",
+            dump_count, si_dma_count, slot, obj_id, fig_index, fig_addr, fig_phys,
+            (uint16_t)type, type, type < 0 ? 1 : 0, flags, chain_hash,
+            prev, sibling, next, parent,
+            w30, w34, w38, w3c, w64,
+            lod_map76_f32(w40), lod_map76_f32(w44), lod_map76_f32(w48),
+            lod_map76_f32(w58), lod_map76_f32(w5c), lod_map76_f32(w60),
+            w14, w18, w1c, w20, w24, w28, w2c, w30, w34, w38, w3c,
+            w40, w44, w48, w4c, w50, w54, w58, w5c, w60, w64, w68);
+}
+
+static void lod_map76_object_trace(uint8_t* rdram, int si_dma_count) {
+    if (lod_current_map_ovl_rom != LOD_B2_TRACE_MAP_ROM) {
+        return;
+    }
+
+    int32_t gs = lod_current_gamestate(rdram);
+    if (gs != 3) {
+        return;
+    }
+
+    uint32_t list_base = lod_rdram_range_ok(0x0C1530, 4) ? lod_rdram_u32(rdram, 0x0C1530) : 0;
+    uint32_t list_end = lod_rdram_range_ok(0x0C153C, 4) ? lod_rdram_u32(rdram, 0x0C153C) : 0;
+    uint32_t first = list_base + 0x74;
+    uint32_t first_phys = first & 0x1FFFFFFF;
+    uint32_t end_phys = list_end & 0x1FFFFFFF;
+    if (list_base == 0 || list_end == 0 ||
+        first_phys >= end_phys ||
+        !lod_rdram_range_ok(first_phys, 0x74) ||
+        !lod_rdram_range_ok(end_phys - 0x74, 0x74)) {
+        static int bad_count = 0;
+        if (++bad_count <= 8) {
+            fprintf(stderr,
+                    "[MAP76_OBJ] bad-list #%d si=%d gs=%d base=0x%08X end=0x%08X first_phys=0x%06X end_phys=0x%06X\n",
+                    bad_count, si_dma_count, gs, list_base, list_end, first_phys, end_phys);
+        }
+        return;
+    }
+
+    static uint32_t last_sig[LOD_MAP76_MAX_OBJECTS] = {};
+    static uint16_t last_id[LOD_MAP76_MAX_OBJECTS] = {};
+    static uint16_t last_raw_id[LOD_MAP76_MAX_OBJECTS] = {};
+    static uint16_t last_flags[LOD_MAP76_MAX_OBJECTS] = {};
+    static uint32_t last_figs[LOD_MAP76_MAX_OBJECTS][4] = {};
+    static int dump_count = 0;
+    static int last_si = -100000;
+    static int trace_armed_until = 0;
+    static bool trace_armed_logged = false;
+    static bool handoff_dumped = false;
+
+    bool periodic = (si_dma_count - last_si) >= LOD_MAP76_TRACE_SI_INTERVAL;
+    if (!periodic && dump_count != 0) {
+        return;
+    }
+
+    last_si = si_dma_count;
+    dump_count++;
+
+    int total = 0;
+    int active = 0;
+    int with_fig = 0;
+    uint32_t table_hash = 2166136261u;
+    int lines = 0;
+
+    for (uint32_t phys = first_phys; phys < end_phys && total < LOD_MAP76_MAX_OBJECTS; phys += 0x74, total++) {
+        if (!lod_rdram_range_ok(phys, 0x74)) {
+            break;
+        }
+
+        uint16_t raw_id = (uint16_t)lod_rdram_s16(rdram, phys + 0x00);
+        uint16_t obj_id = raw_id & 0x07FF;
+        uint16_t flags = (uint16_t)lod_rdram_s16(rdram, phys + 0x02);
+        if (obj_id == 0) {
+            bool trace_armed_now = trace_armed_until > 0 && dump_count <= trace_armed_until;
+            bool interesting_removed =
+                last_id[total] != 0 &&
+                (trace_armed_now || last_id[total] == 0x0EF) &&
+                lod_map76_is_boss_trace_obj(last_id[total]);
+            if (interesting_removed) {
+                uint32_t sig = lod_map76_object_signature(rdram, phys);
+                fprintf(stderr,
+                        "[MAP76_OBJ] removed dump#%d si=%d slot=%d addr=0x%08X "
+                        "prev_id=0x%03X prev_raw=0x%04X prev_flags=0x%04X prev_sig=0x%08X "
+                        "cur_raw=0x%04X cur_flags=0x%04X cur_sig=0x%08X "
+                        "prev_fig={0x%08X,0x%08X,0x%08X,0x%08X}\n",
+                        dump_count, si_dma_count, total, phys | 0x80000000,
+                        last_id[total], last_raw_id[total], last_flags[total], last_sig[total],
+                        raw_id, flags, sig,
+                        last_figs[total][0], last_figs[total][1],
+                        last_figs[total][2], last_figs[total][3]);
+                lod_map76_print_trace_ring("[MAP76_OBJ] removed");
+                if (last_id[total] == 0x0EF && !handoff_dumped) {
+                    lod_map76_active_object_dump(rdram, first_phys, end_phys, dump_count, si_dma_count,
+                                                 "0EF removed-slot", total, last_id[total]);
+                    handoff_dumped = true;
+                }
+            }
+            last_sig[total] = 0;
+            last_id[total] = 0;
+            last_raw_id[total] = raw_id;
+            last_flags[total] = flags;
+            last_figs[total][0] = 0;
+            last_figs[total][1] = 0;
+            last_figs[total][2] = 0;
+            last_figs[total][3] = 0;
+            continue;
+        }
+
+        if (obj_id == 0x0EF) {
+            // The werewolf intro/appearance object only exists at boss entry.
+            // Use it as the trigger so pre-boss Fog Lake gameplay stays quiet.
+            if (!trace_armed_logged) {
+                trace_armed_until = dump_count + 70;
+                fprintf(stderr,
+                        "[MAP76_TRACE] armed dump#%d si=%d slot=%d addr=0x%08X raw=0x%04X flags=0x%04X until_dump#%d\n",
+                        dump_count, si_dma_count, total, phys | 0x80000000,
+                        raw_id, flags, trace_armed_until);
+                trace_armed_logged = true;
+            }
+        }
+
+        bool trace_armed = trace_armed_until > 0 && dump_count <= trace_armed_until;
+
+        active++;
+        uint32_t fig0 = lod_rdram_u32(rdram, phys + 0x24);
+        uint32_t fig1 = lod_rdram_u32(rdram, phys + 0x28);
+        uint32_t fig2 = lod_rdram_u32(rdram, phys + 0x2C);
+        uint32_t fig3 = lod_rdram_u32(rdram, phys + 0x30);
+        if (fig0 || fig1 || fig2 || fig3) {
+            with_fig++;
+        }
+
+        uint32_t sig = lod_map76_object_signature(rdram, phys);
+        table_hash ^= sig;
+        table_hash *= 16777619u;
+
+        bool changed = sig != last_sig[total] || obj_id != last_id[total];
+        bool raw_changed = raw_id != last_raw_id[total];
+        bool flags_changed = flags != last_flags[total];
+        bool raw_retired = ((int16_t)raw_id < 0) && raw_changed;
+        bool fig_changed = fig0 != last_figs[total][0] ||
+                           fig1 != last_figs[total][1] ||
+                           fig2 != last_figs[total][2] ||
+                           fig3 != last_figs[total][3];
+        bool suspicious = (fig0 == 0 && fig1 == 0 && fig2 == 0 && fig3 == 0) ||
+                          (flags & 0x8000) != 0 ||
+                          (obj_id >= 0x080 && obj_id <= 0x1FF);
+        bool boss_trace = lod_map76_is_boss_trace_obj(obj_id);
+        bool chain_trace = lod_map76_is_boss_chain_obj(obj_id);
+        bool lifecycle_changed = obj_id != last_id[total] ||
+                                 raw_changed ||
+                                 flags_changed ||
+                                 fig_changed;
+        bool appearance_retiring =
+            obj_id == 0x0EF &&
+            !handoff_dumped &&
+            (raw_retired ||
+             ((flags & 0x8000) != 0 && flags_changed) ||
+             (fig_changed && fig0 == 0 && fig1 == 0 && fig2 == 0 && fig3 == 0));
+        if (chain_trace && lod_map76_focus_window(trace_armed)) {
+            lod_map76_figure_trace(rdram, dump_count, si_dma_count, total, obj_id, 0, fig0);
+            lod_map76_figure_trace(rdram, dump_count, si_dma_count, total, obj_id, 1, fig1);
+            lod_map76_figure_trace(rdram, dump_count, si_dma_count, total, obj_id, 2, fig2);
+            lod_map76_figure_trace(rdram, dump_count, si_dma_count, total, obj_id, 3, fig3);
+            lod_map76_boss_figure_periodic_trace(rdram, dump_count, si_dma_count, total, obj_id, 0, fig0);
+            lod_map76_boss_figure_periodic_trace(rdram, dump_count, si_dma_count, total, obj_id, 1, fig1);
+            lod_map76_boss_figure_periodic_trace(rdram, dump_count, si_dma_count, total, obj_id, 2, fig2);
+            lod_map76_boss_figure_periodic_trace(rdram, dump_count, si_dma_count, total, obj_id, 3, fig3);
+            lod_map76_figure_chain_trace(rdram, first_phys, end_phys, dump_count, si_dma_count, total, obj_id, 0, fig0);
+            lod_map76_figure_chain_trace(rdram, first_phys, end_phys, dump_count, si_dma_count, total, obj_id, 1, fig1);
+            lod_map76_figure_chain_trace(rdram, first_phys, end_phys, dump_count, si_dma_count, total, obj_id, 2, fig2);
+            lod_map76_figure_chain_trace(rdram, first_phys, end_phys, dump_count, si_dma_count, total, obj_id, 3, fig3);
+        }
+        if (appearance_retiring) {
+            lod_map76_active_object_dump(rdram, first_phys, end_phys, dump_count, si_dma_count,
+                                         "0EF retiring", total, obj_id);
+            handoff_dumped = true;
+        }
+
+        bool log_object_detail =
+            boss_trace &&
+            (trace_armed || obj_id == 0x0EF) &&
+            lifecycle_changed;
+        if (log_object_detail) {
+            if (lines < 80) {
+                uint8_t s08 = lod_rdram_u8(rdram, phys + 0x08);
+                uint8_t s09 = lod_rdram_u8(rdram, phys + 0x09);
+                uint8_t s0a = lod_rdram_u8(rdram, phys + 0x0A);
+                uint8_t s0b = lod_rdram_u8(rdram, phys + 0x0B);
+                uint8_t s0c = lod_rdram_u8(rdram, phys + 0x0C);
+                uint8_t s0d = lod_rdram_u8(rdram, phys + 0x0D);
+                int16_t func_id = lod_rdram_s16(rdram, phys + 0x0E);
+                uint8_t dispatch = lod_object_dispatch_state(rdram, phys);
+                uint16_t alloc = (uint16_t)lod_rdram_s16(rdram, phys + 0x20);
+                uint16_t gfx = (uint16_t)lod_rdram_s16(rdram, phys + 0x22);
+                uint32_t destroy = lod_rdram_u32(rdram, phys + 0x10);
+                uint32_t parent = lod_rdram_u32(rdram, phys + 0x14);
+                uint32_t child = lod_rdram_u32(rdram, phys + 0x1C);
+                uint32_t data0 = lod_rdram_u32(rdram, phys + 0x34);
+                uint32_t data1 = lod_rdram_u32(rdram, phys + 0x38);
+                uint32_t data2 = lod_rdram_u32(rdram, phys + 0x3C);
+                uint32_t data3 = lod_rdram_u32(rdram, phys + 0x40);
+                fprintf(stderr,
+                        "[MAP76_OBJ] obj dump#%d si=%d slot=%d addr=0x%08X id=0x%03X raw=0x%04X flags=0x%04X "
+                        "sched=%02X/%02X %02X/%02X %02X/%02X func=%d disp=%u destroy=0x%08X parent=0x%08X child=0x%08X "
+                        "bits={alloc=0x%04X gfx=0x%04X} fig={0x%08X,0x%08X,0x%08X,0x%08X} "
+                        "data={0x%08X,0x%08X,0x%08X,0x%08X} sig=0x%08X changed=%d fig_changed=%d susp=%d\n",
+                        dump_count, si_dma_count, total, phys | 0x80000000, obj_id, raw_id, flags,
+                        s08, s09, s0a, s0b, s0c, s0d, func_id, dispatch, destroy, parent, child,
+                        alloc, gfx, fig0, fig1, fig2, fig3, data0, data1, data2, data3,
+                        sig, changed ? 1 : 0, fig_changed ? 1 : 0, suspicious ? 1 : 0);
+                lines++;
+            }
+        }
+        if (boss_trace && raw_retired) {
+            lod_map76_print_trace_ring("[MAP76_OBJ] retired");
+        }
+
+        last_sig[total] = sig;
+        last_id[total] = obj_id;
+        last_raw_id[total] = raw_id;
+        last_flags[total] = flags;
+        last_figs[total][0] = fig0;
+        last_figs[total][1] = fig1;
+        last_figs[total][2] = fig2;
+        last_figs[total][3] = fig3;
+    }
+
+    if (trace_armed_until > 0 && dump_count <= trace_armed_until && (lines > 0 || (dump_count % 20) == 0)) {
+        fprintf(stderr,
+                "[MAP76_OBJ] summary dump#%d si=%d gs=%d map#%d active=%d with_fig=%d total_slots=%d hash=0x%08X lines=%d base=0x%08X end=0x%08X\n",
+                dump_count, si_dma_count, gs, lod_map_ovl_load_count, active, with_fig, total,
+                table_hash, lines, list_base, list_end);
+    }
+}
+
+// Generated main-code helpers used by object 0x0EF's update wrapper
+// (declared manually to avoid including generated funcs.h here).
+void func_8002D548(uint8_t* rdram, recomp_context* ctx);
+void func_8002D1F4(uint8_t* rdram, recomp_context* ctx);
+void object_destroyChildrenAndModelInfo(uint8_t* rdram, recomp_context* ctx);
+
+struct LodMap76LifecycleObject {
+    bool ok = false;
+    int slot = -1;
+    uint32_t addr = 0;
+    uint32_t phys = 0;
+    uint16_t raw = 0;
+    uint16_t id = 0;
+    uint16_t flags = 0;
+    uint8_t sched[6] = {};
+    int16_t func = 0;
+    uint8_t disp = 0;
+    uint32_t destroy = 0;
+    uint32_t parent = 0;
+    uint32_t child = 0;
+    uint16_t alloc = 0;
+    uint16_t gfx = 0;
+    uint32_t figs[4] = {};
+    uint32_t data[4] = {};
+    uint32_t sig = 0;
+    uint16_t fig0_type = 0;
+    uint16_t fig0_flags = 0;
+    uint32_t fig0_dl = 0;
+};
+
+static int lod_map76_lifecycle_slot_for_phys(uint8_t* rdram, uint32_t phys) {
+    uint32_t list_base = lod_rdram_range_ok(0x0C1530, 4) ? lod_rdram_u32(rdram, 0x0C1530) : 0;
+    uint32_t list_end = lod_rdram_range_ok(0x0C153C, 4) ? lod_rdram_u32(rdram, 0x0C153C) : 0;
+    uint32_t first_phys = (list_base + 0x74) & 0x1FFFFFFF;
+    uint32_t end_phys = list_end & 0x1FFFFFFF;
+    if (list_base == 0 || list_end == 0 ||
+        phys < first_phys || phys >= end_phys ||
+        (phys - first_phys) % 0x74 != 0) {
+        return -1;
+    }
+    return (int)((phys - first_phys) / 0x74);
+}
+
+static LodMap76LifecycleObject lod_map76_lifecycle_capture(uint8_t* rdram, uint32_t obj_addr) {
+    LodMap76LifecycleObject out = {};
+    out.addr = obj_addr;
+
+    uint32_t phys = 0;
+    if (!lod_decode_rdram_phys_addr(obj_addr, 0x74, &phys) ||
+        !lod_rdram_range_ok(phys, 0x74)) {
+        return out;
+    }
+
+    out.ok = true;
+    out.phys = phys;
+    out.slot = lod_map76_lifecycle_slot_for_phys(rdram, phys);
+    out.raw = (uint16_t)lod_rdram_s16(rdram, phys + 0x00);
+    out.id = out.raw & 0x07FF;
+    out.flags = (uint16_t)lod_rdram_s16(rdram, phys + 0x02);
+    for (uint32_t i = 0; i < 6; i++) {
+        out.sched[i] = lod_rdram_u8(rdram, phys + 0x08 + i);
+    }
+    out.func = lod_rdram_s16(rdram, phys + 0x0E);
+    out.disp = lod_object_dispatch_state(rdram, phys);
+    out.destroy = lod_rdram_u32(rdram, phys + 0x10);
+    out.parent = lod_rdram_u32(rdram, phys + 0x14);
+    out.child = lod_rdram_u32(rdram, phys + 0x1C);
+    out.alloc = (uint16_t)lod_rdram_s16(rdram, phys + 0x20);
+    out.gfx = (uint16_t)lod_rdram_s16(rdram, phys + 0x22);
+    for (uint32_t i = 0; i < 4; i++) {
+        out.figs[i] = lod_rdram_u32(rdram, phys + 0x24 + i * 4);
+        out.data[i] = lod_rdram_u32(rdram, phys + 0x34 + i * 4);
+    }
+    out.sig = lod_map76_object_signature(rdram, phys);
+
+    uint32_t fig0_phys = 0;
+    if (out.figs[0] != 0 && lod_decode_rdram_phys_addr(out.figs[0], 0x6C, &fig0_phys)) {
+        out.fig0_type = (uint16_t)lod_rdram_s16(rdram, fig0_phys + 0x00);
+        out.fig0_flags = (uint16_t)lod_rdram_s16(rdram, fig0_phys + 0x02);
+        out.fig0_dl = lod_rdram_u32(rdram, fig0_phys + 0x3C);
+    }
+    return out;
+}
+
+static bool lod_map76_lifecycle_interesting(const LodMap76LifecycleObject& obj) {
+    return obj.ok && lod_map76_is_boss_trace_obj(obj.id);
+}
+
+static bool lod_map76_lifecycle_changed(const LodMap76LifecycleObject& a,
+                                        const LodMap76LifecycleObject& b) {
+    if (a.ok != b.ok || a.raw != b.raw || a.flags != b.flags ||
+        a.destroy != b.destroy || a.parent != b.parent || a.child != b.child ||
+        a.alloc != b.alloc || a.gfx != b.gfx || a.sig != b.sig) {
+        return true;
+    }
+    for (int i = 0; i < 6; i++) {
+        if (a.sched[i] != b.sched[i]) {
+            return true;
+        }
+    }
+    for (int i = 0; i < 4; i++) {
+        if (a.figs[i] != b.figs[i] || a.data[i] != b.data[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool lod_map76_lifecycle_bad_retire(const LodMap76LifecycleObject& obj) {
+    return obj.ok && obj.id == 0x0EF &&
+           (((int16_t)obj.raw < 0) ||
+            (obj.flags & 0x8000) != 0 ||
+            (obj.figs[0] == 0 && obj.figs[1] == 0 &&
+             obj.figs[2] == 0 && obj.figs[3] == 0) ||
+            obj.child == 0);
+}
+
+static void lod_map76_lifecycle_log_transition(uint8_t* rdram,
+                                               const char* hook, uint32_t call,
+                                               const LodMap76LifecycleObject& before,
+                                               const LodMap76LifecycleObject& after) {
+    const bool interesting = lod_map76_lifecycle_interesting(before) ||
+                             lod_map76_lifecycle_interesting(after);
+    if (!interesting) {
+        return;
+    }
+
+    const bool changed = lod_map76_lifecycle_changed(before, after);
+    const bool bad = lod_map76_lifecycle_bad_retire(before) ||
+                     lod_map76_lifecycle_bad_retire(after);
+    static uint32_t printed = 0;
+    if (!changed && !bad && call > 12) {
+        return;
+    }
+    if (printed >= 260 && !changed) {
+        return;
+    }
+    printed++;
+
+    fprintf(stderr,
+            "[MAP76_LIFE] %s#%u changed=%d bad=%d gs=%d map#%d map_rom=0x%08X "
+            "before={ok=%d slot=%d addr=0x%08X id=0x%03X raw=0x%04X flags=0x%04X "
+            "sched=%02X/%02X %02X/%02X %02X/%02X func=%d disp=%u destroy=0x%08X "
+            "parent=0x%08X child=0x%08X bits=%04X/%04X "
+            "fig={0x%08X,0x%08X,0x%08X,0x%08X} data={0x%08X,0x%08X,0x%08X,0x%08X} "
+            "fig0={type=0x%04X flags=0x%04X dl=0x%08X} sig=0x%08X} "
+            "after={ok=%d slot=%d addr=0x%08X id=0x%03X raw=0x%04X flags=0x%04X "
+            "sched=%02X/%02X %02X/%02X %02X/%02X func=%d disp=%u destroy=0x%08X "
+            "parent=0x%08X child=0x%08X bits=%04X/%04X "
+            "fig={0x%08X,0x%08X,0x%08X,0x%08X} data={0x%08X,0x%08X,0x%08X,0x%08X} "
+            "fig0={type=0x%04X flags=0x%04X dl=0x%08X} sig=0x%08X}\n",
+            hook, call, changed ? 1 : 0, bad ? 1 : 0,
+            lod_current_gamestate(rdram), lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            before.ok ? 1 : 0, before.slot, before.addr, before.id, before.raw, before.flags,
+            before.sched[0], before.sched[1], before.sched[2],
+            before.sched[3], before.sched[4], before.sched[5],
+            before.func, before.disp, before.destroy,
+            before.parent, before.child, before.alloc, before.gfx,
+            before.figs[0], before.figs[1], before.figs[2], before.figs[3],
+            before.data[0], before.data[1], before.data[2], before.data[3],
+            before.fig0_type, before.fig0_flags, before.fig0_dl, before.sig,
+            after.ok ? 1 : 0, after.slot, after.addr, after.id, after.raw, after.flags,
+            after.sched[0], after.sched[1], after.sched[2],
+            after.sched[3], after.sched[4], after.sched[5],
+            after.func, after.disp, after.destroy,
+            after.parent, after.child, after.alloc, after.gfx,
+            after.figs[0], after.figs[1], after.figs[2], after.figs[3],
+            after.data[0], after.data[1], after.data[2], after.data[3],
+            after.fig0_type, after.fig0_flags, after.fig0_dl, after.sig);
+}
+
+struct LodMap76Ni44StateSnapshot {
+    bool ok = false;
+    bool trace = false;
+    uint32_t obj_addr = 0;
+    uint32_t obj_phys = 0;
+    uint16_t raw = 0;
+    uint16_t id = 0;
+    uint16_t flags = 0;
+    uint8_t sched[8] = {};
+    int16_t cur_level = 0;
+    uint32_t fig0 = 0;
+    uint32_t data0 = 0;
+    uint16_t fig0_type = 0;
+    uint16_t fig0_flags = 0;
+    uint16_t fig0_anim = 0;
+    uint32_t sub24 = 0;
+    uint32_t sub28 = 0;
+    uint32_t sub2c = 0;
+    uint32_t sub30 = 0;
+    uint32_t sub44 = 0;
+    uint32_t sub48 = 0;
+    uint32_t sub4c = 0;
+    uint32_t sub50 = 0;
+    uint16_t sub54 = 0;
+    uint16_t sub56 = 0;
+    uint32_t sub58 = 0;
+    uint32_t sub68 = 0;
+    uint32_t sub6c = 0;
+    uint16_t sub78 = 0;
+    uint16_t sub7a = 0;
+    uint32_t sub90 = 0;
+};
+
+static LodMap76Ni44StateSnapshot lod_map76_ni44_state_capture(uint8_t* rdram,
+                                                              uint32_t obj_addr) {
+    LodMap76Ni44StateSnapshot out = {};
+    out.obj_addr = obj_addr;
+
+    uint32_t obj_phys = 0;
+    if (!lod_decode_rdram_phys_addr(obj_addr, 0x74, &obj_phys) ||
+        !lod_rdram_range_ok(obj_phys, 0x74)) {
+        return out;
+    }
+
+    out.ok = true;
+    out.obj_phys = obj_phys;
+    out.raw = (uint16_t)lod_rdram_s16(rdram, obj_phys + 0x00);
+    out.id = out.raw & 0x07FF;
+    out.flags = (uint16_t)lod_rdram_s16(rdram, obj_phys + 0x02);
+    out.cur_level = lod_rdram_s16(rdram, obj_phys + 0x0E);
+    for (uint32_t i = 0; i < 8; i++) {
+        out.sched[i] = lod_rdram_u8(rdram, obj_phys + 0x08 + i);
+    }
+    out.fig0 = lod_rdram_u32(rdram, obj_phys + 0x24);
+    out.data0 = lod_rdram_u32(rdram, obj_phys + 0x34);
+    out.trace = lod_current_gamestate(rdram) == 3 &&
+                lod_current_map_ovl_rom == LOD_B2_TRACE_MAP_ROM &&
+                out.id == 0x0EF;
+
+    uint32_t fig_phys = 0;
+    if (out.fig0 != 0 &&
+        lod_decode_rdram_phys_addr(out.fig0, 0x64, &fig_phys) &&
+        lod_rdram_range_ok(fig_phys, 0x64)) {
+        out.fig0_type = (uint16_t)lod_rdram_s16(rdram, fig_phys + 0x00);
+        out.fig0_flags = (uint16_t)lod_rdram_s16(rdram, fig_phys + 0x02);
+        out.fig0_anim = (uint16_t)lod_rdram_s16(rdram, fig_phys + 0x5E);
+    }
+
+    uint32_t data_phys = 0;
+    if (out.data0 != 0 &&
+        lod_decode_rdram_phys_addr(out.data0, 0x170, &data_phys) &&
+        lod_rdram_range_ok(data_phys + 0xDC, 0x94)) {
+        uint32_t sub = data_phys + 0xDC;
+        out.sub24 = lod_rdram_u32(rdram, sub + 0x24);
+        out.sub28 = lod_rdram_u32(rdram, sub + 0x28);
+        out.sub2c = lod_rdram_u32(rdram, sub + 0x2C);
+        out.sub30 = lod_rdram_u32(rdram, sub + 0x30);
+        out.sub44 = lod_rdram_u32(rdram, sub + 0x44);
+        out.sub48 = lod_rdram_u32(rdram, sub + 0x48);
+        out.sub4c = lod_rdram_u32(rdram, sub + 0x4C);
+        out.sub50 = lod_rdram_u32(rdram, sub + 0x50);
+        out.sub54 = (uint16_t)lod_rdram_s16(rdram, sub + 0x54);
+        out.sub56 = (uint16_t)lod_rdram_s16(rdram, sub + 0x56);
+        out.sub58 = lod_rdram_u32(rdram, sub + 0x58);
+        out.sub68 = lod_rdram_u32(rdram, sub + 0x68);
+        out.sub6c = lod_rdram_u32(rdram, sub + 0x6C);
+        out.sub78 = (uint16_t)lod_rdram_s16(rdram, sub + 0x78);
+        out.sub7a = (uint16_t)lod_rdram_s16(rdram, sub + 0x7A);
+        out.sub90 = lod_rdram_u32(rdram, sub + 0x90);
+    }
+
+    return out;
+}
+
+static bool lod_map76_ni44_state_changed(const LodMap76Ni44StateSnapshot& a,
+                                         const LodMap76Ni44StateSnapshot& b) {
+    if (a.ok != b.ok || a.raw != b.raw || a.flags != b.flags ||
+        a.cur_level != b.cur_level || a.fig0 != b.fig0 || a.data0 != b.data0 ||
+        a.fig0_type != b.fig0_type || a.fig0_flags != b.fig0_flags ||
+        a.fig0_anim != b.fig0_anim || a.sub24 != b.sub24 ||
+        a.sub44 != b.sub44 || a.sub48 != b.sub48 ||
+        a.sub50 != b.sub50 || a.sub54 != b.sub54 ||
+        a.sub56 != b.sub56 || a.sub58 != b.sub58 ||
+        a.sub68 != b.sub68 || a.sub6c != b.sub6c ||
+        a.sub78 != b.sub78 || a.sub7a != b.sub7a) {
+        return true;
+    }
+    // Ignore timer-byte churn for the primary filter, but keep state-byte
+    // changes. Timers are still printed when a line is selected.
+    for (uint32_t i = 1; i < 8; i += 2) {
+        if (a.sched[i] != b.sched[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool lod_map76_ni44_state_near_handoff(const LodMap76Ni44StateSnapshot& s) {
+    if (!s.trace) {
+        return false;
+    }
+    const uint8_t root_state = s.sched[1];
+    const uint8_t sub_state = s.sched[3];
+    return (root_state >= 3 && sub_state >= 2) || s.sub56 != 0;
+}
+
+static void lod_log_map76_ni44_state_transition(
+    uint8_t* rdram, const char* hook, uint32_t call,
+    const LodMap76Ni44StateSnapshot& before,
+    const LodMap76Ni44StateSnapshot& after) {
+    static uint32_t printed_count = 0;
+
+    if (!before.trace && !after.trace) {
+        return;
+    }
+
+    const bool changed = lod_map76_ni44_state_changed(before, after);
+    const bool near_handoff = lod_map76_ni44_state_near_handoff(before) ||
+                              lod_map76_ni44_state_near_handoff(after);
+    if (!changed && (!near_handoff || (call % 4) != 0)) {
+        return;
+    }
+    // Keep this trace usable during manual boss-area testing by capping the
+    // verbose state snapshots.
+    if (printed_count >= 120) {
+        return;
+    }
+    printed_count++;
+
+    fprintf(stderr,
+            "[MAP76_NI44] %s#%u changed=%d near=%d gs=%d map#%d map_rom=0x%08X "
+            "obj=0x%08X raw=0x%04X->0x%04X flags=0x%04X->0x%04X cur=%d->%d "
+            "sched=%02X/%02X %02X/%02X %02X/%02X %02X/%02X -> "
+                  "%02X/%02X %02X/%02X %02X/%02X %02X/%02X "
+            "fig0=0x%08X->0x%08X fig={type=0x%04X->0x%04X flags=0x%04X->0x%04X anim5e=0x%04X->0x%04X} "
+            "data0=0x%08X->0x%08X "
+            "sub24=0x%08X->0x%08X sub28=0x%08X->0x%08X "
+            "sub2c=0x%08X->0x%08X sub30=0x%08X->0x%08X "
+            "sub44=0x%08X->0x%08X sub48=0x%08X->0x%08X "
+            "sub4c=0x%08X->0x%08X sub50=0x%08X->0x%08X "
+            "sub54=0x%04X->0x%04X sub56=0x%04X->0x%04X "
+            "sub58=0x%08X->0x%08X sub68=0x%08X->0x%08X "
+            "sub6c=0x%08X->0x%08X sub78=0x%04X->0x%04X "
+            "sub7a=0x%04X->0x%04X sub90=0x%08X->0x%08X\n",
+            hook, call, changed ? 1 : 0, near_handoff ? 1 : 0,
+            lod_current_gamestate(rdram), lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            before.obj_addr, before.raw, after.raw, before.flags, after.flags,
+            before.cur_level, after.cur_level,
+            before.sched[0], before.sched[1], before.sched[2], before.sched[3],
+            before.sched[4], before.sched[5], before.sched[6], before.sched[7],
+            after.sched[0], after.sched[1], after.sched[2], after.sched[3],
+            after.sched[4], after.sched[5], after.sched[6], after.sched[7],
+            before.fig0, after.fig0,
+            before.fig0_type, after.fig0_type, before.fig0_flags, after.fig0_flags,
+            before.fig0_anim, after.fig0_anim,
+            before.data0, after.data0,
+            before.sub24, after.sub24, before.sub28, after.sub28,
+            before.sub2c, after.sub2c, before.sub30, after.sub30,
+            before.sub44, after.sub44, before.sub48, after.sub48,
+            before.sub4c, after.sub4c, before.sub50, after.sub50,
+            before.sub54, after.sub54, before.sub56, after.sub56,
+            before.sub58, after.sub58, before.sub68, after.sub68,
+            before.sub6c, after.sub6c, before.sub78, after.sub78,
+            before.sub7a, after.sub7a, before.sub90, after.sub90);
+}
+
+static void lod_map76_ni44_trace_call(uint8_t* rdram, recomp_context* ctx,
+                                      const char* hook, uint32_t* call_counter,
+                                      recomp_func_t* original) {
+    (*call_counter)++;
+    const uint32_t call = *call_counter;
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    const LodMap76Ni44StateSnapshot before =
+        lod_map76_ni44_state_capture(rdram, obj_addr);
+
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+
+    const LodMap76Ni44StateSnapshot after =
+        lod_map76_ni44_state_capture(rdram, obj_addr);
+    lod_log_map76_ni44_state_transition(rdram, hook, call, before, after);
+}
+
+static void lod_trace_map76_obj0ef_update_8002C518(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    call++;
+
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    const LodMap76LifecycleObject before = lod_map76_lifecycle_capture(rdram, obj_addr);
+
+    // Reimplement the tiny original wrapper so we can place probes between its
+    // two direct calls without touching generated code:
+    //   8002C518: func_8002D548(a0); func_8002D1F4(a0);
+    ctx->r29 = ADD32(ctx->r29, -0x18);
+    MEM_W(0x14, ctx->r29) = ctx->r31;
+    MEM_W(0x18, ctx->r29) = ctx->r4;
+
+    func_8002D548(rdram, ctx);
+    const uint32_t saved_obj = (uint32_t)MEM_W(0x18, ctx->r29);
+    const LodMap76LifecycleObject after_d548 =
+        lod_map76_lifecycle_capture(rdram, saved_obj);
+    lod_map76_lifecycle_log_transition(rdram, "8002C518.after_8002D548",
+                                       call, before, after_d548);
+
+    ctx->r4 = MEM_W(0x18, ctx->r29);
+    func_8002D1F4(rdram, ctx);
+    const LodMap76LifecycleObject after_d1f4 =
+        lod_map76_lifecycle_capture(rdram, saved_obj);
+    lod_map76_lifecycle_log_transition(rdram, "8002C518.after_8002D1F4",
+                                       call, after_d548, after_d1f4);
+
+    ctx->r31 = MEM_W(0x14, ctx->r29);
+    ctx->r29 = ADD32(ctx->r29, 0x18);
+}
+
+static recomp_func_t* lod_orig_map76_default_destroy_80002CE0 = nullptr;
+
+static void lod_trace_map76_default_destroy_80002CE0(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    call++;
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    const LodMap76LifecycleObject before = lod_map76_lifecycle_capture(rdram, obj_addr);
+
+    if (lod_orig_map76_default_destroy_80002CE0 != nullptr) {
+        lod_orig_map76_default_destroy_80002CE0(rdram, ctx);
+    } else {
+        object_destroyChildrenAndModelInfo(rdram, ctx);
+    }
+
+    const LodMap76LifecycleObject after = lod_map76_lifecycle_capture(rdram, obj_addr);
+    lod_map76_lifecycle_log_transition(rdram, "80002CE0.default_destroy",
+                                       call, before, after);
+}
+
+static recomp_func_t* lod_orig_map76_ni44_destroy_0F003FCC = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_dispatch_0F000D78 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_sub0_0F000EF0 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_sub1_0F001034 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_sub2_0F0011A8 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_sub3_0F0013B4 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_sub4_0F0014A0 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_dispatch_0F001970 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub0_0F001BF8 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub1_0F001CFC = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_dispatch_0F001F20 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_0F001FA0 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_0F002010 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_0F002300 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_0F002380 = nullptr;
+static recomp_func_t* lod_orig_map76_ni44_root4_sub2_0F002488 = nullptr;
+
+static void lod_trace_map76_ni44_destroy_0F003FCC(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    call++;
+
+    const uint32_t obj_addr = (uint32_t)ctx->r4;
+    const LodMap76LifecycleObject before = lod_map76_lifecycle_capture(rdram, obj_addr);
+
+    if (lod_orig_map76_ni44_destroy_0F003FCC != nullptr) {
+        lod_orig_map76_ni44_destroy_0F003FCC(rdram, ctx);
+    }
+
+    const LodMap76LifecycleObject after = lod_map76_lifecycle_capture(rdram, obj_addr);
+    lod_map76_lifecycle_log_transition(rdram, "0F003FCC.ni44_destroy",
+                                       call, before, after);
+}
+
+static void lod_trace_map76_ni44_dispatch_0F000D78(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F000D78.dispatch", &call,
+                              lod_orig_map76_ni44_dispatch_0F000D78);
+}
+
+static void lod_trace_map76_ni44_sub0_0F000EF0(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F000EF0.sub0", &call,
+                              lod_orig_map76_ni44_sub0_0F000EF0);
+}
+
+static void lod_trace_map76_ni44_sub1_0F001034(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001034.sub1", &call,
+                              lod_orig_map76_ni44_sub1_0F001034);
+}
+
+static void lod_trace_map76_ni44_sub2_0F0011A8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F0011A8.sub2", &call,
+                              lod_orig_map76_ni44_sub2_0F0011A8);
+}
+
+static void lod_trace_map76_ni44_sub3_0F0013B4(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F0013B4.sub3", &call,
+                              lod_orig_map76_ni44_sub3_0F0013B4);
+}
+
+static void lod_trace_map76_ni44_sub4_0F0014A0(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F0014A0.sub4", &call,
+                              lod_orig_map76_ni44_sub4_0F0014A0);
+}
+
+static void lod_trace_map76_ni44_root4_dispatch_0F001970(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001970.root4", &call,
+                              lod_orig_map76_ni44_root4_dispatch_0F001970);
+}
+
+static void lod_trace_map76_ni44_root4_sub0_0F001BF8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001BF8.root4_sub0", &call,
+                              lod_orig_map76_ni44_root4_sub0_0F001BF8);
+}
+
+static void lod_trace_map76_ni44_root4_sub1_0F001CFC(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001CFC.root4_sub1", &call,
+                              lod_orig_map76_ni44_root4_sub1_0F001CFC);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_dispatch_0F001F20(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001F20.root4_sub2_dispatch", &call,
+                              lod_orig_map76_ni44_root4_sub2_dispatch_0F001F20);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_0F001FA0(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F001FA0.root4_sub2_0", &call,
+                              lod_orig_map76_ni44_root4_sub2_0F001FA0);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_0F002010(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F002010.root4_sub2_0", &call,
+                              lod_orig_map76_ni44_root4_sub2_0F002010);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_0F002300(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F002300.root4_sub2_1", &call,
+                              lod_orig_map76_ni44_root4_sub2_0F002300);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_0F002380(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F002380.root4_sub2_2", &call,
+                              lod_orig_map76_ni44_root4_sub2_0F002380);
+}
+
+static void lod_trace_map76_ni44_root4_sub2_0F002488(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t call = 0;
+    lod_map76_ni44_trace_call(rdram, ctx, "0F002488.root4_sub2_3", &call,
+                              lod_orig_map76_ni44_root4_sub2_0F002488);
+}
+
+static void lod_install_map76_ni44_state_trace_wrapper(uint32_t vram,
+                                                       recomp_func_t* wrapper,
+                                                       recomp_func_t** original_out) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current != wrapper) {
+        *original_out = current;
+        recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    }
+}
+
+extern "C" void lod_install_map76_boss_ni44_destroy_trace_wrapper(const char* reason) {
+    recomp_func_t* current = get_function((int32_t)0x0F003FCC);
+    if (current != lod_trace_map76_ni44_destroy_0F003FCC) {
+        lod_orig_map76_ni44_destroy_0F003FCC = current;
+        recomp::overlays::add_loaded_function((int32_t)0x0F003FCC,
+                                              lod_trace_map76_ni44_destroy_0F003FCC);
+    }
+
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F000D78, lod_trace_map76_ni44_dispatch_0F000D78,
+        &lod_orig_map76_ni44_dispatch_0F000D78);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F000EF0, lod_trace_map76_ni44_sub0_0F000EF0,
+        &lod_orig_map76_ni44_sub0_0F000EF0);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001034, lod_trace_map76_ni44_sub1_0F001034,
+        &lod_orig_map76_ni44_sub1_0F001034);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F0011A8, lod_trace_map76_ni44_sub2_0F0011A8,
+        &lod_orig_map76_ni44_sub2_0F0011A8);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F0013B4, lod_trace_map76_ni44_sub3_0F0013B4,
+        &lod_orig_map76_ni44_sub3_0F0013B4);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F0014A0, lod_trace_map76_ni44_sub4_0F0014A0,
+        &lod_orig_map76_ni44_sub4_0F0014A0);
+
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001970, lod_trace_map76_ni44_root4_dispatch_0F001970,
+        &lod_orig_map76_ni44_root4_dispatch_0F001970);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001BF8, lod_trace_map76_ni44_root4_sub0_0F001BF8,
+        &lod_orig_map76_ni44_root4_sub0_0F001BF8);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001CFC, lod_trace_map76_ni44_root4_sub1_0F001CFC,
+        &lod_orig_map76_ni44_root4_sub1_0F001CFC);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001F20, lod_trace_map76_ni44_root4_sub2_dispatch_0F001F20,
+        &lod_orig_map76_ni44_root4_sub2_dispatch_0F001F20);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F001FA0, lod_trace_map76_ni44_root4_sub2_0F001FA0,
+        &lod_orig_map76_ni44_root4_sub2_0F001FA0);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F002010, lod_trace_map76_ni44_root4_sub2_0F002010,
+        &lod_orig_map76_ni44_root4_sub2_0F002010);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F002300, lod_trace_map76_ni44_root4_sub2_0F002300,
+        &lod_orig_map76_ni44_root4_sub2_0F002300);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F002380, lod_trace_map76_ni44_root4_sub2_0F002380,
+        &lod_orig_map76_ni44_root4_sub2_0F002380);
+    lod_install_map76_ni44_state_trace_wrapper(
+        0x0F002488, lod_trace_map76_ni44_root4_sub2_0F002488,
+        &lod_orig_map76_ni44_root4_sub2_0F002488);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 8) {
+        fprintf(stderr,
+                "[MAP76_LIFE] installed ni44 destroy/state wrappers #%d reason=%s "
+                "destroy=%p dispatch=%p sub0=%p sub1=%p sub2=%p sub3=%p sub4=%p\n",
+                install_count, reason ? reason : "unknown",
+                (void*)lod_orig_map76_ni44_destroy_0F003FCC,
+                (void*)lod_orig_map76_ni44_dispatch_0F000D78,
+                (void*)lod_orig_map76_ni44_sub0_0F000EF0,
+                (void*)lod_orig_map76_ni44_sub1_0F001034,
+                (void*)lod_orig_map76_ni44_sub2_0F0011A8,
+                (void*)lod_orig_map76_ni44_sub3_0F0013B4,
+                (void*)lod_orig_map76_ni44_sub4_0F0014A0);
+    }
+}
+
+static void lod_install_map76_boss_lifecycle_trace_wrappers(const char* reason) {
+    static int install_count = 0;
+    install_count++;
+
+    // The werewolf object is being retired through a schedule/state transition
+    // before its NI44 destroy callback is reached. Reuse the existing object
+    // schedule-writer trace, but filter it to Map76 boss-family objects.
+    lod_install_ni24_writer_trace_wrappers_early();
+
+    recomp_func_t* update_current = get_function((int32_t)0x8002C518);
+    if (update_current != lod_trace_map76_obj0ef_update_8002C518) {
+        recomp::overlays::add_loaded_function((int32_t)0x8002C518,
+                                              lod_trace_map76_obj0ef_update_8002C518);
+    }
+
+    recomp_func_t* destroy_current = get_function((int32_t)0x80002CE0);
+    if (destroy_current != lod_trace_map76_default_destroy_80002CE0) {
+        lod_orig_map76_default_destroy_80002CE0 = destroy_current;
+        recomp::overlays::add_loaded_function((int32_t)0x80002CE0,
+                                              lod_trace_map76_default_destroy_80002CE0);
+    }
+
+    if (install_count <= 4) {
+        fprintf(stderr,
+                "[MAP76_LIFE] installed lifecycle wrappers #%d reason=%s "
+                "update_orig=%p default_destroy_orig=%p\n",
+                install_count, reason ? reason : "unknown",
+                (void*)update_current,
+                (void*)lod_orig_map76_default_destroy_80002CE0);
+    }
+}
+
+#endif
 
 static void lod_install_kseg0_fault_trace_wrapper(uint32_t vram, recomp_func_t* wrapper,
                                                   recomp_func_t** original_out) {
@@ -4655,6 +6341,11 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
         int32_t cur_gs = 0;
         if (gsm_addr != 0) cur_gs = *(int32_t*)(rdram + (gsm_addr & 0x1FFFFFFF) + 0x24);
         fprintf(stderr, "[SI_DMA] #%d dir=%d gs=%d\n", si_dma_count, direction, cur_gs);
+    }
+#endif
+#if LOD_ENABLE_B2_ASSET_TRACE
+    if (direction == 0) {
+        lod_map76_object_trace(rdram, si_dma_count);
     }
 #endif
 

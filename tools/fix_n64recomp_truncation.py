@@ -39,7 +39,11 @@ def _repair_funcs_h_partial_declarations(content):
     for line in lines:
         stripped = line.rstrip()
         if stripped and stripped.startswith('void ') and not stripped.endswith(';') and not stripped.endswith('{'):
-            if '(' in stripped and 'recomp_context' not in stripped:
+            if re.search(r'\(uint8_t\*\s*rdram,\s*recomp_context\*\s*ctx\s*$', stripped):
+                # Truncated after the ctx argument — add the missing close.
+                line = line.rstrip() + ');'
+                changed = True
+            elif '(' in stripped and 'recomp_context' not in stripped:
                 # Truncated mid-declaration after '(' — complete it.
                 repaired = re.sub(
                     r'\(uint8_t\*\s*rdram,\s*rec(?:om.*)?$',

@@ -28,7 +28,7 @@ extern "C" void lod_install_bgstate_trace_wrappers_early();
 #if LOD_ENABLE_GS3_ANIM_TRACE
 extern "C" void lod_install_gs3_anim_trace_wrappers_early();
 #endif
-#if LOD_ENABLE_KSEG0_FAULT_TRACE
+#if LOD_ENABLE_KSEG0_FAULT_TRACE || LOD_ENABLE_B2_ASSET_TRACE
 extern "C" void lod_install_kseg0_fault_trace_wrappers_early();
 #endif
 #if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
@@ -561,8 +561,9 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // These wrappers only log DMAMgr/animation resource state in gs=3.
     lod_install_gs3_anim_trace_wrappers_early();
 #endif
-#if LOD_ENABLE_KSEG0_FAULT_TRACE
-    // Lightweight crash-context snapshots for post-RDRAM/KSEG0 faults.
+#if LOD_ENABLE_KSEG0_FAULT_TRACE || LOD_ENABLE_B2_ASSET_TRACE
+    // Lightweight crash-context snapshots for post-RDRAM/KSEG0 faults, and
+    // narrow B2 asset telemetry when LOD_ENABLE_B2_ASSET_TRACE is enabled.
     lod_install_kseg0_fault_trace_wrappers_early();
 #endif
 #if LOD_FIX_NULL_OBJECT_DISPATCH_CHILD

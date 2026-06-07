@@ -210,6 +210,7 @@ poolObject_complete        = 0x80041C54; // type:func  // pool object completion
 ni_ovl_120_result_schedule_dispatch = 0x0F000484; // type:func  // pair 120: runs result callback table and resets current schedule to 0 when result is nonzero
 ni_ovl_104_schedule_dispatch = 0x0F000000; // type:func  // pair 104: schedule dispatcher via table 0x0F0026F8; post-expansion-pak gs=5 crash path
 ni_ovl_010_func_0F0039FC = 0x0F0039FC; // type:func  // pair 10: standalone jalr target split from 0F00396C; boss/serpent death path
+ni_ovl_044_set_data0_sub56_bit0 = 0x0F004030; // type:func  // pair 44: indirect dispatch target; sets obj->data0+0x132 bit 0 for Map76 werewolf boss state
 
 // NI system handler / overlay_system lifecycle
 ni_system_handler          = 0x8001B9A0; // type:func  // NI system object handler (obj+0x10), increments sys+0x2B24

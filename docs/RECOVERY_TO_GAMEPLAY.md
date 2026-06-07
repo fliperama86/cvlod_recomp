@@ -183,6 +183,43 @@ Regression checks:
 - Manually verify pause → Item after loading a save with at least one item.
 - Keep broader pause/menu traces default-off; the compatibility shims should work without `LOD_ENABLE_PAUSE_ITEM_TRACE`.
 
+## Controls Config + Map76 Boss Trace/Fix (2026-06-06)
+
+Status: build-validated locally; awaiting user gameplay validation.
+
+What changed:
+
+- Added persistent `controls.json` next to `graphics.json`.
+- The generated default matches the current requested modern gamepad layout: A jump, X attack 1, Y attack 2, B interact/collect, R1 throw item, L3 lock-on, L2 Z, R2 L, inverted right-stick camera/D-pad.
+- Control remaps are startup-loaded; edit `controls.json` while the game is closed, then relaunch.
+- Added narrow traces for suspected missing enemy/boss evidence: `[NI99_MAP76]` and `[B2_ASSET]` around map overlay ROM `0x0076CD00` and suspected asset/file path (`file=0xB2`, ROM `0x00C3FE4E`, RAM `0x802A3B70`, size `0xF3B2`). These replaced the failed LLDB conditional-breakpoint approach, which was too intrusive and caused game/audio stalls.
+- After user/open-emulator save-state comparison, the missing werewolf was classified as a missing NI44 indirect function boundary rather than a missing B2 asset DMA.
+
+Evidence:
+
+- User reported a missing boss/enemy around a log window containing `KSEG0-DMAMGR suspicious` entries followed by `MAP_OVL rom=0x76CD00`.
+- Local `lod.log` showed the same transition followed by many repeated `ni_ovl_099` loads (`rom=0x01335560 data=0x4FB0`).
+- LLDB caught the suspected B2 load path once (`DMA_ROMCopy -> DMAMgr_updatePendingFileLoad -> func_80011D10 -> object_execute -> GameStateMgr_execute`), but LLDB condition evaluation on `DMA_ROMCopy` was slow enough to stop the game and overload CoreAudio. The first source-level B2 run showed the B2 file queued and current before `map76-loaded`, but no ROMCopy wrapper hit; this confirmed that the final copy must be traced at the PI layer.
+- The DMAMgr suspicious line alone may be stale/current-slot garbage because the active entry becomes valid on the following call; the repeated NI99/map76 pattern and B2 asset load are more actionable.
+- Short smoke launch created `~/Library/Application Support/LodRecomp/controls.json`, loaded it successfully, opened the DualSense controller, initialized the hidden UI hook, and reached ROM startup with no crash/RSP failure.
+
+Next checks:
+
+- Reproduce the missing enemy/boss with the new build and collect:
+  `grep -E '\[B2_ASSET\]|\[NI99_MAP76\]|\[KSEG0-DMAMGR\]|\[MAP_OVL\]|\[ni_ovl\]|\[CRASH\]' lod.log`
+- If `[B2_ASSET] pi_dma` appears, compare `before_hash`/`after_hash`, target `dram`, and whether `[B2_ASSET] map76-loaded` immediately follows. A valid post-copy hash but missing actor points downstream at object/model registration; a missing/invalid PI copy points at DMAMgr file-table, ROM source handling, or asset destination handling.
+- If `[NI99_MAP76]` repeats while the actor is missing, compare `prev0f`, paddr, gamestate, exec flags, and NI-system pointer to determine whether pair 99 is thrashing, being replaced between frames, or just serving a legitimate object overlay.
+- The trace is now default-off. Re-enable only if Map76 boss/entity loading regresses.
+
+Root cause and fix:
+
+- Symptom: the Fog Lake / Map76 werewolf boss appeared briefly, then vanished while boss music/life-bar state could remain inconsistent.
+- Root cause: NI overlay pair 44 dispatch tables referenced `0x0F004030`, but `castlevania2.syms.toml` did not declare that address as a function boundary. N64Recomp kept those bytes as unreachable/tail code inside `ni_ovl_044_func_0F003FCC`, so the target was not callable via generated overlay lookup.
+- Confirmed missing-helper behavior: `*(s16*)(obj->data[0] + 0x132) |= 1`, i.e. `data0+0xDC+0x56` bit 0, required by the boss state-machine handoff.
+- Fixed by splitting `ni_ovl_044_func_0F003FCC` from size `0x78` to `0x64` and adding `ni_ovl_044_set_data0_sub56_bit0` at `0x0F004030`, size `0x14`, in both `castlevania2.syms.toml` and `symbol_addrs.txt`.
+- Regenerated with `./tools/regen_recomp.sh`; verified `RecompiledFuncs/funcs_166.c`, `funcs.h`, and `recomp_overlays.inl` now emit/register the target. The temporary runtime shim was removed.
+- Robustness: added `tools/audit_indirect_targets.py` to scan raw NI overlay blobs for in-section pointer-table targets that are not declared function starts. Current result: 245 NI raw blobs scanned, no missing indirect targets.
+
 ## Resolved Work Item
 
 ### G5-001 — Overlay-System and NI Overlay Registration
@@ -306,6 +343,7 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_ENABLE_SAVE_EXIT_TRACE` | off | Debug-only wrapper probe for main-code save/PFS exit candidates and schedule advances | Use only if `gs=4` regresses |
 | `LOD_ENABLE_SAVE_STATE45_TRACE` | off | Debug-only state-4/5 schedule-helper trace | Use only if `gs=4` regresses |
 | `LOD_ENABLE_KSEG0_FAULT_TRACE` | off | Debug-only lightweight crash-context snapshot for post-RDRAM/KSEG0 faults; current low-perturbation form wraps only `DMAMgr_updatePendingFileLoad` and records active/current DMA RAM validity | Use with faster skip-to-gameplay harness; add PI DMA destination evidence if active/current fields stay valid before crash |
+| `LOD_ENABLE_B2_ASSET_TRACE` | off | Historical diagnostic trace for the Map76 missing boss investigation; root cause was missing NI44 indirect target symbol `0x0F004030`, not a missing B2 asset DMA | Enable only if Map76 boss/entity loading regresses |
 | `LOD_ENABLE_AUDIO_TRACE` | off | Debug-only app-layer audio telemetry: SDL device open, frequency changes, queued sample min/max/nonzero counts, SDL queued byte count, and AI pointer validation | Use for targeted quality/stability diagnostics; latest evidence shows sustained nonzero buffers after the `osPiStartDma` rename and AI pointer wrapper, and the user confirmed audible audio |
 | `LOD_ENABLE_AUDIO_RAW_DUMP` | off | Debug-only app-layer raw `s16le` AI queue dump to `/tmp/lod_audio_queue_s16le.raw` | Use only for short local diagnostics, then disable again; convert to WAV for amplitude/RMS checks |
 | `LOD_ENABLE_AUDIO_PULL_TRACE` | off | Debug-only CPU libaudio pull-chain wrappers for source/envmixer/resample/ADPCM functions and current CPU envmixer event evidence | Use for targeted `alEnvmixerPull`/command-emission correlation; broad voice wrappers are installed but may not fire after init in short runs |

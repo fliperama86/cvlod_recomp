@@ -13,6 +13,8 @@
 #include <chrono>
 #include <filesystem>
 #include <cmath>
+#include <string>
+#include <cctype>
 #include <limits.h>
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
@@ -91,6 +93,323 @@ static std::filesystem::path g_config_path;
 
 static std::filesystem::path graphics_config_path() {
     return g_config_path / "graphics.json";
+}
+
+static std::filesystem::path controls_config_path() {
+    return g_config_path / "controls.json";
+}
+
+static constexpr uint16_t N64_BUTTON_A       = 0x8000;
+static constexpr uint16_t N64_BUTTON_B       = 0x4000;
+static constexpr uint16_t N64_BUTTON_Z       = 0x2000;
+static constexpr uint16_t N64_BUTTON_START   = 0x1000;
+static constexpr uint16_t N64_DPAD_UP        = 0x0800;
+static constexpr uint16_t N64_DPAD_DOWN      = 0x0400;
+static constexpr uint16_t N64_DPAD_LEFT      = 0x0200;
+static constexpr uint16_t N64_DPAD_RIGHT     = 0x0100;
+static constexpr uint16_t N64_BUTTON_L       = 0x0020;
+static constexpr uint16_t N64_BUTTON_R       = 0x0010;
+static constexpr uint16_t N64_CBUTTON_UP     = 0x0008;
+static constexpr uint16_t N64_CBUTTON_DOWN   = 0x0004;
+static constexpr uint16_t N64_CBUTTON_LEFT   = 0x0002;
+static constexpr uint16_t N64_CBUTTON_RIGHT  = 0x0001;
+
+struct ControlsConfig {
+    std::array<uint16_t, SDL_CONTROLLER_BUTTON_MAX> buttons{};
+    uint16_t left_trigger = 0;
+    uint16_t right_trigger = 0;
+    int trigger_threshold = 12000;
+    bool right_stick_to_dpad = true;
+    bool right_stick_invert_x = true;
+    bool right_stick_invert_y = true;
+    float right_stick_deadzone = 0.5f;
+};
+
+static std::string normalized_config_key(std::string value) {
+    for (char& ch : value) {
+        if (ch == '-' || ch == ' ' || ch == '/') {
+            ch = '_';
+        } else {
+            ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        }
+    }
+    return value;
+}
+
+static bool n64_button_from_string(std::string value, uint16_t& out) {
+    value = normalized_config_key(std::move(value));
+    if (value == "none" || value == "unmapped" || value == "off") { out = 0; return true; }
+    if (value == "n64_a" || value == "a") { out = N64_BUTTON_A; return true; }
+    if (value == "n64_b" || value == "b") { out = N64_BUTTON_B; return true; }
+    if (value == "n64_z" || value == "z") { out = N64_BUTTON_Z; return true; }
+    if (value == "n64_start" || value == "start") { out = N64_BUTTON_START; return true; }
+    if (value == "n64_d_up" || value == "n64_dpad_up" || value == "dpad_up") { out = N64_DPAD_UP; return true; }
+    if (value == "n64_d_down" || value == "n64_dpad_down" || value == "dpad_down") { out = N64_DPAD_DOWN; return true; }
+    if (value == "n64_d_left" || value == "n64_dpad_left" || value == "dpad_left") { out = N64_DPAD_LEFT; return true; }
+    if (value == "n64_d_right" || value == "n64_dpad_right" || value == "dpad_right") { out = N64_DPAD_RIGHT; return true; }
+    if (value == "n64_l" || value == "l") { out = N64_BUTTON_L; return true; }
+    if (value == "n64_r" || value == "r") { out = N64_BUTTON_R; return true; }
+    if (value == "n64_c_up" || value == "c_up" || value == "cbutton_up") { out = N64_CBUTTON_UP; return true; }
+    if (value == "n64_c_down" || value == "c_down" || value == "cbutton_down") { out = N64_CBUTTON_DOWN; return true; }
+    if (value == "n64_c_left" || value == "c_left" || value == "cbutton_left") { out = N64_CBUTTON_LEFT; return true; }
+    if (value == "n64_c_right" || value == "c_right" || value == "cbutton_right") { out = N64_CBUTTON_RIGHT; return true; }
+    return false;
+}
+
+static const char* n64_button_to_string(uint16_t value) {
+    switch (value) {
+        case 0: return "none";
+        case N64_BUTTON_A: return "n64_a";
+        case N64_BUTTON_B: return "n64_b";
+        case N64_BUTTON_Z: return "n64_z";
+        case N64_BUTTON_START: return "n64_start";
+        case N64_DPAD_UP: return "n64_dpad_up";
+        case N64_DPAD_DOWN: return "n64_dpad_down";
+        case N64_DPAD_LEFT: return "n64_dpad_left";
+        case N64_DPAD_RIGHT: return "n64_dpad_right";
+        case N64_BUTTON_L: return "n64_l";
+        case N64_BUTTON_R: return "n64_r";
+        case N64_CBUTTON_UP: return "n64_c_up";
+        case N64_CBUTTON_DOWN: return "n64_c_down";
+        case N64_CBUTTON_LEFT: return "n64_c_left";
+        case N64_CBUTTON_RIGHT: return "n64_c_right";
+        default: return "none";
+    }
+}
+
+static bool gamepad_button_from_string(std::string value, SDL_GameControllerButton& out) {
+    value = normalized_config_key(std::move(value));
+    if (value == "a" || value == "cross") { out = SDL_CONTROLLER_BUTTON_A; return true; }
+    if (value == "b" || value == "circle") { out = SDL_CONTROLLER_BUTTON_B; return true; }
+    if (value == "x" || value == "square") { out = SDL_CONTROLLER_BUTTON_X; return true; }
+    if (value == "y" || value == "triangle") { out = SDL_CONTROLLER_BUTTON_Y; return true; }
+    if (value == "back" || value == "select") { out = SDL_CONTROLLER_BUTTON_BACK; return true; }
+    if (value == "guide" || value == "home") { out = SDL_CONTROLLER_BUTTON_GUIDE; return true; }
+    if (value == "start" || value == "options") { out = SDL_CONTROLLER_BUTTON_START; return true; }
+    if (value == "left_stick" || value == "left_stick_click" || value == "l3") { out = SDL_CONTROLLER_BUTTON_LEFTSTICK; return true; }
+    if (value == "right_stick" || value == "right_stick_click" || value == "r3") { out = SDL_CONTROLLER_BUTTON_RIGHTSTICK; return true; }
+    if (value == "left_bumper" || value == "left_shoulder" || value == "l1" || value == "lb") { out = SDL_CONTROLLER_BUTTON_LEFTSHOULDER; return true; }
+    if (value == "right_bumper" || value == "right_shoulder" || value == "r1" || value == "rb") { out = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER; return true; }
+    if (value == "dpad_up") { out = SDL_CONTROLLER_BUTTON_DPAD_UP; return true; }
+    if (value == "dpad_down") { out = SDL_CONTROLLER_BUTTON_DPAD_DOWN; return true; }
+    if (value == "dpad_left") { out = SDL_CONTROLLER_BUTTON_DPAD_LEFT; return true; }
+    if (value == "dpad_right") { out = SDL_CONTROLLER_BUTTON_DPAD_RIGHT; return true; }
+    return false;
+}
+
+static const char* gamepad_button_to_string(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_A: return "a";
+        case SDL_CONTROLLER_BUTTON_B: return "b";
+        case SDL_CONTROLLER_BUTTON_X: return "x";
+        case SDL_CONTROLLER_BUTTON_Y: return "y";
+        case SDL_CONTROLLER_BUTTON_BACK: return "back";
+        case SDL_CONTROLLER_BUTTON_GUIDE: return "guide";
+        case SDL_CONTROLLER_BUTTON_START: return "start";
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK: return "left_stick";
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return "right_stick";
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return "left_bumper";
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "right_bumper";
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: return "dpad_up";
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return "dpad_down";
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return "dpad_left";
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return "dpad_right";
+        default: return nullptr;
+    }
+}
+
+static ControlsConfig default_controls_config() {
+    ControlsConfig config{};
+    config.buttons[SDL_CONTROLLER_BUTTON_A] = N64_BUTTON_A;              // jump
+    config.buttons[SDL_CONTROLLER_BUTTON_X] = N64_BUTTON_B;              // attack 1 / primary
+    config.buttons[SDL_CONTROLLER_BUTTON_Y] = N64_CBUTTON_LEFT;          // attack 2 / secondary
+    config.buttons[SDL_CONTROLLER_BUTTON_B] = N64_CBUTTON_RIGHT;         // collect / interact
+    config.buttons[SDL_CONTROLLER_BUTTON_START] = N64_BUTTON_START;
+    config.buttons[SDL_CONTROLLER_BUTTON_DPAD_UP] = N64_DPAD_UP;
+    config.buttons[SDL_CONTROLLER_BUTTON_DPAD_DOWN] = N64_DPAD_DOWN;
+    config.buttons[SDL_CONTROLLER_BUTTON_DPAD_LEFT] = N64_DPAD_LEFT;
+    config.buttons[SDL_CONTROLLER_BUTTON_DPAD_RIGHT] = N64_DPAD_RIGHT;
+    config.buttons[SDL_CONTROLLER_BUTTON_LEFTSTICK] = N64_BUTTON_R;      // lock-on
+    config.buttons[SDL_CONTROLLER_BUTTON_RIGHTSHOULDER] = N64_CBUTTON_DOWN; // throw item
+    config.left_trigger = N64_BUTTON_Z;
+    config.right_trigger = N64_BUTTON_L;
+    config.trigger_threshold = 12000;
+    config.right_stick_to_dpad = true;
+    config.right_stick_invert_x = true;
+    config.right_stick_invert_y = true;
+    config.right_stick_deadzone = 0.5f;
+    return config;
+}
+
+static ControlsConfig g_controls_config = default_controls_config();
+
+static nlohmann::json controls_config_to_json(const ControlsConfig& config) {
+    nlohmann::json buttons = nlohmann::json::object();
+    for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) {
+        const char* name = gamepad_button_to_string(static_cast<SDL_GameControllerButton>(i));
+        if (name != nullptr) {
+            buttons[name] = n64_button_to_string(config.buttons[i]);
+        }
+    }
+
+    return nlohmann::json{
+        {"gamepad", {
+            {"buttons", buttons},
+            {"axes", {
+                {"left_trigger", n64_button_to_string(config.left_trigger)},
+                {"right_trigger", n64_button_to_string(config.right_trigger)},
+                {"trigger_threshold", config.trigger_threshold},
+            }},
+            {"right_stick", {
+                {"mode", config.right_stick_to_dpad ? "n64_dpad" : "none"},
+                {"invert_x", config.right_stick_invert_x},
+                {"invert_y", config.right_stick_invert_y},
+                {"deadzone", config.right_stick_deadzone},
+            }},
+        }},
+    };
+}
+
+static void read_controls_button_binding(const nlohmann::json& buttons,
+                                         const char* key,
+                                         ControlsConfig& config) {
+    auto it = buttons.find(key);
+    if (it == buttons.end() || !it->is_string()) {
+        return;
+    }
+
+    SDL_GameControllerButton button{};
+    uint16_t n64_button = 0;
+    if (!gamepad_button_from_string(key, button)) {
+        fprintf(stderr, "[CONFIG] Ignoring unknown gamepad button key '%s'\n", key);
+        return;
+    }
+    if (!n64_button_from_string(it->get<std::string>(), n64_button)) {
+        fprintf(stderr, "[CONFIG] Ignoring invalid N64 button binding '%s' for '%s'\n",
+                it->get<std::string>().c_str(), key);
+        return;
+    }
+
+    config.buttons[button] = n64_button;
+}
+
+static void read_controls_trigger_binding(const nlohmann::json& axes,
+                                          const char* key,
+                                          uint16_t& out) {
+    auto it = axes.find(key);
+    if (it == axes.end() || !it->is_string()) {
+        return;
+    }
+
+    uint16_t n64_button = 0;
+    if (!n64_button_from_string(it->get<std::string>(), n64_button)) {
+        fprintf(stderr, "[CONFIG] Ignoring invalid N64 axis binding '%s' for '%s'\n",
+                it->get<std::string>().c_str(), key);
+        return;
+    }
+    out = n64_button;
+}
+
+static ControlsConfig controls_config_from_json(const nlohmann::json& json) {
+    auto config = default_controls_config();
+
+    auto gamepad_it = json.find("gamepad");
+    if (gamepad_it == json.end() || !gamepad_it->is_object()) {
+        return config;
+    }
+
+    auto buttons_it = gamepad_it->find("buttons");
+    if (buttons_it != gamepad_it->end() && buttons_it->is_object()) {
+        for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) {
+            const char* name = gamepad_button_to_string(static_cast<SDL_GameControllerButton>(i));
+            if (name != nullptr) {
+                read_controls_button_binding(*buttons_it, name, config);
+            }
+        }
+    }
+
+    auto axes_it = gamepad_it->find("axes");
+    if (axes_it != gamepad_it->end() && axes_it->is_object()) {
+        read_controls_trigger_binding(*axes_it, "left_trigger", config.left_trigger);
+        read_controls_trigger_binding(*axes_it, "right_trigger", config.right_trigger);
+
+        auto threshold_it = axes_it->find("trigger_threshold");
+        if (threshold_it != axes_it->end() && threshold_it->is_number_integer()) {
+            const int value = threshold_it->get<int>();
+            if (value >= 0 && value <= 32767) {
+                config.trigger_threshold = value;
+            }
+        }
+    }
+
+    auto right_stick_it = gamepad_it->find("right_stick");
+    if (right_stick_it != gamepad_it->end() && right_stick_it->is_object()) {
+        auto mode_it = right_stick_it->find("mode");
+        if (mode_it != right_stick_it->end() && mode_it->is_string()) {
+            const std::string mode = normalized_config_key(mode_it->get<std::string>());
+            if (mode == "none" || mode == "off") {
+                config.right_stick_to_dpad = false;
+            } else if (mode == "n64_dpad" || mode == "dpad") {
+                config.right_stick_to_dpad = true;
+            } else {
+                fprintf(stderr, "[CONFIG] Ignoring invalid right_stick mode '%s'\n",
+                        mode_it->get<std::string>().c_str());
+            }
+        }
+        if (auto it = right_stick_it->find("invert_x"); it != right_stick_it->end() && it->is_boolean()) {
+            config.right_stick_invert_x = it->get<bool>();
+        }
+        if (auto it = right_stick_it->find("invert_y"); it != right_stick_it->end() && it->is_boolean()) {
+            config.right_stick_invert_y = it->get<bool>();
+        }
+        if (auto it = right_stick_it->find("deadzone"); it != right_stick_it->end() && it->is_number()) {
+            const float value = it->get<float>();
+            if (value >= 0.0f && value <= 1.0f) {
+                config.right_stick_deadzone = value;
+            }
+        }
+    }
+
+    return config;
+}
+
+static void save_controls_config(const ControlsConfig& config) {
+    if (g_config_path.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(g_config_path, ec);
+
+    std::ofstream f(controls_config_path());
+    if (!f) {
+        fprintf(stderr, "[CONFIG] Failed to write %s\n", controls_config_path().string().c_str());
+        return;
+    }
+    f << controls_config_to_json(config).dump(2) << "\n";
+}
+
+static ControlsConfig load_controls_config() {
+    auto config = default_controls_config();
+
+    std::ifstream f(controls_config_path());
+    if (!f) {
+        save_controls_config(config);
+        return config;
+    }
+
+    try {
+        nlohmann::json json;
+        f >> json;
+        config = controls_config_from_json(json);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[CONFIG] Failed to parse %s: %s; using control defaults\n",
+                controls_config_path().string().c_str(), e.what());
+        config = default_controls_config();
+    }
+
+    save_controls_config(config);
+    return config;
 }
 
 static ultramodern::renderer::GraphicsConfig default_graphics_config() {
@@ -625,14 +944,14 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
 
     const uint8_t* keys = SDL_GetKeyboardState(nullptr);
 
-    if (keys[SDL_SCANCODE_RETURN])  *buttons |= 0x8000; // A
-    if (keys[SDL_SCANCODE_RSHIFT])  *buttons |= 0x4000; // B
-    if (keys[SDL_SCANCODE_Z])       *buttons |= 0x2000; // Z
-    if (keys[SDL_SCANCODE_SPACE])   *buttons |= 0x1000; // Start
-    if (keys[SDL_SCANCODE_UP])      *buttons |= 0x0800; // D-Up
-    if (keys[SDL_SCANCODE_DOWN])    *buttons |= 0x0400; // D-Down
-    if (keys[SDL_SCANCODE_LEFT])    *buttons |= 0x0200; // D-Left
-    if (keys[SDL_SCANCODE_RIGHT])   *buttons |= 0x0100; // D-Right
+    if (keys[SDL_SCANCODE_RETURN])  *buttons |= N64_BUTTON_A;
+    if (keys[SDL_SCANCODE_RSHIFT])  *buttons |= N64_BUTTON_B;
+    if (keys[SDL_SCANCODE_Z])       *buttons |= N64_BUTTON_Z;
+    if (keys[SDL_SCANCODE_SPACE])   *buttons |= N64_BUTTON_START;
+    if (keys[SDL_SCANCODE_UP])      *buttons |= N64_DPAD_UP;
+    if (keys[SDL_SCANCODE_DOWN])    *buttons |= N64_DPAD_DOWN;
+    if (keys[SDL_SCANCODE_LEFT])    *buttons |= N64_DPAD_LEFT;
+    if (keys[SDL_SCANCODE_RIGHT])   *buttons |= N64_DPAD_RIGHT;
 
     // Analog stick via WASD
     if (keys[SDL_SCANCODE_W]) *y += 1.0f;
@@ -641,36 +960,37 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     if (keys[SDL_SCANCODE_D]) *x += 1.0f;
 
     if (game_controller != nullptr) {
-        // Modern face-button layout for LoD's default control set:
-        // A = Jump, X = primary attack, Y = secondary attack, B = interact/collect.
-        // R1 throws the selected item.
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_A)) *buttons |= 0x8000; // N64 A / jump
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_X)) *buttons |= 0x4000; // N64 B / attack 1 / primary
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_Y)) *buttons |= 0x0002; // N64 C-Left / attack 2 / secondary
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_B)) *buttons |= 0x0001; // N64 C-Right / interact / collect
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_START))         *buttons |= 0x1000; // Start
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_UP))       *buttons |= 0x0800; // D-Up
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_DOWN))     *buttons |= 0x0400; // D-Down
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_LEFT))     *buttons |= 0x0200; // D-Left
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_DPAD_RIGHT))    *buttons |= 0x0100; // D-Right
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_LEFTSHOULDER))  *buttons |= 0x0020; // L
-        if (SDL_GameControllerGetButton(game_controller, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)) *buttons |= 0x0004; // N64 C-Down / throw item
-
-        // N64 Z: natural on modern triggers.
-        if (SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > 12000 ||
-            SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > 12000) {
-            *buttons |= 0x2000;
+        for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) {
+            if (g_controls_config.buttons[i] != 0 &&
+                SDL_GameControllerGetButton(game_controller, static_cast<SDL_GameControllerButton>(i))) {
+                *buttons |= g_controls_config.buttons[i];
+            }
         }
 
-        // LoD uses the N64 D-pad for camera movement; map it to the right stick
-        // on modern controllers while keeping the physical D-pad available too.
-        // Right-stick camera axes are inverted to match the requested modern mapping.
-        const float camera_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX));
-        const float camera_y = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY));
-        if (camera_y < -0.5f) *buttons |= 0x0400; // D-Down
-        if (camera_y >  0.5f) *buttons |= 0x0800; // D-Up
-        if (camera_x < -0.5f) *buttons |= 0x0100; // D-Right
-        if (camera_x >  0.5f) *buttons |= 0x0200; // D-Left
+        if (g_controls_config.left_trigger != 0 &&
+            SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERLEFT) > g_controls_config.trigger_threshold) {
+            *buttons |= g_controls_config.left_trigger;
+        }
+        if (g_controls_config.right_trigger != 0 &&
+            SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > g_controls_config.trigger_threshold) {
+            *buttons |= g_controls_config.right_trigger;
+        }
+
+        if (g_controls_config.right_stick_to_dpad) {
+            float camera_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTX));
+            float camera_y = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_RIGHTY));
+            if (g_controls_config.right_stick_invert_x) {
+                camera_x = -camera_x;
+            }
+            if (g_controls_config.right_stick_invert_y) {
+                camera_y = -camera_y;
+            }
+            const float deadzone = g_controls_config.right_stick_deadzone;
+            if (camera_y < -deadzone) *buttons |= N64_DPAD_UP;
+            if (camera_y >  deadzone) *buttons |= N64_DPAD_DOWN;
+            if (camera_x < -deadzone) *buttons |= N64_DPAD_LEFT;
+            if (camera_x >  deadzone) *buttons |= N64_DPAD_RIGHT;
+        }
 
         const float pad_x = normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTX));
         const float pad_y = -normalize_axis(SDL_GameControllerGetAxis(game_controller, SDL_CONTROLLER_AXIS_LEFTY));
@@ -1124,6 +1444,10 @@ int main(int argc, char** argv) {
             graphics_msaa_name(graphics_config.msaa_option),
             graphics_refresh_name(graphics_config.rr_option),
             graphics_config.rr_manual_value);
+
+    g_controls_config = load_controls_config();
+    fprintf(stderr, "[CONFIG] Loaded controls config: %s\n",
+            controls_config_path().string().c_str());
 
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(48000);

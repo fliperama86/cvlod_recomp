@@ -261,10 +261,58 @@ SDL game controllers are also supported. Xbox controllers and DualSense/DualShoc
 - Start / Options = Start
 - Left stick = analog stick
 - D-pad = N64 D-pad
-- Left bumper = N64 L
+- Left stick click / L3 = N64 R / lock-on
 - Right bumper / R1 = N64 C-Down / throw item
-- Left or right trigger = N64 Z
+- Left trigger / L2 = N64 Z
+- Right trigger / R2 = N64 L
 - Right stick = inverted N64 D-pad / camera
+
+Gamepad controls are configurable by editing `controls.json` in the same config directory as `graphics.json`:
+
+- macOS: `~/Library/Application Support/LodRecomp/controls.json`
+- Linux/other local builds: `~/.lodrecomp/controls.json`
+
+The file is created on first launch. Edit it while the game is closed, then relaunch. Valid N64 binding values are:
+
+```text
+none, n64_a, n64_b, n64_z, n64_start,
+n64_dpad_up, n64_dpad_down, n64_dpad_left, n64_dpad_right,
+n64_l, n64_r,
+n64_c_up, n64_c_down, n64_c_left, n64_c_right
+```
+
+Example:
+
+```json
+{
+  "gamepad": {
+    "buttons": {
+      "a": "n64_a",
+      "b": "n64_c_right",
+      "x": "n64_b",
+      "y": "n64_c_left",
+      "start": "n64_start",
+      "left_stick": "n64_r",
+      "right_bumper": "n64_c_down",
+      "dpad_up": "n64_dpad_up",
+      "dpad_down": "n64_dpad_down",
+      "dpad_left": "n64_dpad_left",
+      "dpad_right": "n64_dpad_right"
+    },
+    "axes": {
+      "left_trigger": "n64_z",
+      "right_trigger": "n64_l",
+      "trigger_threshold": 12000
+    },
+    "right_stick": {
+      "mode": "n64_dpad",
+      "invert_x": true,
+      "invert_y": true,
+      "deadzone": 0.5
+    }
+  }
+}
+```
 
 ## Crash/test reports
 

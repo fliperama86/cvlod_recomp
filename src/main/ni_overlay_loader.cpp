@@ -35,6 +35,14 @@
 #define LOD_ENABLE_PAUSE_ITEM_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_B2_ASSET_TRACE
+#define LOD_ENABLE_B2_ASSET_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_NI99_MAP76_TRACE
+#define LOD_ENABLE_NI99_MAP76_TRACE 1
+#endif
+
 #ifndef LOD_FIX_NI_PAIR120_RESULT_LABELS
 #define LOD_FIX_NI_PAIR120_RESULT_LABELS 1
 #endif
@@ -53,6 +61,12 @@
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
 extern "C" void unload_overlays(int32_t ram_addr, uint32_t size);
+extern "C" uint32_t lod_current_map_overlay_rom();
+extern "C" uint32_t lod_current_map_overlay_size();
+extern "C" int lod_current_map_overlay_load_count();
+#if LOD_ENABLE_B2_ASSET_TRACE
+extern "C" void lod_install_map76_boss_ni44_destroy_trace_wrapper(const char* reason);
+#endif
 
 // Full overlay data table (rom offsets + sizes in extended ROM)
 #include "ni_ovl_data.h"
@@ -2080,6 +2094,12 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #if LOD_ENABLE_PAUSE_ITEM_TRACE
     lod_install_pause_item_trace_wrappers(pair_index, vram, "0f-load");
 #endif
+#if LOD_ENABLE_B2_ASSET_TRACE
+    if (pair_index == 44 && vram == 0x0F000000 &&
+        lod_current_map_overlay_rom() == 0x0076CD00) {
+        lod_install_map76_boss_ni44_destroy_trace_wrapper("pair44-load");
+    }
+#endif
 
     static int load_count = 0;
     load_count++;
@@ -2141,6 +2161,29 @@ extern "C" bool ni_overlay_on_tlb_map(uint8_t* rdram, uint32_t vaddr,
 
     int pair = match_overlay_fingerprint(rdram, even_paddr);
     if (pair >= 0) {
+#if LOD_ENABLE_NI99_MAP76_TRACE
+        if (pair == 99 && vaddr == 0x0F000000 && lod_current_map_overlay_rom() == 0x0076CD00) {
+            static int trace_count = 0;
+            trace_count++;
+            if (trace_count <= 40 || (trace_count % 500) == 0) {
+                const int prev_0f = loaded_0f_pair;
+                const NiOvlData& data = ni_ovl_data[pair];
+                fprintf(stderr,
+                        "[NI99_MAP76] #%d map#%d map_rom=0x%08X map_size=0x%X "
+                        "vaddr=0x%08X even=0x%08X odd=0x%08X prev0f=%d prev0e=%d "
+                        "ni_rom=0x%08X ni_size=0x%X gs=%d exec=0x%08X ni=0x%08X\n",
+                        trace_count,
+                        lod_current_map_overlay_load_count(),
+                        lod_current_map_overlay_rom(),
+                        lod_current_map_overlay_size(),
+                        vaddr, even_paddr, odd_paddr, prev_0f, loaded_0e_pair,
+                        data.rom_offset, data.full_size,
+                        lod_ni_telemetry_gamestate(rdram),
+                        lod_ni_telemetry_exec_flags(rdram),
+                        lod_ni_telemetry_ni_sys_ptr(rdram));
+            }
+        }
+#endif
         load_ni_overlay(rdram, pair, vaddr);
         return true;
     }
