@@ -203,11 +203,26 @@ Known state-3 inputs:
 | Address | Name | Description |
 |---------|------|-------------|
 | 0x801CB5CC | NI_systemInit | Creates NI file management object at sys+0x295C |
+| 0x0F000F9C (NI pair 23) | ni_ovl_023_bike_skeleton_root_update | Pair-23 root update/wrapper: dispatches table `0x0F006F80[state]`; state `3` reaches `ni_ovl_023_bike_skeleton_spawn_dispatch` |
+| 0x0F003358 (NI pair 23) | ni_ovl_023_bike_skeleton_state_spawn_gate | Pair-23 state-table handler reached from `0x0F006F80`; manages child/effect spawn gate state |
 | 0x0F00469C (NI pair 23) | ni_ovl_023_bike_skeleton_spawn_dispatch | Pair-23 bike-skeleton spawn sub-dispatcher: dispatches two-entry table `0x0F006FC8[state]`; entry `1` is internal label `0x0F004A24`, and entry `2` falls into adjacent `"No memory..."` string data |
 | 0x0F004744 (NI pair 23) | ni_ovl_023_bike_skeleton_spawn_init | Pair-23 bike-skeleton spawn/init state; contains internal update label `0x0F004A24` used by the `0x0F006FC8` table |
 | 0x0F000000 (NI pair 104) | ni_ovl_104_schedule_dispatch | Pair-104 schedule dispatcher: dispatches table `0x0F0026F8[obj schedule state]`; current post-Expansion-Pak `gs=5` crash path enters here |
 | 0x0F000130 (NI pair 104) | ni_ovl_104_func_0F000130 | Pair-104 state handler in current `gs=5` crash path; role still under investigation |
 | 0x0F000484 (NI pair 120) | ni_ovl_120_result_schedule_dispatch | Pair-120 result dispatcher: calls callback table `0x0F0016BC[obj+0x48]`, stores `v0` at `obj+0x38`, resets current schedule to `0` when result is nonzero, otherwise sets `obj+0x44=1` and advances |
+
+Pair-23 root state table at `0x0F006F80`:
+
+| Index | Target | Notes |
+|-------|--------|-------|
+| 0 | 0x0F0032E8 | State handler |
+| 1 | 0x0F00308C | State handler |
+| 2 | 0x0F002C54 | State handler |
+| 3 | 0x0F00469C | `ni_ovl_023_bike_skeleton_spawn_dispatch` |
+| 4 | 0x0F002D68 | State handler |
+| 5 | 0x0F002E04 | State handler |
+| 6 | 0x0F002EDC | State handler |
+| 7 | 0x0F002FB4 | State handler |
 
 Pair-23 bike-skeleton spawn callback table at `0x0F006FC8`:
 
@@ -221,6 +236,7 @@ Notes:
 
 - Pair 23 has the same internal-label hazard as pair 120: N64Recomp's range fallback resolves `0x0F004A24` to `0x0F004744`, which reruns initialization instead of the intended update label.
 - The compatibility fix is scoped to `ni_ovl_023_bike_skeleton_spawn_dispatch`; it does not globally register `0x0F004A24` in the reused `0x0F...` NI address range.
+- Handwritten NI shims must preserve MIPS callee-saved registers and canonicalize 32-bit KSEG pointers to sign-extended `gpr` values before returning. Otherwise zero-extended `0x80xxxxxx` pointers can become host offsets around `rdram+0x100xxxxxx`.
 
 Pair-120 result callback table at `0x0F0016BC`:
 

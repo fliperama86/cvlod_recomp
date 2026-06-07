@@ -45,6 +45,11 @@ def _repair_funcs_h_partial_declarations(content):
     changed = False
     for line in lines:
         stripped = line.rstrip()
+        if stripped == 'void':
+            # Truncated at exactly the return type. Drop the dangling fragment;
+            # the complete declaration will be recovered from definitions.
+            changed = True
+            continue
         if stripped and stripped.startswith('void ') and not stripped.endswith(';') and not stripped.endswith('{'):
             if re.search(r'\(uint8_t\*\s*rdram,\s*recomp_context\*\s*ctx\s*$', stripped):
                 # Truncated after the ctx argument — add the missing close.

@@ -85,6 +85,52 @@ static constexpr uint32_t NI_OVERLAY_UNLOAD_SIZE = 0x00100000;
 static int loaded_0f_pair = -1;
 static int loaded_0e_pair = -1;
 
+// Recompiled MEM_* helpers expect canonical sign-extended MIPS 32-bit
+// addresses in GPRs. A zero-extended 0x80xxxxxx pointer maps 4GB past the
+// intended RDRAM mirror and can fault even when the low 32-bit address is
+// otherwise valid.
+static gpr lod_ni_canonical_gpr(gpr value) {
+    return (gpr)(int32_t)(uint32_t)value;
+}
+
+struct LodNiSavedCalleeRegs {
+    gpr r16;
+    gpr r17;
+    gpr r18;
+    gpr r19;
+    gpr r20;
+    gpr r21;
+    gpr r22;
+    gpr r23;
+    gpr r30;
+};
+
+static LodNiSavedCalleeRegs lod_ni_save_callee_regs(const recomp_context* ctx) {
+    return {
+        lod_ni_canonical_gpr(ctx->r16),
+        lod_ni_canonical_gpr(ctx->r17),
+        lod_ni_canonical_gpr(ctx->r18),
+        lod_ni_canonical_gpr(ctx->r19),
+        lod_ni_canonical_gpr(ctx->r20),
+        lod_ni_canonical_gpr(ctx->r21),
+        lod_ni_canonical_gpr(ctx->r22),
+        lod_ni_canonical_gpr(ctx->r23),
+        lod_ni_canonical_gpr(ctx->r30),
+    };
+}
+
+static void lod_ni_restore_callee_regs(recomp_context* ctx, const LodNiSavedCalleeRegs& saved) {
+    ctx->r16 = saved.r16;
+    ctx->r17 = saved.r17;
+    ctx->r18 = saved.r18;
+    ctx->r19 = saved.r19;
+    ctx->r20 = saved.r20;
+    ctx->r21 = saved.r21;
+    ctx->r22 = saved.r22;
+    ctx->r23 = saved.r23;
+    ctx->r30 = saved.r30;
+}
+
 extern "C" int lod_ni_overlay_loaded_0f_pair() {
     return loaded_0f_pair;
 }
@@ -344,15 +390,15 @@ static void lod_ni_pair23_internal_label_0F004A24(uint8_t* rdram, recomp_context
     // The pair-23 sub-dispatch table at 0x0F006FC8 uses this label as state 1.
     // N64Recomp's range fallback resolves it to function start 0x0F004744,
     // re-running state-0 initialization instead of this update path.
-    const uint32_t obj = (uint32_t)ctx->r4;
-    const uint32_t data0 = (uint32_t)MEM_W(0x34, obj);
-    const uint32_t work = (uint32_t)MEM_W(0x24, obj);
+    const gpr obj = lod_ni_canonical_gpr(ctx->r4);
+    const gpr data0 = lod_ni_canonical_gpr(MEM_W(0x34, obj));
+    const gpr work = lod_ni_canonical_gpr(MEM_W(0x24, obj));
 
     float timer = lod_ni_u32_as_f32((uint32_t)MEM_W(0x1B0, data0));
     timer += 25.5f;
     MEM_W(0x1B0, data0) = lod_ni_f32_as_u32(timer);
 
-    const uint32_t child = (uint32_t)MEM_W(0x14, work);
+    const gpr child = lod_ni_canonical_gpr(MEM_W(0x14, work));
     const int32_t timer_byte = lod_ni_trunc_nonnegative_f32_to_i32(timer);
     MEM_B(0x1B, child) = timer_byte;
     MEM_B(0x19, child) = timer_byte;
@@ -427,7 +473,9 @@ static void lod_fixed_ni_pair23_spawn_dispatch(uint8_t* rdram, recomp_context* c
     ctx->r25 = ADD32(ctx->r25, ctx->r13);
     ctx->r25 = MEM_W(ctx->r25, 0x6FC8);
 
+    const LodNiSavedCalleeRegs saved_callee = lod_ni_save_callee_regs(ctx);
     lod_call_ni_pair23_spawn_callback(rdram, ctx, (uint32_t)ctx->r12, (uint32_t)ctx->r25);
+    lod_ni_restore_callee_regs(ctx, saved_callee);
 
     ctx->r4 = MEM_W(ctx->r29, 0x18);
     ctx->r14 = MEM_H(ctx->r4, 0xE);

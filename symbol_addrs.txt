@@ -291,3 +291,5 @@ scene_table = 0x800ACFDC; // type:data  // scene descriptor table, 80 bytes per 
 // NI pair 23 / bike skeleton spawn path
 ni_ovl_023_bike_skeleton_spawn_dispatch = 0x0F00469C; // type:func  // pair 23: two-entry sub-dispatch table at 0x0F006FC8; entry 1 targets internal label 0x0F004A24
 ni_ovl_023_bike_skeleton_spawn_init = 0x0F004744; // type:func  // pair 23: state-0 bike skeleton spawn/init path; contains internal update label 0x0F004A24
+ni_ovl_023_bike_skeleton_root_update = 0x0F000F9C; // type:func  // pair 23: root update/wrapper; dispatches state table at 0x0F006F80 and can call the spawn sub-dispatcher
+ni_ovl_023_bike_skeleton_state_spawn_gate = 0x0F003358; // type:func  // pair 23: state-table handler reached from 0x0F006F80; manages child/effect spawn gate state
