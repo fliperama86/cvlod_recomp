@@ -278,6 +278,10 @@ bool show_debug_tab() {
     return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
+bool element_is_disabled(const Rml::Element* element) {
+    return element != nullptr && element->HasAttribute("disabled");
+}
+
 std::string make_document_rml() {
     return R"RML(
 <rml>
@@ -1147,6 +1151,18 @@ private:
                 case UiTab::Graphics: break;
             }
         }
+        return filter_focus_order(std::move(ids));
+    }
+
+    std::vector<std::string> filter_focus_order(std::vector<std::string> ids) const {
+        if (!document_) {
+            return ids;
+        }
+
+        ids.erase(std::remove_if(ids.begin(), ids.end(), [this](const std::string& id) {
+            Rml::Element* element = document_->GetElementById(id);
+            return element == nullptr || element_is_disabled(element);
+        }), ids.end());
         return ids;
     }
 
@@ -1155,7 +1171,7 @@ private:
             return false;
         }
         Rml::Element* element = document_->GetElementById(id);
-        if (!element) {
+        if (!element || element_is_disabled(element)) {
             return false;
         }
         element->Focus(true);
@@ -1200,7 +1216,9 @@ private:
 
     void click_focused() {
         if (Rml::Element* focused = context_->GetFocusElement()) {
-            focused->Click();
+            if (!element_is_disabled(focused)) {
+                focused->Click();
+            }
         } else {
             focus_element_by_id(first_focus_for_tab(active_tab_));
         }
