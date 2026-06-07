@@ -336,6 +336,13 @@ if (WIN32)
     # overrides win — matching the macOS/Linux weak-interposition semantics.
     target_link_options(LodRecomp PRIVATE /FORCE:MULTIPLE)
 
+    # Embed version metadata and an explicit asInvoker manifest. Bare exes with
+    # no VERSIONINFO/manifest score worse with SmartScreen and AV heuristics.
+    target_sources(LodRecomp PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/main/lod_recomp.rc
+        ${CMAKE_SOURCE_DIR}/src/main/lod_recomp.manifest
+    )
+
     add_compile_definitions(NOMINMAX)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -D_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR")
 endif()
