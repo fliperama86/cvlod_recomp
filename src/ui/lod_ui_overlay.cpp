@@ -1186,8 +1186,23 @@ private:
             }
             pending_focus_id_.clear();
         }
-        if (!context_->GetFocusElement()) {
-            focus_element_by_id(first_focus_for_tab(active_tab_));
+
+        std::vector<std::string> ids = focus_order();
+        bool focused_valid = false;
+        if (Rml::Element* focused = context_->GetFocusElement()) {
+            if (!element_is_disabled(focused)) {
+                const std::string focused_id = focused->GetId();
+                focused_valid = std::find(ids.begin(), ids.end(), focused_id) != ids.end();
+            }
+        }
+
+        if (!focused_valid) {
+            if (focus_element_by_id(first_focus_for_tab(active_tab_))) {
+                return;
+            }
+            if (!ids.empty()) {
+                focus_element_by_id(ids.front());
+            }
         }
     }
 
@@ -1493,7 +1508,7 @@ private:
             return;
         }
         Rml::Element* element = document_->GetElementById(element_id);
-        if (!element) {
+        if (!element || element_is_disabled(element)) {
             return;
         }
         auto listener = std::make_unique<ActionListener>(*this, action, param);
@@ -1743,6 +1758,12 @@ void lod::ui::toggle_overlay() {
 }
 
 void lod::ui::show_overlay() {
+    if (g_ui_failed.load(std::memory_order_relaxed)) {
+        g_open_requested.store(false, std::memory_order_relaxed);
+        g_overlay_visible.store(false, std::memory_order_relaxed);
+        return;
+    }
+
     g_overlay_visible.store(true, std::memory_order_relaxed);
     g_open_requested.store(true, std::memory_order_relaxed);
 }

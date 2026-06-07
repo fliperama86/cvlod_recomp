@@ -681,8 +681,9 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
         {
             const bool was_visible = lod::ui::overlay_visible();
             lod::ui::toggle_overlay();
+            const bool is_visible = lod::ui::overlay_visible();
             fprintf(stderr, "[UI] F1 overlay %s\n",
-                    was_visible ? (lod::ui::overlay_visible() ? "close requested" : "hidden") : "shown");
+                    was_visible ? (is_visible ? "close requested" : "hidden") : (is_visible ? "shown" : "hidden"));
             return true;
         }
         default:
