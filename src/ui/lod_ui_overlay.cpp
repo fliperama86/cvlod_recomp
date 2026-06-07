@@ -93,6 +93,11 @@ enum class UiTab {
     Debug,
 };
 
+enum class UiScreen {
+    Settings,
+    RomSetup,
+};
+
 enum class PromptAction {
     None,
     DiscardAndClose,
@@ -108,6 +113,8 @@ std::atomic_bool g_audio_config_changed{false};
 std::atomic_bool g_logged_first_draw{false};
 std::atomic_bool g_ui_ready{false};
 std::atomic_bool g_ui_failed{false};
+std::atomic_bool g_rom_setup_visible{false};
+std::atomic<int> g_rom_setup_request{static_cast<int>(lod::ui::RomSetupRequest::None)};
 bool g_rml_initialised = false;
 
 std::mutex g_ui_mutex;
@@ -121,6 +128,10 @@ std::string g_connected_controller_name = "None detected";
 std::string g_controls_button_summary = "Using defaults until controls.json is loaded";
 std::string g_controls_trigger_summary = "Using defaults until controls.json is loaded";
 std::string g_controls_right_stick_summary = "Using defaults until controls.json is loaded";
+std::string g_rom_status = "Missing";
+std::string g_rom_detail = "Select your ROM file to start the game.";
+std::string g_rom_file = "None selected";
+std::atomic_bool g_rom_busy{false};
 
 constexpr RenderFormat kRmlTextureFormat = RenderFormat::R8G8B8A8_UNORM;
 constexpr RenderFormat kRmlTextureFormatBgra = RenderFormat::B8G8R8A8_UNORM;
@@ -735,7 +746,11 @@ public:
         }
 
         if (g_open_requested.exchange(false, std::memory_order_relaxed) || !was_visible_) {
-            open_settings();
+            if (g_rom_setup_visible.load(std::memory_order_relaxed)) {
+                open_rom_setup();
+            } else {
+                open_settings();
+            }
         }
         was_visible_ = true;
 
@@ -860,6 +875,33 @@ public:
     }
 
     void handle_action(const std::string& action, const std::string& param) {
+        if (action == "select_rom_file") {
+            if (!g_rom_busy.load(std::memory_order_relaxed)) {
+                g_rom_setup_request.store(static_cast<int>(lod::ui::RomSetupRequest::SelectFile), std::memory_order_relaxed);
+            }
+            return;
+        }
+
+        if (action == "retry_rom_load") {
+            if (!g_rom_busy.load(std::memory_order_relaxed)) {
+                g_rom_setup_request.store(static_cast<int>(lod::ui::RomSetupRequest::Retry), std::memory_order_relaxed);
+            }
+            return;
+        }
+
+        if (action == "open_rom_help") {
+            g_rom_setup_request.store(static_cast<int>(lod::ui::RomSetupRequest::Help), std::memory_order_relaxed);
+            open_prompt("ROM setup help",
+                        "Choose a legally dumped Castlevania: Legacy of Darkness ROM. Accepted file types are .z64, .n64, and .v64. Your original ROM is not modified.",
+                        "OK", "", PromptAction::None, false);
+            return;
+        }
+
+        if (action == "quit_game") {
+            g_rom_setup_request.store(static_cast<int>(lod::ui::RomSetupRequest::Quit), std::memory_order_relaxed);
+            return;
+        }
+
         if (action == "set_tab") {
             if (param == "general") active_tab_ = UiTab::General;
             else if (param == "graphics") active_tab_ = UiTab::Graphics;
@@ -973,10 +1015,19 @@ private:
     }
 
     void open_settings() {
+        screen_ = UiScreen::Settings;
         active_tab_ = UiTab::Graphics;
         close_prompt();
         sync_from_active_graphics(true);
         pending_focus_id_ = first_focus_for_tab(active_tab_);
+        dirty_document_ = true;
+    }
+
+    void open_rom_setup() {
+        screen_ = UiScreen::RomSetup;
+        active_tab_ = UiTab::General;
+        close_prompt();
+        pending_focus_id_ = g_rom_busy.load(std::memory_order_relaxed) ? "rom_help" : "rom_select_file";
         dirty_document_ = true;
     }
 
@@ -991,6 +1042,9 @@ private:
     void request_close_from_ui() {
         if (prompt_open_) {
             close_prompt();
+            return;
+        }
+        if (screen_ == UiScreen::RomSetup) {
             return;
         }
         if (has_pending_graphics_changes()) {
@@ -1024,7 +1078,9 @@ private:
         prompt_cancel_label_.clear();
         prompt_action_ = PromptAction::None;
         prompt_destructive_ = false;
-        pending_focus_id_ = first_focus_for_tab(active_tab_);
+        pending_focus_id_ = screen_ == UiScreen::RomSetup
+            ? (g_rom_busy.load(std::memory_order_relaxed) ? "rom_help" : "rom_select_file")
+            : first_focus_for_tab(active_tab_);
         dirty_document_ = true;
     }
 
@@ -1101,6 +1157,9 @@ private:
     }
 
     std::string first_focus_for_tab(UiTab tab) const {
+        if (screen_ == UiScreen::RomSetup) {
+            return g_rom_busy.load(std::memory_order_relaxed) ? "rom_help" : "rom_select_file";
+        }
         switch (tab) {
             case UiTab::General: return "tab_general";
             case UiTab::Graphics: return "window_mode_next";
@@ -1113,7 +1172,23 @@ private:
 
     std::vector<std::string> focus_order() const {
         if (prompt_open_) {
-            return {"prompt_cancel", "prompt_confirm"};
+            std::vector<std::string> ids;
+            if (!prompt_cancel_label_.empty()) {
+                ids.emplace_back("prompt_cancel");
+            }
+            ids.emplace_back("prompt_confirm");
+            return filter_focus_order(std::move(ids));
+        }
+
+        if (screen_ == UiScreen::RomSetup) {
+            std::vector<std::string> ids;
+            if (!g_rom_busy.load(std::memory_order_relaxed)) {
+                ids.emplace_back("rom_select_file");
+                ids.emplace_back("rom_retry");
+            }
+            ids.emplace_back("rom_help");
+            ids.emplace_back("rom_quit");
+            return filter_focus_order(std::move(ids));
         }
 
         std::vector<std::string> ids{
@@ -1333,6 +1408,9 @@ private:
     }
 
     std::string make_tabs_rml() const {
+        if (screen_ == UiScreen::RomSetup) {
+            return "";
+        }
         std::ostringstream out;
         out << tab_button("tab_general", "General", UiTab::General);
         out << tab_button("tab_graphics", "Graphics", UiTab::Graphics);
@@ -1375,6 +1453,27 @@ private:
         out << make_readonly_row("Config Folder", "Graphics and controls settings are stored in the platform config folder.", g_config_path_display.empty() ? "Registered at startup" : g_config_path_display);
         out << make_readonly_row("Debug Tab", "Developer-only diagnostics are hidden unless explicitly enabled.", show_debug_tab() ? "Visible" : "Set RECOMP_UI_SHOW_DEBUG=1");
         out << "<div class='recomp-actions'><button id='close_settings_general' class='secondary'>Close</button></div>";
+        return out.str();
+    }
+
+    std::string make_rom_setup_page() const {
+        std::ostringstream out;
+        out << "<h1 class='recomp-page-title'>ROM required</h1>";
+        out << "<p class='recomp-page-help'>Select your Castlevania: Legacy of Darkness ROM file to start the game. Accepted files: .z64, .n64, .v64.</p>";
+        out << make_readonly_row("Status", "Current ROM setup state.", g_rom_status);
+        out << make_readonly_row("Selected file", "Only the filename is shown here; the full path is stored after validation succeeds.", g_rom_file.empty() ? "None selected" : g_rom_file);
+        out << make_readonly_row("Detail", "Next action or validation result.", g_rom_detail);
+        out << "<div class='recomp-actions'>";
+        const bool rom_busy = g_rom_busy.load(std::memory_order_relaxed);
+        const char* busy_disabled_attr = rom_busy ? " disabled" : "";
+        out << "<button id='rom_select_file' class='" << (rom_busy ? "disabled" : "") << "'" << busy_disabled_attr << ">Select ROM</button>";
+        out << "<button id='rom_retry' class='secondary" << (rom_busy ? " disabled" : "") << "'" << busy_disabled_attr << ">Retry</button>";
+        out << "<button id='rom_help' class='secondary'>Help</button>";
+        out << "<button id='rom_quit' class='secondary'>Quit</button>";
+        out << "</div>";
+        if (rom_busy) {
+            out << "<p class='recomp-page-help'><span class='recomp-pill'>Busy</span> Validating or preparing ROM data.</p>";
+        }
         return out.str();
     }
 
@@ -1456,6 +1555,9 @@ private:
     }
 
     std::string make_content_rml() const {
+        if (screen_ == UiScreen::RomSetup) {
+            return make_rom_setup_page();
+        }
         switch (active_tab_) {
             case UiTab::General: return make_general_page();
             case UiTab::Graphics: return make_graphics_page();
@@ -1474,7 +1576,9 @@ private:
         out << "<div class='recomp-prompt-scrim'></div>";
         out << "<div class='recomp-prompt'><h1>" << escape_rml(prompt_title_) << "</h1><p>"
             << escape_rml(prompt_body_) << "</p><div class='recomp-prompt-actions'>";
-        out << "<button id='prompt_cancel' class='secondary'>" << escape_rml(prompt_cancel_label_) << "</button>";
+        if (!prompt_cancel_label_.empty()) {
+            out << "<button id='prompt_cancel' class='secondary'>" << escape_rml(prompt_cancel_label_) << "</button>";
+        }
         out << "<button id='prompt_confirm'" << (prompt_destructive_ ? " class='danger'" : "") << ">"
             << escape_rml(prompt_confirm_label_) << "</button>";
         out << "</div></div>";
@@ -1493,7 +1597,16 @@ private:
             content->SetInnerRML(make_content_rml());
         }
         if (Rml::Element* subtitle = document_->GetElementById("subtitle")) {
-            subtitle->SetInnerRML(has_pending_graphics_changes() ? "Settings overlay — pending graphics changes" : "Settings overlay");
+            if (screen_ == UiScreen::RomSetup) {
+                subtitle->SetInnerRML("ROM setup");
+            } else {
+                subtitle->SetInnerRML(has_pending_graphics_changes() ? "Settings overlay — pending graphics changes" : "Settings overlay");
+            }
+        }
+        if (Rml::Element* footer = document_->GetElementById("footer")) {
+            footer->SetInnerRML(screen_ == UiScreen::RomSetup
+                ? "Select ROM to start. Esc/B closes prompts only. The game will remain on this screen until a valid ROM is ready."
+                : "F1 toggles settings. Esc/B closes. Tab and arrow keys move focus. Enter/A activates.");
         }
         if (Rml::Element* prompt = document_->GetElementById("prompt_host")) {
             prompt->SetInnerRML(make_prompt_rml());
@@ -1530,6 +1643,11 @@ private:
         bind_action("tab_controls", "set_tab", "controls");
         bind_action("tab_audio", "set_tab", "audio");
         bind_action("tab_debug", "set_tab", "debug");
+
+        bind_action("rom_select_file", "select_rom_file");
+        bind_action("rom_retry", "retry_rom_load");
+        bind_action("rom_help", "open_rom_help");
+        bind_action("rom_quit", "quit_game");
 
         bind_action("close_settings_general", "close_settings");
         bind_action("close_settings_graphics", "close_settings");
@@ -1677,6 +1795,7 @@ private:
     std::unique_ptr<SystemInterface_SDL> system_interface_{};
     std::vector<std::unique_ptr<ActionListener>> action_listeners_{};
 
+    UiScreen screen_ = UiScreen::Settings;
     UiTab active_tab_ = UiTab::Graphics;
     ultramodern::renderer::GraphicsConfig active_graphics_ = make_default_graphics_config();
     ultramodern::renderer::GraphicsConfig pending_graphics_ = make_default_graphics_config();
@@ -1745,6 +1864,9 @@ void lod::ui::set_controls_config_summary(std::string buttons, std::string trigg
 
 void lod::ui::toggle_overlay() {
     if (g_overlay_visible.load(std::memory_order_relaxed)) {
+        if (g_rom_setup_visible.load(std::memory_order_relaxed)) {
+            return;
+        }
         if (!g_ui_ready.load(std::memory_order_relaxed) ||
             g_ui_failed.load(std::memory_order_relaxed)) {
             g_close_requested.store(false, std::memory_order_relaxed);
@@ -1793,6 +1915,34 @@ bool lod::ui::captures_input() {
 
 bool lod::ui::captures_mouse() {
     return captures_input();
+}
+
+void lod::ui::show_rom_setup() {
+    g_rom_setup_visible.store(true, std::memory_order_relaxed);
+    show_overlay();
+}
+
+void lod::ui::hide_rom_setup() {
+    g_rom_setup_visible.store(false, std::memory_order_relaxed);
+    hide_overlay();
+}
+
+bool lod::ui::rom_setup_visible() {
+    return g_rom_setup_visible.load(std::memory_order_relaxed);
+}
+
+void lod::ui::set_rom_setup_status(std::string status, std::string detail, std::string file, bool busy) {
+    std::lock_guard<std::mutex> lock(g_ui_mutex);
+    g_rom_status = std::move(status);
+    g_rom_detail = std::move(detail);
+    g_rom_file = file.empty() ? "None selected" : std::move(file);
+    g_rom_busy.store(busy, std::memory_order_relaxed);
+    g_controls_config_changed.store(true, std::memory_order_relaxed);
+}
+
+lod::ui::RomSetupRequest lod::ui::consume_rom_setup_request() {
+    return static_cast<RomSetupRequest>(
+        g_rom_setup_request.exchange(static_cast<int>(RomSetupRequest::None), std::memory_order_relaxed));
 }
 
 bool lod::ui::handle_graphics_hotkey(int key) {

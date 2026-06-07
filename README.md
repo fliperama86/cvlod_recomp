@@ -96,7 +96,7 @@ open ./LodRecomp.app
 
 On first launch, macOS may block the ad-hoc signed app. Open **System Settings → Privacy & Security**, choose **Open Anyway**, then confirm **Open**.
 
-The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. If macOS launches the app through App Translocation and that adjacent ROM is hidden from the process, the app will ask you to select your stock LoD ROM once with a native file picker and remember that path for future launches. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
+The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep both files in the same folder. If no valid ROM is found — for example because macOS App Translocation hides the adjacent file — the app opens an in-window ROM Setup screen. Choose your stock LoD ROM with the native file picker; after validation succeeds, the selected path is remembered for future launches. Runtime NI overlay data is prepared in memory from the stock ROM on startup; users do not need to run a separate preparation script.
 
 ### Graphics/settings overlay
 
@@ -211,7 +211,7 @@ LodRecomp.exe   (+ SDL2.dll, dxcompiler.dll, dxil.dll, freetype.dll, ...)
 rom.z64
 ```
 
-If no `rom.z64` is found, the app asks you to select your stock LoD ROM once with a native file picker and remembers that path.
+If no valid `rom.z64` is found, the app opens an in-window ROM Setup screen. Choose your stock LoD ROM with the native file picker; after validation succeeds, the selected path is remembered for future launches.
 
 The binary is not code-signed yet, so the first launch may show a SmartScreen "Windows protected your PC" prompt — click **More info → Run anyway**. Verify the download against the SHA256 checksum published in the release notes first.
 

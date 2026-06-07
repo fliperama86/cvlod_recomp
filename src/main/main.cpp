@@ -25,6 +25,8 @@
 #include <filesystem>
 #include <cmath>
 #include <string>
+#include <atomic>
+#include <mutex>
 #include <initializer_list>
 #include <cctype>
 #include <limits.h>
@@ -103,6 +105,10 @@ static SDL_Window* window = nullptr;
 static SDL_GameController* game_controller = nullptr;
 static SDL_JoystickID game_controller_instance = -1;
 static std::filesystem::path g_config_path;
+static std::atomic_bool g_rom_validation_busy{false};
+static std::atomic_bool g_rom_game_started{false};
+static int g_argc_for_rom_discovery = 0;
+static char** g_argv_for_rom_discovery = nullptr;
 
 static std::filesystem::path graphics_config_path() {
     return g_config_path / "graphics.json";
@@ -683,7 +689,9 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
             lod::ui::toggle_overlay();
             const bool is_visible = lod::ui::overlay_visible();
             fprintf(stderr, "[UI] F1 overlay %s\n",
-                    was_visible ? (is_visible ? "close requested" : "hidden") : (is_visible ? "shown" : "hidden"));
+                    was_visible
+                        ? (lod::ui::rom_setup_visible() ? "ROM setup active" : (is_visible ? "close requested" : "hidden"))
+                        : (is_visible ? "shown" : "hidden"));
             return true;
         }
         default:
@@ -799,6 +807,8 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 #endif
 }
 
+static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path);
+
 void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -839,6 +849,8 @@ void update_gfx(void*) {
                 break;
         }
     }
+
+    handle_rom_setup_requests(g_argc_for_rom_discovery, g_argv_for_rom_discovery, g_config_path);
 }
 
 // ── Audio ───────────────────────────────────────────────────────────
@@ -1255,9 +1267,52 @@ static void write_stored_rom_path(const std::filesystem::path& config_path,
     f << rom_path.string() << "\n";
 }
 
-static std::filesystem::path prompt_for_rom_path(const std::filesystem::path& config_path) {
+static std::string rom_basename(const std::filesystem::path& rom_path) {
+    return rom_path.empty() ? "None selected" : rom_path.filename().string();
+}
+
+static std::string ascii_lower(std::string value) {
+    for (char& c : value) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return value;
+}
+
+static bool is_n64_rom_path(const std::filesystem::path& path) {
+    std::string ext = ascii_lower(path.extension().string());
+    return ext == ".z64" || ext == ".n64" || ext == ".v64";
+}
+
+static bool is_lod_named_rom_path(const std::filesystem::path& path) {
+    std::string name = ascii_lower(path.stem().string());
+    if (name.find("decompressed") != std::string::npos ||
+        name.find("extended") != std::string::npos ||
+        name.find("ni_") != std::string::npos ||
+        name.find("ni-") != std::string::npos) {
+        return false;
+    }
+    return name.find("legacy") != std::string::npos ||
+           name.find("lod") != std::string::npos ||
+           name.find("castlevania2") != std::string::npos ||
+           name.find("nd4e") != std::string::npos;
+}
+
+static const char* rom_validation_error_name(recomp::RomValidationError error) {
+    switch (error) {
+        case recomp::RomValidationError::Good: return "Ready";
+        case recomp::RomValidationError::FailedToOpen: return "Failed to open the selected file.";
+        case recomp::RomValidationError::NotARom: return "The selected file is not a recognized Nintendo 64 ROM.";
+        case recomp::RomValidationError::IncorrectRom: return "The selected ROM is not the supported Legacy of Darkness ROM.";
+        case recomp::RomValidationError::NotYet: return "This ROM variant is recognized but not supported by this build yet.";
+        case recomp::RomValidationError::IncorrectVersion: return "This appears to be the wrong version or region of the game.";
+        case recomp::RomValidationError::OtherError: return "ROM validation failed due to an internal error.";
+    }
+    return "ROM validation failed.";
+}
+
+static std::filesystem::path prompt_for_rom_path() {
     fprintf(stderr,
-            "[LodRecomp] No ROM found automatically. Asking user to select a stock LoD ROM.\n");
+            "[LodRecomp] Asking user to select a stock LoD ROM.\n");
 
     if (NFD_Init() != NFD_OKAY) {
         fprintf(stderr, "[LodRecomp] Failed to initialize native file dialog: %s\n",
@@ -1291,7 +1346,6 @@ static std::filesystem::path prompt_for_rom_path(const std::filesystem::path& co
         selected = std::filesystem::path(out_path);
         NFD_FreePath(out_path);
         if (std::filesystem::exists(selected)) {
-            write_stored_rom_path(config_path, selected);
             fprintf(stderr, "[LodRecomp] Selected ROM: %s\n", selected.string().c_str());
         } else {
             fprintf(stderr, "[LodRecomp] Selected ROM does not exist: %s\n",
@@ -1308,8 +1362,8 @@ static std::filesystem::path prompt_for_rom_path(const std::filesystem::path& co
     return selected;
 }
 
-static std::filesystem::path find_rom_path(int argc, char** argv,
-                                           const std::filesystem::path& config_path) {
+static std::filesystem::path discover_rom_path(int argc, char** argv,
+                                               const std::filesystem::path& config_path) {
     // Check command line argument first
     if (argc > 1) {
         return std::filesystem::path(argv[1]);
@@ -1334,47 +1388,24 @@ static std::filesystem::path find_rom_path(int argc, char** argv,
 
     // Look for ROM in current directory
     for (const auto& entry : std::filesystem::directory_iterator(".")) {
-        auto ext = entry.path().extension().string();
-        if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
-            auto name = entry.path().stem().string();
-            // Match common names for Castlevania LoD
-            if (name.find("castlevania") != std::string::npos ||
-                name.find("legacy") != std::string::npos ||
-                name.find("Castlevania") != std::string::npos ||
-                name.find("Legacy") != std::string::npos ||
-                name.find("ND4E") != std::string::npos) {
-                return entry.path();
-            }
+        if (is_n64_rom_path(entry.path()) && is_lod_named_rom_path(entry.path())) {
+            return entry.path();
         }
     }
 
     // Fall back to any .z64 file
     for (const auto& entry : std::filesystem::directory_iterator(".")) {
-        auto ext = entry.path().extension().string();
-        if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
+        if (is_n64_rom_path(entry.path())) {
             return entry.path();
         }
     }
 
     // Also search in resources/ subdirectory
     auto search_dir = [](const std::filesystem::path& dir) -> std::filesystem::path {
-        // Prefer castlevania-named ROMs
+        // Prefer LoD-named ROMs. This repository may also contain the original
+        // CV64 reference ROM, so avoid matching plain "castlevania" here.
         for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-            auto ext = entry.path().extension().string();
-            if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
-                auto name = entry.path().stem().string();
-                if (name.find("castlevania") != std::string::npos ||
-                    name.find("Castlevania") != std::string::npos ||
-                    name.find("legacy") != std::string::npos ||
-                    name.find("ND4E") != std::string::npos) {
-                    return entry.path();
-                }
-            }
-        }
-        // Fall back to any ROM
-        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-            auto ext = entry.path().extension().string();
-            if (ext == ".z64" || ext == ".n64" || ext == ".v64") {
+            if (is_n64_rom_path(entry.path()) && is_lod_named_rom_path(entry.path())) {
                 return entry.path();
             }
         }
@@ -1386,57 +1417,119 @@ static std::filesystem::path find_rom_path(int argc, char** argv,
         if (!p.empty()) return p;
     }
 
-    return prompt_for_rom_path(config_path);
+    return {};
+}
+
+static void validate_and_start_rom(std::filesystem::path rom_path, bool persist_selected_path, const char* source_label) {
+    if (rom_path.empty()) {
+        lod::ui::set_rom_setup_status("Missing",
+            "No ROM file was selected. Select your ROM file to start the game.",
+            "None selected", false);
+        lod::ui::show_rom_setup();
+        g_rom_validation_busy.store(false, std::memory_order_relaxed);
+        return;
+    }
+
+    bool expected = false;
+    if (!g_rom_validation_busy.compare_exchange_strong(expected, true, std::memory_order_relaxed)) {
+        return;
+    }
+
+    lod::ui::set_rom_setup_status("Validating",
+        std::string("Checking ") + rom_basename(rom_path) + "...",
+        rom_basename(rom_path), true);
+    fprintf(stderr, "[LodRecomp] Validating ROM from %s: %s\n", source_label, rom_path.string().c_str());
+
+    std::u8string game_id = u8"castlevania2.n64.us";
+    auto result = recomp::select_rom(rom_path, game_id);
+    if (result != recomp::RomValidationError::Good) {
+        fprintf(stderr, "[LodRecomp] ROM validation failed (%d) for: %s\n",
+                static_cast<int>(result), rom_path.string().c_str());
+        lod::ui::set_rom_setup_status("Invalid",
+            rom_validation_error_name(result),
+            rom_basename(rom_path), false);
+        lod::ui::show_rom_setup();
+        g_rom_validation_busy.store(false, std::memory_order_relaxed);
+        return;
+    }
+
+    if (persist_selected_path) {
+        write_stored_rom_path(g_config_path, rom_path);
+    }
+
+    lod::ui::set_rom_setup_status("Ready",
+        "ROM validated. Starting game...",
+        rom_basename(rom_path), true);
+    fprintf(stderr, "[LodRecomp] ROM validated successfully, starting game...\n");
+    g_rom_game_started.store(true, std::memory_order_relaxed);
+    recomp::start_game(game_id);
+    lod::ui::hide_rom_setup();
+    g_rom_validation_busy.store(false, std::memory_order_relaxed);
+}
+
+static void start_rom_validation_thread(std::filesystem::path rom_path, bool persist_selected_path, const char* source_label) {
+    std::thread([rom_path = std::move(rom_path), persist_selected_path, label = std::string(source_label)]() mutable {
+        validate_and_start_rom(std::move(rom_path), persist_selected_path, label.c_str());
+    }).detach();
+}
+
+static void retry_rom_discovery(int argc, char** argv, const std::filesystem::path& config_path) {
+    if (g_rom_validation_busy.load(std::memory_order_relaxed) ||
+        g_rom_game_started.load(std::memory_order_relaxed)) {
+        return;
+    }
+
+    lod::ui::set_rom_setup_status("Searching",
+        "Checking command-line, portable, stored, and local ROM paths...",
+        "None selected", true);
+    std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
+    if (rom_path.empty()) {
+        lod::ui::set_rom_setup_status("Missing",
+            "No valid ROM path was found automatically. Select your ROM file to start.",
+            "None selected", false);
+        return;
+    }
+
+    start_rom_validation_thread(std::move(rom_path), false, "retry discovery");
+}
+
+static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path) {
+    switch (lod::ui::consume_rom_setup_request()) {
+        case lod::ui::RomSetupRequest::None:
+            return;
+        case lod::ui::RomSetupRequest::SelectFile:
+        {
+            if (g_rom_validation_busy.load(std::memory_order_relaxed) ||
+                g_rom_game_started.load(std::memory_order_relaxed)) {
+                return;
+            }
+            lod::ui::set_rom_setup_status("Selecting",
+                "Choose a .z64, .n64, or .v64 ROM file.",
+                "None selected", true);
+            std::filesystem::path selected = prompt_for_rom_path();
+            if (selected.empty()) {
+                lod::ui::set_rom_setup_status("Missing",
+                    "ROM selection cancelled. Select your ROM file to start the game.",
+                    "None selected", false);
+                return;
+            }
+            start_rom_validation_thread(std::move(selected), true, "file picker");
+            return;
+        }
+        case lod::ui::RomSetupRequest::Retry:
+            retry_rom_discovery(argc, argv, config_path);
+            return;
+        case lod::ui::RomSetupRequest::Help:
+            return;
+        case lod::ui::RomSetupRequest::Quit:
+            ultramodern::quit();
+            return;
+    }
 }
 
 static void auto_start_game(const std::filesystem::path& rom_path) {
-    // Give the runtime a moment to initialize
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-    std::u8string game_id = u8"castlevania2.n64.us";
-
-    // Try the decompressed ROM first (NI files pre-decompressed for direct DMA)
-    std::filesystem::path decomp_rom = "resources/castlevania2_decompressed.z64";
-    bool using_decomp = false;
-    if (rom_path.filename() != std::filesystem::path("rom.z64") &&
-        std::filesystem::exists(decomp_rom) && std::filesystem::file_size(decomp_rom) > 0) {
-        auto result = recomp::select_rom(decomp_rom, game_id);
-        if (result == recomp::RomValidationError::Good) {
-            fprintf(stderr, "[LodRecomp] Using decompressed ROM\n");
-            using_decomp = true;
-        } else {
-            // Force-load the decompressed ROM even if hash doesn't match
-            std::ifstream decomp_file(decomp_rom, std::ios::binary);
-            if (decomp_file) {
-                std::vector<uint8_t> decomp_data((std::istreambuf_iterator<char>(decomp_file)),
-                                                  std::istreambuf_iterator<char>());
-                recomp::set_rom_contents(std::move(decomp_data));
-                fprintf(stderr, "[LodRecomp] Force-loaded decompressed ROM (%zu bytes)\n", recomp::get_rom().size());
-                using_decomp = true;
-            }
-        }
-    }
-    if (!using_decomp) {
-        auto result = recomp::select_rom(rom_path, game_id);
-        if (result != recomp::RomValidationError::Good) {
-            fprintf(stderr, "ROM validation failed (error %d) for: %s\n", (int)result, rom_path.string().c_str());
-            std::ifstream rom_file(rom_path, std::ios::binary);
-            if (rom_file) {
-                std::vector<uint8_t> rom_data((std::istreambuf_iterator<char>(rom_file)),
-                                              std::istreambuf_iterator<char>());
-                recomp::set_rom_contents(std::move(rom_data));
-                fprintf(stderr, "[LodRecomp] Force-loaded runtime ROM (%zu bytes)\n", recomp::get_rom().size());
-            } else if (!recomp::load_stored_rom(game_id)) {
-                fprintf(stderr, "No stored ROM found either, cannot start game.\n");
-                return;
-            } else {
-                fprintf(stderr, "[LodRecomp] Using previously stored ROM\n");
-            }
-        }
-    }
-
-    fprintf(stderr, "[LodRecomp] ROM loaded successfully, starting game...\n");
-    recomp::start_game(game_id);
+    validate_and_start_rom(rom_path, false, "startup discovery");
 }
 
 // ── Signal handling ─────────────────────────────────────────────────
@@ -1548,6 +1641,9 @@ static void signal_handler(int sig) {
 // ── Main ────────────────────────────────────────────────────────────
 
 int main(int argc, char** argv) {
+    g_argc_for_rom_discovery = argc;
+    g_argv_for_rom_discovery = argv;
+
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
     // Catch SIGSEGV/SIGBUS (or the SEH equivalent) to get fault address
@@ -1612,22 +1708,29 @@ int main(int argc, char** argv) {
 
     lod_register_overlays();
 
-    // Find the ROM
-    std::filesystem::path rom_path = find_rom_path(argc, argv, config_path);
+    // Find the ROM without blocking on a native picker. If discovery fails, boot
+    // the renderer/UI into overlay-only ROM setup so users can choose a ROM.
+    std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
     if (rom_path.empty()) {
-        fprintf(stderr, "No ROM file found. Pass a .z64 file as an argument, place one in the current directory, or select one when prompted.\n");
-        return EXIT_FAILURE;
+        fprintf(stderr, "[LodRecomp] No ROM found automatically; starting ROM setup UI.\n");
+        lod::ui::set_rom_setup_status("Missing",
+            "No ROM was found automatically. Select your ROM file to start the game.",
+            "None selected", false);
+        lod::ui::show_rom_setup();
+    } else {
+        fprintf(stderr, "[LodRecomp] Candidate ROM: %s\n", rom_path.string().c_str());
     }
-    fprintf(stderr, "[LodRecomp] Using ROM: %s\n", rom_path.string().c_str());
 
     if (std::getenv("RECOMP_UI_OPEN_ON_START") != nullptr) {
         lod::ui::show_overlay();
         fprintf(stderr, "[UI] RECOMP_UI_OPEN_ON_START requested; overlay will open after renderer init\n");
     }
 
-    // Launch auto-start thread (will select ROM and start game after runtime initializes)
-    std::thread auto_start_thread(auto_start_game, rom_path);
-    auto_start_thread.detach();
+    if (!rom_path.empty()) {
+        // Launch auto-start thread (will validate ROM and start game after runtime initializes).
+        std::thread auto_start_thread(auto_start_game, rom_path);
+        auto_start_thread.detach();
+    }
 
     recomp::rsp::callbacks_t rsp_callbacks{
         .get_rsp_microcode = get_rsp_microcode,
