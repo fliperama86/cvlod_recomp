@@ -25,6 +25,14 @@
 #define LOD_ENABLE_BOOT_INPUT_SCRIPT 0
 #endif
 
+#ifndef LOD_SKIP_EXPANSION_PAK_SCREEN
+#define LOD_SKIP_EXPANSION_PAK_SCREEN 0
+#endif
+
+#ifndef LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN
+#define LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN 0
+#endif
+
 #ifndef LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
 #define LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT 0
 #endif
@@ -6456,6 +6464,38 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 }
 #endif
 
+#if LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN && !LOD_ENABLE_BOOT_INPUT_SCRIPT && !LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
+                // Default baseline: do not expose the unstable native high-res
+                // selector to normal testers. Advance the Expansion Pak screen
+                // through the normal controller/PIF path, without forcing
+                // gamestate or enabling the broader debug boot script.
+                {
+                    static int32_t ep_last_gs = INT32_MIN;
+                    static int ep_gs_frame = 0;
+                    int32_t ep_gs = lod_current_gamestate(rdram);
+                    if (ep_gs != ep_last_gs) {
+                        ep_last_gs = ep_gs;
+                        ep_gs_frame = 0;
+                    }
+                    ep_gs_frame++;
+
+                    if (ep_gs == 12) {
+                        bool pulse = (ep_gs_frame >= 30 && ep_gs_frame < 36) ||
+                                     (ep_gs_frame >= 90 && ep_gs_frame < 96) ||
+                                     (ep_gs_frame >= 150 && ep_gs_frame < 156);
+                        if (pulse) {
+                            buttons |= 0x9000; // A + Start
+                            if (ep_gs_frame == 30 ||
+                                ep_gs_frame == 90 ||
+                                ep_gs_frame == 150) {
+                                fprintf(stderr, "[AUTO] gs=12 frame %d: A+Start (native high-res selector auto-advance)\n",
+                                        ep_gs_frame);
+                            }
+                        }
+                    }
+                }
+#endif
+
 #if LOD_ENABLE_BOOT_INPUT_SCRIPT || LOD_ENABLE_FAST_GAMEPLAY_INPUT_SCRIPT
                 // Debug-only boot automation. This is not a gamestate skip:
                 // it exercises the same controller/PIF path as real input.
@@ -6821,6 +6861,39 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
 
     // Map overlay loading is now done in lod_on_init (before game threads start).
     // See lod_init.cpp for map_ovl_34 loading.
+
+#if LOD_SKIP_EXPANSION_PAK_SCREEN
+    // Baseline compatibility skip: native Expansion Pak/high-res selector is
+    // unstable in the recomp (presentation bug + high-res-only crash evidence).
+    // Skip only this screen, and leave the rest of the boot/gameplay flow to the
+    // game. Natural routes continue through gs=5 before reaching the title
+    // path; jumping directly to gs=6 is too early and can loop/crash.
+    if (direction == 0) {
+        uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+        if (gsm_addr != 0) {
+            uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+            int32_t cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
+            static int ep_skip_delay = 0;
+            static bool ep_skip_done = false;
+            if (cur_gs == 12 && !ep_skip_done) {
+                ep_skip_delay++;
+                if (ep_skip_delay == 60) {
+                    // Mirror gamestate_change(5): current_game_state = -5,
+                    // delay = 1. Do not touch exitingGameState; bypassing the
+                    // intermediate negative state skips loader/overlay setup and
+                    // loops back to the Konami/logo path.
+                    *(int32_t*)(rdram + gsm_phys + 0x24) = -5;
+                    *(uint16_t*)(rdram + gsm_phys + (0x06 ^ 2)) = 1;
+                    fprintf(stderr, "[SKIP] gs=12 → -5 (Expansion Pak/native high-res selector)\n");
+                    ep_skip_done = true;
+                    ep_skip_delay = 0;
+                }
+            } else if (cur_gs != 12) {
+                ep_skip_delay = 0;
+            }
+        }
+    }
+#endif
 
 #if LOD_ENABLE_BOOT_GS_SKIP
     // Boot screen skip: force gamestate transitions past screens that

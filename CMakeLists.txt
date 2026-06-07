@@ -73,6 +73,27 @@ target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 # ── Main executable ─────────────────────────────────────────────────
 add_executable(LodRecomp)
 
+option(LOD_ENABLE_NATIVE_HIGH_RES "Report Expansion Pak/8MB RDRAM to the game, enabling native high-resolution mode" OFF)
+if (LOD_ENABLE_NATIVE_HIGH_RES)
+    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_NATIVE_HIGH_RES=1)
+else()
+    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_NATIVE_HIGH_RES=0)
+endif()
+
+option(LOD_SKIP_EXPANSION_PAK_SCREEN "Hard-skip the game's Expansion Pak / native high-resolution selector via the normal post-selector transition" ON)
+if (LOD_SKIP_EXPANSION_PAK_SCREEN)
+    target_compile_definitions(LodRecomp PRIVATE LOD_SKIP_EXPANSION_PAK_SCREEN=1)
+else()
+    target_compile_definitions(LodRecomp PRIVATE LOD_SKIP_EXPANSION_PAK_SCREEN=0)
+endif()
+
+option(LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN "Auto-advance the game's Expansion Pak / native high-resolution selector using normal controller input" OFF)
+if (LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN)
+    target_compile_definitions(LodRecomp PRIVATE LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN=1)
+else()
+    target_compile_definitions(LodRecomp PRIVATE LOD_AUTO_ADVANCE_EXPANSION_PAK_SCREEN=0)
+endif()
+
 option(LOD_ENABLE_BOOT_INPUT_SCRIPT "Enable debug-only scripted controller input for boot/gameplay recovery tests" OFF)
 if (LOD_ENABLE_BOOT_INPUT_SCRIPT)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_BOOT_INPUT_SCRIPT=1)

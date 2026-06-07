@@ -41,7 +41,7 @@ Live tracker for getting Castlevania: Legacy of Darkness recompilation from boot
   - User visual confirmation: actual gameplay is reachable by skipping/advancing the intro sequence after character selection; screenshot shows Reinhardt in a playable scene with HUD/status/gold/item UI and action-view text.
   - User visual confirmation: in low-resolution mode, the prologue/intro sequence can play through fully and enter actual gameplay without skipping.
   - Caveat: long low-resolution idle in gameplay still crashes with the default 64KB post-RDRAM/KSEG0 guard: `Signal 10` at `0x380810002`, i.e. runtime RDRAM base plus `0x80810002`. A diagnostic 128KB guard fast-idle run survived 180s, suggesting an open-bus/guard-width issue, but the wider guard is not yet accepted as the default fix.
-  - Caveat: high-resolution mode still appears to expose a no-match NI/TLB crash during the intro/book animation path. Treat gameplay stability and resolution-dependent intro stability as active blockers, not basic gameplay reachability.
+  - Caveat: native Expansion Pak high-resolution mode is intentionally skipped in default builds (`LOD_SKIP_EXPANSION_PAK_SCREEN=ON`, `LOD_ENABLE_NATIVE_HIGH_RES=OFF`). Reporting 4MB alone did not hide the selector, and soft controller auto-advance still followed an unstable path. The default baseline now hard-skips only `gs=12` by requesting the natural post-selector transition (`gs=-5`, which creates `gs=5`), not directly to title. High-res previously exposed both presentation issues and a no-match NI/TLB crash during the intro/book animation path; keep it as an explicit investigation path rather than normal tester baseline.
   - Earlier user idle test in actual gameplay also hit the same late-crash family seen locally: `Signal 10` at `0x380800002`, after many `gs=3` frames and repeated last lookups through `func_80011E48`.
   - User high-resolution manual run hit a different-looking instance of the older no-match NI TLB crash family: `Signal 10` at `0x3880006d0` after a base `0x0F000000` map from paddr `0x0039B000` whose first words were a close but non-matching/corrupted NI prologue. Treat display-resolution choice as a repro variable until low-res/high-res A/B confirms otherwise.
   - Previous `gs=5` crash after NI pair `104` was caused by stale generated overlay IDs after adding new sections, not by pair-104 game logic itself.
@@ -57,7 +57,7 @@ Reach actual controllable gameplay through the game's natural state flow, not by
 Objective:
 
 - Preserve the now-working route from title/start/new game into actual controllable gameplay.
-- Stabilize long gameplay idle and the high-resolution intro/cutscene path.
+- Stabilize long gameplay idle; native high-resolution remains disabled by default until its presentation and high-res-only crash evidence are understood.
 - Exercise controller input through the game's natural menu flow; do not permanently force gamestates.
 - Keep overlay registration range-based and avoid generated overlay-ID assumptions.
 
@@ -425,7 +425,7 @@ Record durable experiments here. Keep entries concise and technical.
 
 - What exact signal/address/function context occurs when the intro sequence is allowed to play naturally?
 - Does the reported natural intro `Signal 15` match the repeated late `gs=3` `Signal 10`/`0x380800002` crash, or are they separate blockers?
-- Does high-resolution mode uniquely reproduce the `0x3880006d0` no-match crash, or can long low-resolution sessions still hit it later?
+- Does high-resolution mode uniquely reproduce the `0x3880006d0` no-match crash, or can long low-resolution sessions still hit it later? Default builds now report 4MB RDRAM and hard-skip only the `gs=12` selector by requesting `gs=-5` to keep testers on the validated low-resolution path; investigate manually with `-DLOD_SKIP_EXPANSION_PAK_SCREEN=OFF -DLOD_ENABLE_NATIVE_HIGH_RES=ON`.
 - Is the NI TLB skip range supposed to cover the full 1MB reusable `0x0E`/`0x0F` segment rather than only the currently loaded overlay span?
 - Are `0x8E...`/`0x8F...` dispatch targets always safe to canonicalize/register as aliases for `0x0E...`/`0x0F...` NI overlays?
 - For no-match base NI TLB maps, how should code-like but non-fingerprinted/corrupted pages be handled? Normal-copying while preserving old registrations helped one scripted route, but the manual high-res crash shows stale registered functions plus mismatched bytes can still be unsafe.

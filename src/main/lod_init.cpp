@@ -23,6 +23,13 @@
 #define LOD_POST_RDRAM_GUARD_SIZE 0x10000
 #endif
 
+#ifndef LOD_ENABLE_NATIVE_HIGH_RES
+#define LOD_ENABLE_NATIVE_HIGH_RES 0
+#endif
+
+static constexpr uint32_t kReportedOsMemSize =
+    LOD_ENABLE_NATIVE_HIGH_RES ? 0x00800000u : 0x00400000u;
+
 #if LOD_ENABLE_BGSTATE_TRACE
 extern "C" void lod_install_bgstate_trace_wrappers_early();
 #endif
@@ -190,9 +197,12 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
             fprintf(stderr, "[mprotect] KSEG1 region zeroed\n");
         }
         // Set osMemSize at the standard N64 location (0x80000318).
-        // 8MB = expansion pak present. Prevents RDRAM size probe crashes.
-        *(uint32_t*)(rdram + 0x318) = 0x00800000;
-        fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x00800000 (8MB)\n");
+        // We keep the host-side 8MB mirror/guards mapped either way, but report
+        // 4MB by default so the game stays on the stable low-resolution path.
+        *(uint32_t*)(rdram + 0x318) = kReportedOsMemSize;
+        fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x%08X (%s)\n",
+                kReportedOsMemSize,
+                LOD_ENABLE_NATIVE_HIGH_RES ? "8MB/native high-res enabled" : "4MB/native high-res disabled");
     }
 
     // === Null-pointer guard regions ===
@@ -450,8 +460,10 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
             }
         }
         // Set osMemSize so game knows RDRAM size without probing.
-        *(uint32_t*)(rdram + 0x318) = 0x00800000; // 8MB
-        fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x00800000 (8MB)\n");
+        *(uint32_t*)(rdram + 0x318) = kReportedOsMemSize;
+        fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x%08X (%s)\n",
+                kReportedOsMemSize,
+                LOD_ENABLE_NATIVE_HIGH_RES ? "8MB/native high-res enabled" : "4MB/native high-res disabled");
     }
 
     // === ROM byte-swap mapping ===

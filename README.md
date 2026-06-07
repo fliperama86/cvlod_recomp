@@ -116,6 +116,8 @@ The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings ov
 
 Options are applied live and saved automatically. The overlay uses the same RmlUi/RT64 render-hook direction as Zelda64Recomp, but it is still an early LoD-specific prototype.
 
+Native LoD Expansion Pak high-resolution mode is currently skipped in default builds. The runtime still maps/guards the internal 8MB RDRAM mirror and reports 4MB to the game, but the selector still appears on the stock boot path; default builds therefore hard-skip only that selector (`gs=12`) by requesting the normal post-selector transition (`gs=-5`, which creates `gs=5`) to keep testers on the validated low-resolution route. Developers can investigate the native selector/high-res route with `-DLOD_SKIP_EXPANSION_PAK_SCREEN=OFF -DLOD_ENABLE_NATIVE_HIGH_RES=ON`.
+
 ### Building from a release tag
 
 GitHub releases are also tagged source baselines. Use the release tag with `git clone --recursive`; do **not** rely on GitHub's auto-generated "Source code" zip/tarball for a fresh build because it does not include submodule contents and it still requires the local/generated files listed above.
