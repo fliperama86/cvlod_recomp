@@ -690,7 +690,7 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
     }
 
     if (lod::ui::handle_graphics_hotkey(key)) {
-        fprintf(stderr, "[UI] staged graphics hotkey in overlay\n");
+        fprintf(stderr, "[UI] handled graphics hotkey in overlay\n");
         return true;
     }
 

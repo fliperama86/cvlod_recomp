@@ -317,6 +317,14 @@ button.choice.changed {
     color: #211400;
     background-color: #f3c15a;
 }
+button.disabled, button:disabled, .recomp-setting-row.disabled button {
+    color: #8e8371;
+    background-color: #242027;
+    border: 1px #4d423c;
+}
+.recomp-setting-row.disabled {
+    opacity: 0.62;
+}
 .recomp-root {
     position: absolute;
     left: 0; top: 0; right: 0; bottom: 0;
@@ -905,6 +913,19 @@ public:
     }
 
     bool stage_graphics_hotkey(int key) {
+        if (prompt_open_) {
+            switch (key) {
+                case SDLK_F11:
+                case SDLK_F5:
+                case SDLK_F6:
+                case SDLK_F7:
+                case SDLK_F8:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         switch (key) {
             case SDLK_F11:
                 cycle_graphics("window_mode", true);
@@ -1063,6 +1084,9 @@ private:
             pending_graphics_.ds_option += forward ? 1 : -1;
             pending_graphics_.ds_option = std::clamp(pending_graphics_.ds_option, 1, 8);
         } else if (field == "refresh_rate_manual") {
+            if (pending_graphics_.rr_option != ultramodern::renderer::RefreshRate::Manual) {
+                return;
+            }
             pending_graphics_.rr_manual_value += forward ? 5 : -5;
             pending_graphics_.rr_manual_value = std::clamp(pending_graphics_.rr_manual_value, 20, 360);
         } else {
@@ -1098,16 +1122,21 @@ private:
         if (active_tab_ == UiTab::Graphics) {
             const char* fields[] = {
                 "window_mode", "resolution", "downsample", "aspect_ratio",
-                "antialiasing", "refresh_rate", "refresh_rate_manual",
-                "high_precision_framebuffer",
+                "antialiasing", "refresh_rate", "high_precision_framebuffer",
             };
             for (const char* field : fields) {
                 ids.emplace_back(std::string(field) + "_prev");
                 ids.emplace_back(std::string(field) + "_next");
             }
+            if (pending_graphics_.rr_option == ultramodern::renderer::RefreshRate::Manual) {
+                ids.emplace_back("refresh_rate_manual_prev");
+                ids.emplace_back("refresh_rate_manual_next");
+            }
             ids.emplace_back("reset_graphics");
-            ids.emplace_back("discard_graphics");
-            ids.emplace_back("apply_graphics");
+            if (has_pending_graphics_changes()) {
+                ids.emplace_back("discard_graphics");
+                ids.emplace_back("apply_graphics");
+            }
             ids.emplace_back("close_settings_graphics");
         } else {
             switch (active_tab_) {
@@ -1290,13 +1319,14 @@ private:
     }
 
     std::string make_graphics_row(const char* field, const std::string& title, const std::string& description,
-                                  const std::string& value, bool changed) const {
+                                  const std::string& value, bool changed, bool enabled = true) const {
+        const char* disabled_attr = enabled ? "" : " disabled";
         std::ostringstream out;
-        out << "<div class='recomp-setting-row" << (changed ? " changed" : "") << "'><div class='recomp-setting-copy'><h2>"
+        out << "<div class='recomp-setting-row" << (changed ? " changed" : "") << (enabled ? "" : " disabled") << "'><div class='recomp-setting-copy'><h2>"
             << escape_rml(title) << "</h2><p>" << escape_rml(description)
             << "</p></div><div class='recomp-setting-control'>"
-            << "<button id='" << field << "_prev' class='choice secondary'>&lt;</button>"
-            << "<button id='" << field << "_next' class='choice" << (changed ? " changed" : "") << "'>"
+            << "<button id='" << field << "_prev' class='choice secondary" << (enabled ? "" : " disabled") << "'" << disabled_attr << ">&lt;</button>"
+            << "<button id='" << field << "_next' class='choice" << (changed ? " changed" : "") << (enabled ? "" : " disabled") << "'" << disabled_attr << ">"
             << escape_rml(value) << "</button>"
             << "</div></div>";
         return out.str();
@@ -1325,16 +1355,19 @@ private:
         out << make_graphics_row("aspect_ratio", "Aspect Ratio", "Manual currently maps to the renderer's widescreen target.", aspect_name(pending_graphics_.ar_option), pending_graphics_.ar_option != active_graphics_.ar_option);
         out << make_graphics_row("antialiasing", "Anti-Aliasing", "MSAA level requested from the renderer.", msaa_name(pending_graphics_.msaa_option), pending_graphics_.msaa_option != active_graphics_.msaa_option);
         out << make_graphics_row("refresh_rate", "Refresh Rate", "Original preserves game timing; Manual uses the value below.", refresh_name(pending_graphics_.rr_option), pending_graphics_.rr_option != active_graphics_.rr_option);
-        out << make_graphics_row("refresh_rate_manual", "Manual Refresh Rate", "Step between 20 and 360 Hz in 5 Hz increments.", std::to_string(pending_graphics_.rr_manual_value) + " Hz", pending_graphics_.rr_manual_value != active_graphics_.rr_manual_value);
+        const bool manual_refresh_enabled = pending_graphics_.rr_option == ultramodern::renderer::RefreshRate::Manual;
+        out << make_graphics_row("refresh_rate_manual", "Manual Refresh Rate", "Step between 20 and 360 Hz in 5 Hz increments. Enabled only when Refresh Rate is Manual.", std::to_string(pending_graphics_.rr_manual_value) + " Hz", pending_graphics_.rr_manual_value != active_graphics_.rr_manual_value, manual_refresh_enabled);
         out << make_graphics_row("high_precision_framebuffer", "High Precision Framebuffer", "Renderer framebuffer precision preference.", hpfb_name(pending_graphics_.hpfb_option), pending_graphics_.hpfb_option != active_graphics_.hpfb_option);
         out << make_readonly_row("Graphics API", "Startup-sensitive backend; read-only for now.", api_name(pending_graphics_.api_option));
+        const bool dirty_graphics = has_pending_graphics_changes();
+        const char* clean_disabled_attr = dirty_graphics ? "" : " disabled";
         out << "<div class='recomp-actions'>";
         out << "<button id='reset_graphics' class='secondary'>Reset Defaults</button>";
-        out << "<button id='discard_graphics' class='secondary'>Discard</button>";
-        out << "<button id='apply_graphics'>Apply</button>";
+        out << "<button id='discard_graphics' class='secondary" << (dirty_graphics ? "" : " disabled") << "'" << clean_disabled_attr << ">Discard</button>";
+        out << "<button id='apply_graphics' class='" << (dirty_graphics ? "" : "disabled") << "'" << clean_disabled_attr << ">Apply</button>";
         out << "<button id='close_settings_graphics' class='secondary'>Close</button>";
         out << "</div>";
-        if (has_pending_graphics_changes()) {
+        if (dirty_graphics) {
             out << "<p class='recomp-page-help'><span class='recomp-pill'>Unsaved</span> Pending graphics changes are staged locally.</p>";
         }
         return out.str();
