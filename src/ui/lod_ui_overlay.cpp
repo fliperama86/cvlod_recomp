@@ -106,6 +106,8 @@ std::atomic_bool g_graphics_config_changed{false};
 std::atomic_bool g_controls_config_changed{false};
 std::atomic_bool g_audio_config_changed{false};
 std::atomic_bool g_logged_first_draw{false};
+std::atomic_bool g_ui_ready{false};
+std::atomic_bool g_ui_failed{false};
 bool g_rml_initialised = false;
 
 std::mutex g_ui_mutex;
@@ -116,6 +118,9 @@ std::mutex g_callback_mutex;
 lod::ui::GraphicsApplyCallback g_graphics_apply_callback;
 std::string g_config_path_display;
 std::string g_connected_controller_name = "None detected";
+std::string g_controls_button_summary = "Using defaults until controls.json is loaded";
+std::string g_controls_trigger_summary = "Using defaults until controls.json is loaded";
+std::string g_controls_right_stick_summary = "Using defaults until controls.json is loaded";
 
 constexpr RenderFormat kRmlTextureFormat = RenderFormat::R8G8B8A8_UNORM;
 constexpr RenderFormat kRmlTextureFormatBgra = RenderFormat::B8G8R8A8_UNORM;
@@ -534,6 +539,8 @@ class RmlOverlayRenderer final : public Rml::RenderInterfaceCompatibility {
 public:
     void init(RenderInterface* render_interface, RenderDevice* device) {
         std::lock_guard<std::mutex> lock(g_ui_mutex);
+        g_ui_ready.store(false, std::memory_order_relaxed);
+        g_ui_failed.store(false, std::memory_order_relaxed);
         interface_ = render_interface;
         device_ = device;
         g_logged_first_draw.store(false, std::memory_order_relaxed);
@@ -558,6 +565,7 @@ public:
         const size_t pixel_blob_size = LOD_UI_SHADER_SIZE(InterfacePS, shader_format);
         if (vertex_blob == nullptr || pixel_blob == nullptr || vertex_blob_size == 0 || pixel_blob_size == 0) {
             std::fprintf(stderr, "[UI] Unsupported renderer shader format for RmlUi overlay\n");
+            g_ui_failed.store(true, std::memory_order_relaxed);
             return;
         }
 
@@ -628,6 +636,7 @@ public:
             g_rml_initialised = Rml::Initialise();
             if (!g_rml_initialised) {
                 std::fprintf(stderr, "[UI] RmlUi initialise failed\n");
+                g_ui_failed.store(true, std::memory_order_relaxed);
                 return;
             }
 
@@ -638,10 +647,12 @@ public:
         }
 
         std::fprintf(stderr, "[UI] RmlUi RT64 overlay hook initialized\n");
+        g_ui_ready.store(true, std::memory_order_relaxed);
     }
 
     void reset() {
         std::lock_guard<std::mutex> lock(g_ui_mutex);
+        g_ui_ready.store(false, std::memory_order_relaxed);
         if (document_) {
             document_->Close();
             document_ = nullptr;
@@ -677,7 +688,9 @@ public:
 
     void draw(RenderCommandList* list, RenderFramebuffer* framebuffer) {
         std::lock_guard<std::mutex> lock(g_ui_mutex);
-        if (!g_overlay_visible.load(std::memory_order_relaxed) || !pipeline_ || !g_rml_initialised) {
+        if (!g_overlay_visible.load(std::memory_order_relaxed) ||
+            g_ui_failed.load(std::memory_order_relaxed) ||
+            !pipeline_ || !g_rml_initialised) {
             was_visible_ = false;
             return;
         }
@@ -692,6 +705,8 @@ public:
             context_ = Rml::CreateContext("lod_overlay", Rml::Vector2i(width, height), GetAdaptedInterface());
             if (!context_) {
                 std::fprintf(stderr, "[UI] Failed to create RmlUi context\n");
+                g_ui_failed.store(true, std::memory_order_relaxed);
+                g_ui_ready.store(false, std::memory_order_relaxed);
                 return;
             }
         }
@@ -889,6 +904,33 @@ public:
         std::fprintf(stderr, "[UI] Ignoring unknown action '%s' param '%s'\n", action.c_str(), param.c_str());
     }
 
+    bool stage_graphics_hotkey(int key) {
+        switch (key) {
+            case SDLK_F11:
+                cycle_graphics("window_mode", true);
+                pending_focus_id_ = "window_mode_next";
+                return true;
+            case SDLK_F5:
+                cycle_graphics("resolution", true);
+                pending_focus_id_ = "resolution_next";
+                return true;
+            case SDLK_F6:
+                cycle_graphics("aspect_ratio", true);
+                pending_focus_id_ = "aspect_ratio_next";
+                return true;
+            case SDLK_F7:
+                cycle_graphics("antialiasing", true);
+                pending_focus_id_ = "antialiasing_next";
+                return true;
+            case SDLK_F8:
+                cycle_graphics("refresh_rate", true);
+                pending_focus_id_ = "refresh_rate_next";
+                return true;
+            default:
+                return false;
+        }
+    }
+
 private:
     void ensure_document() {
         if (document_) {
@@ -897,6 +939,8 @@ private:
         document_ = context_->LoadDocumentFromMemory(make_document_rml());
         if (!document_) {
             std::fprintf(stderr, "[UI] Failed to load RmlUi overlay document\n");
+            g_ui_failed.store(true, std::memory_order_relaxed);
+            g_ui_ready.store(false, std::memory_order_relaxed);
             return;
         }
         document_->Show();
@@ -1299,10 +1343,13 @@ private:
     std::string make_controls_page() const {
         std::ostringstream out;
         out << "<h1 class='recomp-page-title'>Controls</h1>";
-        out << "<p class='recomp-page-help'>Read-only first pass showing the current LoD-specific controller and keyboard defaults. Rebinding will come after the persistence model is extended.</p>";
+        out << "<p class='recomp-page-help'>Read-only first pass showing live controls.json summaries plus the LoD action guide. Rebinding will come after the persistence model is extended.</p>";
         out << make_readonly_row("Connected Controller", "First SDL GameController opened by the runtime.", g_connected_controller_name);
         out << make_readonly_row("Controls Config", "Controller mappings are persisted in controls.json.", g_config_path_display.empty() ? "controls.json" : (g_config_path_display + "/controls.json"));
-        out << make_readonly_row("Jump", "Controller A / Cross maps to N64 A.", "A / Cross → N64 A");
+        out << make_readonly_row("Configured Buttons", "Live gamepad button bindings loaded from controls.json.", g_controls_button_summary);
+        out << make_readonly_row("Configured Triggers", "Live trigger bindings and threshold loaded from controls.json.", g_controls_trigger_summary);
+        out << make_readonly_row("Right Stick", "Live right-stick-to-D-pad settings loaded from controls.json.", g_controls_right_stick_summary);
+        out << make_readonly_row("Jump", "Default LoD action guide; see live summary above for current binding.", "A / Cross → N64 A");
         out << make_readonly_row("Attack 1", "Controller X / Square maps to N64 B.", "X / Square → N64 B");
         out << make_readonly_row("Attack 2", "Controller Y / Triangle maps to N64 C-Left.", "Y / Triangle → C-Left");
         out << make_readonly_row("Collect / Interact", "Controller B / Circle maps to N64 C-Right.", "B / Circle → C-Right");
@@ -1622,9 +1669,23 @@ void lod::ui::set_connected_controller_name(std::string name) {
     g_controls_config_changed.store(true, std::memory_order_relaxed);
 }
 
+void lod::ui::set_controls_config_summary(std::string buttons, std::string triggers, std::string right_stick) {
+    std::lock_guard<std::mutex> lock(g_ui_mutex);
+    g_controls_button_summary = std::move(buttons);
+    g_controls_trigger_summary = std::move(triggers);
+    g_controls_right_stick_summary = std::move(right_stick);
+    g_controls_config_changed.store(true, std::memory_order_relaxed);
+}
+
 void lod::ui::toggle_overlay() {
     if (g_overlay_visible.load(std::memory_order_relaxed)) {
-        g_close_requested.store(true, std::memory_order_relaxed);
+        if (!g_ui_ready.load(std::memory_order_relaxed) ||
+            g_ui_failed.load(std::memory_order_relaxed)) {
+            g_close_requested.store(false, std::memory_order_relaxed);
+            g_overlay_visible.store(false, std::memory_order_relaxed);
+        } else {
+            g_close_requested.store(true, std::memory_order_relaxed);
+        }
     } else {
         show_overlay();
     }
@@ -1653,15 +1714,26 @@ bool lod::ui::overlay_visible() {
 }
 
 bool lod::ui::captures_input() {
-    return overlay_visible();
+    return overlay_visible() &&
+        g_ui_ready.load(std::memory_order_relaxed) &&
+        !g_ui_failed.load(std::memory_order_relaxed);
 }
 
 bool lod::ui::captures_mouse() {
-    return overlay_visible();
+    return captures_input();
+}
+
+bool lod::ui::handle_graphics_hotkey(int key) {
+    if (!captures_input()) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(g_ui_mutex);
+    return g_renderer.stage_graphics_hotkey(key);
 }
 
 bool lod::ui::queue_platform_event(const SDL_Event& event) {
-    if (!overlay_visible()) {
+    if (!captures_input()) {
         return false;
     }
     std::lock_guard<std::mutex> lock(g_event_mutex);

@@ -27,9 +27,10 @@ Scope: original RmlUi/RT64 settings overlay and follow-on launcher, controls, au
 
 - Keep the first implementation monolithic in `src/ui/lod_ui_overlay.cpp`; split into `recomp_ui_*` modules after behavior stabilizes.
 - Use embedded original markup/style for the first interactive slice to avoid packaging regressions; disk-loaded `assets/ui` can be added later with an asset resolver. Current release packages do not need UI asset copies.
-- Existing graphics hotkeys remain supported and continue to apply immediately outside the overlay.
+- Existing graphics hotkeys remain supported. Outside the overlay they apply immediately; while the overlay is capturing input they mutate pending graphics state and require Apply.
 - Close behavior with pending graphics changes: open a confirmation prompt; `F1`/Esc while the prompt is open keeps the overlay open unless the user chooses Discard.
 - Normal users see General/Graphics/Controls/Audio only. Developer diagnostics are opt-in via `RECOMP_UI_SHOW_DEBUG=1` so compile-time-only debug features are not exposed as live toggles.
+- UI capture is gated on renderer/RmlUi readiness. If UI shader/context/document setup fails, gameplay input is not suppressed by an invisible overlay.
 - The ROM setup/launcher path is intentionally deferred until the app startup flow can create a renderer/UI window before game launch instead of exiting early.
 
 ## Verification log
@@ -40,3 +41,4 @@ Scope: original RmlUi/RT64 settings overlay and follow-on launcher, controls, au
 | 2026-06-07 | Interactive embedded settings overlay: tabs, clickable Graphics pending/apply/discard, prompt host, SDL event queue, input capture, read-only Controls/Audio. | Bounded `RECOMP_UI_OPEN_ON_START=1` smoke run; CoreGraphics window screenshot `/tmp/lod_ui_smoke_window.png`; no stale `LodRecomp`; UI log only init/first-draw lines. | Passed. |
 | 2026-06-07 | Hidden-by-default behavior. | Short bounded smoke run without `RECOMP_UI_OPEN_ON_START`; checked no first-draw log and no stale `LodRecomp`. | Passed. |
 | 2026-06-07 | Review follow-up: tracker clarified full-spec progress, controller navigation expanded, metadata pages improved, developer-gated Debug tab added. | `git diff --check`; `cmake --build build --target LodRecomp --parallel`; bounded `RECOMP_UI_OPEN_ON_START=1` screenshots with and without `RECOMP_UI_SHOW_DEBUG=1`; hidden-by-default smoke run; no stale `LodRecomp`. | Passed. |
+| 2026-06-07 | Review follow-up: invisible-capture failure guard, visible-overlay graphics hotkey staging, live controls config summaries, clearer F1 logging. | `git diff --check`; `cmake --build build --target LodRecomp --parallel`; bounded overlay screenshot smoke; hidden-by-default smoke; F5-with-overlay-open staging smoke confirmed `[UI] staged graphics hotkey in overlay` and no `[CONFIG] F5`; no stale `LodRecomp`. | Passed. |

@@ -119,7 +119,7 @@ Existing graphics hotkeys are still supported:
 | `F7` | Cycle anti-aliasing (`None`, `MSAA2X`, `MSAA4X`, `MSAA8X`) |
 | `F8` | Cycle refresh-rate mode (`Original`, `Display`, `Manual`) |
 
-Hotkeys apply live and save automatically. Graphics changes made through the overlay are staged until **Apply**.
+Graphics hotkeys apply live and save automatically during gameplay. When the overlay is open, those same graphics hotkeys stage pending UI changes until **Apply**.
 
 Native LoD Expansion Pak high-resolution mode is currently skipped in default builds. The runtime still maps/guards the internal 8MB RDRAM mirror and reports 4MB to the game, but the selector still appears on the stock boot path; default builds therefore hard-skip only that selector (`gs=12`) by requesting the normal post-selector transition (`gs=-5`, which creates `gs=5`) to keep testers on the validated low-resolution route. Developers can investigate the native selector/high-res route with `-DLOD_SKIP_EXPANSION_PAK_SCREEN=OFF -DLOD_ENABLE_NATIVE_HIGH_RES=ON`.
 

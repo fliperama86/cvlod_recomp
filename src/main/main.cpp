@@ -19,11 +19,13 @@
 #include <stdexcept>
 #include <cinttypes>
 #include <fstream>
+#include <sstream>
 #include <thread>
 #include <chrono>
 #include <filesystem>
 #include <cmath>
 #include <string>
+#include <initializer_list>
 #include <cctype>
 #include <limits.h>
 #if defined(__APPLE__) || defined(__linux__)
@@ -185,6 +187,27 @@ static const char* n64_button_to_string(uint16_t value) {
         case N64_CBUTTON_LEFT: return "n64_c_left";
         case N64_CBUTTON_RIGHT: return "n64_c_right";
         default: return "none";
+    }
+}
+
+static const char* n64_button_display_name(uint16_t value) {
+    switch (value) {
+        case 0: return "None";
+        case N64_BUTTON_A: return "N64 A";
+        case N64_BUTTON_B: return "N64 B";
+        case N64_BUTTON_Z: return "N64 Z";
+        case N64_BUTTON_START: return "Start";
+        case N64_DPAD_UP: return "D-pad Up";
+        case N64_DPAD_DOWN: return "D-pad Down";
+        case N64_DPAD_LEFT: return "D-pad Left";
+        case N64_DPAD_RIGHT: return "D-pad Right";
+        case N64_BUTTON_L: return "N64 L";
+        case N64_BUTTON_R: return "N64 R";
+        case N64_CBUTTON_UP: return "C-Up";
+        case N64_CBUTTON_DOWN: return "C-Down";
+        case N64_CBUTTON_LEFT: return "C-Left";
+        case N64_CBUTTON_RIGHT: return "C-Right";
+        default: return "Unknown";
     }
 }
 
@@ -398,6 +421,45 @@ static void save_controls_config(const ControlsConfig& config) {
         return;
     }
     f << controls_config_to_json(config).dump(2) << "\n";
+}
+
+static std::string control_pair_summary(const ControlsConfig& config,
+                                        std::initializer_list<std::pair<const char*, SDL_GameControllerButton>> entries) {
+    std::ostringstream out;
+    bool first = true;
+    for (const auto& [label, button] : entries) {
+        if (!first) {
+            out << "; ";
+        }
+        first = false;
+        out << label << " → " << n64_button_display_name(config.buttons[button]);
+    }
+    return out.str();
+}
+
+static void update_ui_controls_config_summary(const ControlsConfig& config) {
+    const std::string buttons = control_pair_summary(config, {
+        {"A/Cross", SDL_CONTROLLER_BUTTON_A},
+        {"B/Circle", SDL_CONTROLLER_BUTTON_B},
+        {"X/Square", SDL_CONTROLLER_BUTTON_X},
+        {"Y/Triangle", SDL_CONTROLLER_BUTTON_Y},
+        {"Start", SDL_CONTROLLER_BUTTON_START},
+        {"L3", SDL_CONTROLLER_BUTTON_LEFTSTICK},
+        {"R1/RB", SDL_CONTROLLER_BUTTON_RIGHTSHOULDER},
+    });
+
+    std::ostringstream triggers;
+    triggers << "L2/LT → " << n64_button_display_name(config.left_trigger)
+             << "; R2/RT → " << n64_button_display_name(config.right_trigger)
+             << "; threshold " << config.trigger_threshold;
+
+    std::ostringstream right_stick;
+    right_stick << (config.right_stick_to_dpad ? "N64 D-pad" : "Off")
+                << "; invert X " << (config.right_stick_invert_x ? "On" : "Off")
+                << "; invert Y " << (config.right_stick_invert_y ? "On" : "Off")
+                << "; deadzone " << config.right_stick_deadzone;
+
+    lod::ui::set_controls_config_summary(buttons, triggers.str(), right_stick.str());
 }
 
 static ControlsConfig load_controls_config() {
@@ -614,13 +676,27 @@ static void apply_and_save_graphics_config(const ultramodern::renderer::Graphics
 }
 
 static bool handle_graphics_hotkey(SDL_Keycode key) {
+    switch (key) {
+        case SDLK_F1:
+        {
+            const bool was_visible = lod::ui::overlay_visible();
+            lod::ui::toggle_overlay();
+            fprintf(stderr, "[UI] F1 overlay %s\n",
+                    was_visible ? (lod::ui::overlay_visible() ? "close requested" : "hidden") : "shown");
+            return true;
+        }
+        default:
+            break;
+    }
+
+    if (lod::ui::handle_graphics_hotkey(key)) {
+        fprintf(stderr, "[UI] staged graphics hotkey in overlay\n");
+        return true;
+    }
+
     auto config = ultramodern::renderer::get_graphics_config();
 
     switch (key) {
-        case SDLK_F1:
-            lod::ui::toggle_overlay();
-            fprintf(stderr, "[UI] F1 overlay %s\n", lod::ui::overlay_visible() ? "shown" : "hidden");
-            return true;
         case SDLK_F11:
             config.wm_option = config.wm_option == ultramodern::renderer::WindowMode::Fullscreen
                 ? ultramodern::renderer::WindowMode::Windowed
@@ -1522,6 +1598,7 @@ int main(int argc, char** argv) {
             graphics_config.rr_manual_value);
 
     g_controls_config = load_controls_config();
+    update_ui_controls_config_summary(g_controls_config);
     fprintf(stderr, "[CONFIG] Loaded controls config: %s\n",
             controls_config_path().string().c_str());
 
