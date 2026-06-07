@@ -103,18 +103,23 @@ The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep 
 The app creates a persistent graphics config at `~/Library/Application Support/LodRecomp/graphics.json` on macOS and `%APPDATA%\LodRecomp\graphics.json` on Windows.
 Fresh configs default to `Original2x` internal resolution; existing configs are preserved.
 
-The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The overlay currently mirrors the live graphics settings; direct menu navigation is still in progress, so use these hotkeys to change values for now:
+The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The current overlay includes General, Graphics, Controls, and Audio tabs. Graphics options are clickable and staged until **Apply** writes `graphics.json`; **Discard** restores the active renderer values. Esc / controller B closes the overlay, prompting first if graphics changes are pending.
+
+The UI is currently embedded in the executable, so release packages do not need separate `assets/ui` files yet. For automated visual smoke tests, developers may set `RECOMP_UI_OPEN_ON_START=1` to open the otherwise-hidden overlay after renderer initialization.
+
+Existing graphics hotkeys are still supported:
 
 | Key | Action |
 | --- | --- |
 | `F1` | Show/hide the RmlUi settings overlay |
+| `Esc` | Close prompt/settings overlay |
 | `F11` | Toggle windowed/fullscreen |
 | `F5` | Cycle internal resolution mode (`Original`, `Original2x`, `Auto`) |
 | `F6` | Cycle aspect ratio mode (`Original`, `Expand`, `Manual`) |
-| `F7` | Cycle antialiasing (`None`, `MSAA2X`, `MSAA4X`, `MSAA8X`) |
+| `F7` | Cycle anti-aliasing (`None`, `MSAA2X`, `MSAA4X`, `MSAA8X`) |
 | `F8` | Cycle refresh-rate mode (`Original`, `Display`, `Manual`) |
 
-Options are applied live and saved automatically. The overlay uses the same RmlUi/RT64 render-hook direction as Zelda64Recomp, but it is still an early LoD-specific prototype.
+Hotkeys apply live and save automatically. Graphics changes made through the overlay are staged until **Apply**.
 
 Native LoD Expansion Pak high-resolution mode is currently skipped in default builds. The runtime still maps/guards the internal 8MB RDRAM mirror and reports 4MB to the game, but the selector still appears on the stock boot path; default builds therefore hard-skip only that selector (`gs=12`) by requesting the normal post-selector transition (`gs=-5`, which creates `gs=5`) to keep testers on the validated low-resolution route. Developers can investigate the native selector/high-res route with `-DLOD_SKIP_EXPANSION_PAK_SCREEN=OFF -DLOD_ENABLE_NATIVE_HIGH_RES=ON`.
 

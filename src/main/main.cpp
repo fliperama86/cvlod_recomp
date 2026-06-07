@@ -626,22 +626,27 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
                 ? ultramodern::renderer::WindowMode::Windowed
                 : ultramodern::renderer::WindowMode::Fullscreen;
             apply_and_save_graphics_config(config, "F11");
+            lod::ui::notify_graphics_config_changed();
             return true;
         case SDLK_F5:
             config.res_option = next_graphics_option(config.res_option);
             apply_and_save_graphics_config(config, "F5");
+            lod::ui::notify_graphics_config_changed();
             return true;
         case SDLK_F6:
             config.ar_option = next_graphics_option(config.ar_option);
             apply_and_save_graphics_config(config, "F6");
+            lod::ui::notify_graphics_config_changed();
             return true;
         case SDLK_F7:
             config.msaa_option = next_graphics_option(config.msaa_option);
             apply_and_save_graphics_config(config, "F7");
+            lod::ui::notify_graphics_config_changed();
             return true;
         case SDLK_F8:
             config.rr_option = next_graphics_option(config.rr_option);
             apply_and_save_graphics_config(config, "F8");
+            lod::ui::notify_graphics_config_changed();
             return true;
         default:
             return false;
@@ -732,6 +737,22 @@ void update_gfx(void*) {
                 break;
             case SDL_KEYDOWN:
                 if (event.key.repeat == 0 && handle_graphics_hotkey(event.key.keysym.sym)) {
+                    break;
+                }
+                if (lod::ui::queue_platform_event(event)) {
+                    break;
+                }
+                break;
+            case SDL_KEYUP:
+            case SDL_TEXTINPUT:
+            case SDL_MOUSEMOTION:
+            case SDL_MOUSEBUTTONDOWN:
+            case SDL_MOUSEBUTTONUP:
+            case SDL_MOUSEWHEEL:
+            case SDL_CONTROLLERBUTTONDOWN:
+            case SDL_CONTROLLERBUTTONUP:
+            case SDL_WINDOWEVENT:
+                if (lod::ui::queue_platform_event(event)) {
                     break;
                 }
                 break;
@@ -952,6 +973,10 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     *buttons = 0;
     *x = 0.0f;
     *y = 0.0f;
+
+    if (lod::ui::captures_input()) {
+        return true;
+    }
 
     const uint8_t* keys = SDL_GetKeyboardState(nullptr);
 
@@ -1481,6 +1506,7 @@ int main(int argc, char** argv) {
 
     auto graphics_config = load_graphics_config();
     ultramodern::renderer::set_graphics_config(graphics_config);
+    lod::ui::set_graphics_apply_callback(apply_and_save_graphics_config);
     fprintf(stderr,
             "[CONFIG] Loaded graphics config: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
             graphics_resolution_name(graphics_config.res_option),
@@ -1510,6 +1536,11 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
     fprintf(stderr, "[LodRecomp] Using ROM: %s\n", rom_path.string().c_str());
+
+    if (std::getenv("RECOMP_UI_OPEN_ON_START") != nullptr) {
+        lod::ui::show_overlay();
+        fprintf(stderr, "[UI] RECOMP_UI_OPEN_ON_START requested; overlay will open after renderer init\n");
+    }
 
     // Launch auto-start thread (will select ROM and start game after runtime initializes)
     std::thread auto_start_thread(auto_start_game, rom_path);
