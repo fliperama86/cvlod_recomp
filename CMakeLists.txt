@@ -49,6 +49,22 @@ option(LOD_FIX_SEGMENT_86_BASES "Normalize LoD RT64 segment bases in the invalid
 if (LOD_FIX_SEGMENT_86_BASES)
     target_compile_definitions(rt64 PRIVATE LOD_FIX_SEGMENT_86_BASES=1)
 endif()
+option(LOD_ENABLE_RENDER_ADDR_TRACE "Enable throttled RT64 address/display-list diagnostics for LoD rendering glitches" OFF)
+if (LOD_ENABLE_RENDER_ADDR_TRACE)
+    target_compile_definitions(rt64 PRIVATE LOD_ENABLE_RENDER_ADDR_TRACE=1)
+endif()
+option(LOD_FIX_DIRECT_SEGMENT_86_ADDRS "Interpret direct LoD 0x86xxxxxx display-list operands as segment-6 references" OFF)
+if (LOD_FIX_DIRECT_SEGMENT_86_ADDRS)
+    target_compile_definitions(rt64 PRIVATE LOD_FIX_DIRECT_SEGMENT_86_ADDRS=1)
+endif()
+option(LOD_FIX_NI_RDP_EXTENDED_ADDRS "Preserve LoD NI 0x8E/0x8F addresses in RDP image/texture state" OFF)
+if (LOD_FIX_NI_RDP_EXTENDED_ADDRS)
+    target_compile_definitions(rt64 PRIVATE LOD_FIX_NI_RDP_EXTENDED_ADDRS=1)
+endif()
+option(LOD_FIX_NI_RSP_EXTENDED_ADDRS "Preserve LoD NI 0x8E/0x8F addresses in RSP physical-data address paths" OFF)
+if (LOD_FIX_NI_RSP_EXTENDED_ADDRS)
+    target_compile_definitions(rt64 PRIVATE LOD_FIX_NI_RSP_EXTENDED_ADDRS=1)
+endif()
 
 # ── RecompiledFuncs ─────────────────────────────────────────────────
 add_library(RecompiledFuncs STATIC)
@@ -72,6 +88,11 @@ target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 
 # ── Main executable ─────────────────────────────────────────────────
 add_executable(LodRecomp)
+
+option(LOD_DISABLE_RT64_FORCE_BRANCH "Disable RT64 global F3DEX BranchZ/W forcing for LoD render A/B tests" OFF)
+if (LOD_DISABLE_RT64_FORCE_BRANCH)
+    target_compile_definitions(LodRecomp PRIVATE LOD_DISABLE_RT64_FORCE_BRANCH=1)
+endif()
 
 option(LOD_ENABLE_NATIVE_HIGH_RES "Report Expansion Pak/8MB RDRAM to the game, enabling native high-resolution mode" OFF)
 if (LOD_ENABLE_NATIVE_HIGH_RES)

@@ -21,6 +21,10 @@
 #define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
 #endif
 
+#ifndef LOD_DISABLE_RT64_FORCE_BRANCH
+#define LOD_DISABLE_RT64_FORCE_BRANCH 0
+#endif
+
 static uint8_t DMEM[0x1000];
 static uint8_t IMEM[0x1000];
 
@@ -223,7 +227,10 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
     auto& cur_config = ultramodern::renderer::get_graphics_config();
     set_application_user_config(app.get(), cur_config);
     app->userConfig.developerMode = debug;
-    app->enhancementConfig.f3dex.forceBranch = true;
+    app->enhancementConfig.f3dex.forceBranch = !LOD_DISABLE_RT64_FORCE_BRANCH;
+#if LOD_DISABLE_RT64_FORCE_BRANCH
+    fprintf(stderr, "[RT64-CONFIG] f3dex.forceBranch disabled for LoD render A/B test\n");
+#endif
     app->enhancementConfig.textureLOD.scale = true;
 
     switch (cur_config.api_option) {
