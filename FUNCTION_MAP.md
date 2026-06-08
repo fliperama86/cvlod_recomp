@@ -81,6 +81,17 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x800A7110 | alSynAllocFx | libaudio FX allocator; CV64 fingerprint match |
 | 0x800A71B0 | alSynStopVoice | libaudio voice stop helper; CV64 fingerprint match |
 
+
+## Model / Dynamic Vertex Deformation
+| Address | Name | Description |
+|---------|------|-------------|
+| 0x800532E4 | vec3f_transform_by_mat4f | Transforms a Vec3f by a 4x4 matrix; CV64 match `func_80011880`/vector-by-matrix helper |
+| 0x80053B00 | model_sample_vertex_pos_to_vec3f | Samples one 16-byte vertex position (`s16 x/y/z`) by index into a Vec3f |
+| 0x80053B48 | model_apply_vertex_delta_cmd | Applies one vertex-delta command: `dst_vertex = src_vertex + delta_vec * command_scale` |
+| 0x80057B6C | model_compute_vertex_delta | Computes the model-space/world-space delta vector used by dynamic vertex deformation |
+| 0x80057CAC | model_apply_scaled_vertex_delta_cmds | Scales a computed delta and applies a vertex-delta command list |
+| 0x80057ED0 | model_refresh_anchor_from_vertex | Samples a model vertex and transforms it into `model+0x14` anchor/position fields |
+
 ## Gamestate IDs
 | ID | Name | Notes |
 |----|------|-------|

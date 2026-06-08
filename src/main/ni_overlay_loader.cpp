@@ -11,6 +11,8 @@
 #include <cstdint>
 #include <cstring>
 #include <cmath>
+#include <array>
+#include <vector>
 #include "lod/lod_mem_compat.h"
 #if defined(__APPLE__) || defined(__linux__)
 #include <dlfcn.h>
@@ -61,6 +63,10 @@
 
 #ifndef LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
 #define LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST 1
+#endif
+
+#ifndef LOD_FIX_NI_PERSIST_OVERLAY_DATA
+#define LOD_FIX_NI_PERSIST_OVERLAY_DATA 0
 #endif
 
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
@@ -2080,6 +2086,10 @@ static int ni_index_to_pair(int ni_index) {
 // and contains each overlay's text+data at the original compiler layout.
 // The segment region (rdram+0x8F000000 for 0x0F, rdram+0x8E000000 for 0x0E)
 // is what MEM_W(0x0F00XXXX) resolves to in recompiled code.
+static uint8_t* ni_segment_base(uint8_t* rdram, uint32_t vram) {
+    return rdram + (uint64_t)vram + 0x80000000ULL;
+}
+
 #if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
 // Pair 99's pause item-list code keeps the built item table in its NI data
 // segment at 0x0F004EA0. In-game this survives the rapid pair99/pair101 TLB
@@ -2111,10 +2121,6 @@ static bool ni_pair99_item_list_looks_live(uint8_t* segment_base) {
         populated++;
     }
     return populated > 0;
-}
-
-static uint8_t* ni_segment_base(uint8_t* rdram, uint32_t vram) {
-    return rdram + (uint64_t)vram + 0x80000000ULL;
 }
 
 static void ni_pair99_save_item_list_if_live(uint8_t* rdram, uint32_t vram,
@@ -2178,6 +2184,57 @@ static void ni_pair99_restore_item_list_if_saved(uint8_t* segment_base,
 }
 #endif
 
+#if LOD_FIX_NI_PERSIST_OVERLAY_DATA
+struct LodNiPersistedOverlayData {
+    std::vector<uint8_t> bytes;
+    bool valid = false;
+};
+
+static std::array<LodNiPersistedOverlayData, NI_PAIR_COUNT> ni_persist_0f_data;
+static std::array<LodNiPersistedOverlayData, NI_PAIR_COUNT> ni_persist_0e_data;
+
+static LodNiPersistedOverlayData* ni_persist_slot_for_vram(uint32_t vram, int pair_index) {
+    if (pair_index < 0 || pair_index >= NI_OVL_COUNT) {
+        return nullptr;
+    }
+    if (vram == 0x0F000000) {
+        return &ni_persist_0f_data[(size_t)pair_index];
+    }
+    if (vram == 0x0E000000) {
+        return &ni_persist_0e_data[(size_t)pair_index];
+    }
+    return nullptr;
+}
+
+static void ni_persist_save_overlay_data(uint8_t* rdram, uint32_t vram,
+                                         int pair_index, const char* reason) {
+    LodNiPersistedOverlayData* slot = ni_persist_slot_for_vram(vram, pair_index);
+    if (slot == nullptr) {
+        return;
+    }
+
+    const uint32_t size = ni_ovl_data[pair_index].full_size;
+    uint8_t* segment_base = ni_segment_base(rdram, vram);
+    slot->bytes.resize(size);
+    memcpy(slot->bytes.data(), segment_base, size);
+    slot->valid = true;
+
+    (void)reason;
+}
+
+static void ni_persist_restore_overlay_data_if_saved(uint8_t* segment_base,
+                                                     int pair_index,
+                                                     uint32_t vram,
+                                                     uint32_t size) {
+    LodNiPersistedOverlayData* slot = ni_persist_slot_for_vram(vram, pair_index);
+    if (slot == nullptr || !slot->valid || slot->bytes.size() != size) {
+        return;
+    }
+
+    memcpy(segment_base, slot->bytes.data(), size);
+}
+#endif
+
 static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_t vram) {
     if (pair_index < 0 || pair_index >= NI_OVL_COUNT) return;
 
@@ -2195,6 +2252,10 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
     mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
 
     memcpy(dst, src, size);
+
+#if LOD_FIX_NI_PERSIST_OVERLAY_DATA
+    ni_persist_restore_overlay_data_if_saved(dst, pair_index, vram, size);
+#endif
 
 #if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
     ni_pair99_restore_item_list_if_saved(dst, pair_index, vram, size);
@@ -2220,6 +2281,11 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 
     // Save mutable data that belongs to the outgoing NI pair before the shared
     // 0x8F/0x8E mirror is overwritten by the incoming pair's pristine ROM data.
+#if LOD_FIX_NI_PERSIST_OVERLAY_DATA
+    if (loaded_pair >= 0 && pair_index != loaded_pair) {
+        ni_persist_save_overlay_data(rdram, vram, loaded_pair, "pair-swap");
+    }
+#endif
 #if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
     if (vram == 0x0F000000 && loaded_pair == 99 && pair_index != loaded_pair) {
         ni_pair99_save_item_list_if_live(rdram, vram,

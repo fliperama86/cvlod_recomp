@@ -97,6 +97,11 @@ target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 # ── Main executable ─────────────────────────────────────────────────
 add_executable(LodRecomp)
 
+option(LOD_FIX_NI_PERSIST_OVERLAY_DATA "Persist mutable NI overlay segment data across pair swaps" ON)
+if (LOD_FIX_NI_PERSIST_OVERLAY_DATA)
+    target_compile_definitions(LodRecomp PRIVATE LOD_FIX_NI_PERSIST_OVERLAY_DATA=1)
+endif()
+
 option(LOD_DISABLE_RT64_FORCE_BRANCH "Disable RT64 global F3DEX BranchZ/W forcing for LoD render A/B tests" OFF)
 if (LOD_DISABLE_RT64_FORCE_BRANCH)
     target_compile_definitions(LodRecomp PRIVATE LOD_DISABLE_RT64_FORCE_BRANCH=1)
