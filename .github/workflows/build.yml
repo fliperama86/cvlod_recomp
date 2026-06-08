@@ -1,6 +1,6 @@
 name: build
 
-# Builds Windows x64 and macOS arm64 binaries. The stock ROM required for
+# Builds Windows x64, Linux x64, and macOS arm64 binaries. The stock ROM required for
 # RecompiledFuncs regeneration is cloned from a private assets repository via
 # the CVLOD_ASSETS_REPO_WITH_PAT secret (a clone URL with an embedded
 # fine-grained PAT, e.g. https://x-access-token:TOKEN@github.com/OWNER/cvlod-assets.git).
@@ -130,6 +130,103 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-x64
+          path: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+
+      - name: Attach to release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ steps.pkg.outputs.asset }}
+            ${{ steps.pkg.outputs.asset }}.sha256
+
+  build-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Checkout (recursive)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Compute version string
+        id: ver
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA:0:8}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            cmake ninja-build pkg-config python3 clang lld \
+            libsdl2-dev libfreetype-dev zlib1g-dev libvulkan-dev libgtk-3-dev \
+            libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+
+      - name: Fetch ROM from private assets repo
+        run: |
+          git clone --depth 1 "${{ secrets.CVLOD_ASSETS_REPO_WITH_PAT }}" cvlod-assets
+          cp cvlod-assets/rom.z64 rom.z64
+          rm -rf cvlod-assets
+          size=$(stat -c%s rom.z64)
+          [ "$size" -eq 16777216 ] || { echo "rom.z64 has unexpected size $size"; exit 1; }
+
+      - name: Build N64Recomp CLI (clean pinned submodule)
+        run: |
+          git -C lib/N64ModernRuntime/N64Recomp diff --quiet -- src/
+          cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-n64recomp --target N64RecompCLI --parallel
+
+      - name: Regenerate RecompiledFuncs
+        run: |
+          python3 tools/ni_ovl/step1_dump_table.py rom.z64
+          python3 tools/ni_ovl/step2_decompress.py rom.z64
+          python3 tools/ni_ovl/step3_boundaries.py
+          python3 tools/ni_ovl/step4_functions.py
+          mkdir -p resources
+          python3 tools/ni_ovl/step6_extended_rom.py rom.z64
+          # N64Recomp exits non-zero on the known overlay_system message.
+          ./build-n64recomp/N64Recomp recomp.toml || echo "N64Recomp exited $? (expected overlay_system abort)"
+          python3 tools/fix_n64recomp_truncation.py
+          python3 tools/ni_ovl/repair_overlay_table.py --fix
+          python3 tools/ni_ovl/fix_undeclared_labels.py
+          python3 tools/apply_patches.py
+          python3 tools/apply_symbols.py
+          # Tracked patched files are authoritative.
+          git checkout -- RecompiledFuncs/
+
+      - name: Validate regeneration output
+        run: |
+          test -f RecompiledFuncs/funcs.h
+          test -f RecompiledFuncs/recomp_overlays.inl
+          count=$(ls RecompiledFuncs/*.c | wc -l | tr -d ' ')
+          [ "$count" -ge 240 ] || { echo "only $count generated .c files (expected ~241)"; exit 1; }
+          python3 tools/ni_ovl/repair_overlay_table.py
+
+      - name: Configure and build LodRecomp (Clang)
+        run: |
+          CC=clang CXX=clang++ cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build-linux --target LodRecomp --parallel
+
+      - name: Package
+        id: pkg
+        run: |
+          v="${{ steps.ver.outputs.version }}"
+          name="LodRecomp-$v-linux-x64"
+          mkdir -p "stage/$name"
+          cp build-linux/LodRecomp "stage/$name/"
+          cp .github/release/README-linux.txt "stage/$name/README.txt"
+          tar -czf "$name.tar.gz" -C stage "$name"
+          sha256sum "$name.tar.gz" > "$name.tar.gz.sha256"
+          cat "$name.tar.gz.sha256"
+          echo "asset=$name.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-x64
           path: |
             ${{ steps.pkg.outputs.asset }}
             ${{ steps.pkg.outputs.asset }}.sha256
