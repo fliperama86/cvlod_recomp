@@ -317,6 +317,13 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     find_package(Threads REQUIRED)
 
     target_link_libraries(LodRecomp PRIVATE "-latomic -static-libstdc++" ${CMAKE_DL_LIBS} Threads::Threads)
+
+    # librecomp's RSP vector unit (rsp_vu_impl.hpp) uses SSSE3/SSE4.1 intrinsics.
+    # On x86_64, clang gates these behind target features, so they must be
+    # enabled explicitly; on arm64 sse2neon provides them with no -m flags.
+    if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|amd64|AMD64")
+        target_compile_options(LodRecomp PRIVATE -mssse3 -msse4.1)
+    endif()
 endif()
 
 # ── Platform: Windows ───────────────────────────────────────────────
