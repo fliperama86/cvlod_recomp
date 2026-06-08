@@ -543,6 +543,107 @@ button.disabled, button:disabled, .recomp-setting-row.disabled button {
 )RML";
 }
 
+// Keeps font data alive for the process lifetime. The memory-based
+// Rml::LoadFontFace overload does not copy or take ownership of the buffer
+// (FontProvider passes a null face_memory), so FreeType references our bytes
+// directly and they must outlive every font face.
+std::vector<std::vector<Rml::byte>>& overlay_font_store() {
+    static std::vector<std::vector<Rml::byte>> store;
+    return store;
+}
+
+// Loads a font file from disk and registers it under the "Arial" family used by
+// make_document_rml(), so the document matches regardless of the font's own
+// internal family name. Returns false if the file cannot be read or parsed.
+bool register_overlay_font(const std::string& path, Rml::Style::FontWeight weight, bool fallback_face) {
+    FILE* file = std::fopen(path.c_str(), "rb");
+    if (file == nullptr) {
+        return false;
+    }
+    std::fseek(file, 0, SEEK_END);
+    long length = std::ftell(file);
+    std::fseek(file, 0, SEEK_SET);
+    if (length <= 0) {
+        std::fclose(file);
+        return false;
+    }
+    std::vector<Rml::byte> data(static_cast<size_t>(length));
+    size_t read = std::fread(data.data(), 1, data.size(), file);
+    std::fclose(file);
+    if (read != data.size()) {
+        return false;
+    }
+
+    overlay_font_store().push_back(std::move(data));
+    const std::vector<Rml::byte>& stored = overlay_font_store().back();
+    bool ok = Rml::LoadFontFace(Rml::Span<const Rml::byte>(stored.data(), stored.size()),
+                                "Arial", Rml::Style::FontStyle::Normal, weight, fallback_face);
+    if (!ok) {
+        overlay_font_store().pop_back();
+    }
+    return ok;
+}
+
+// Registers the first available system font so the overlay always has a usable
+// face. Previously only macOS loaded a font, leaving the Windows/Linux overlay
+// with zero font faces and no rendered text.
+void load_overlay_fonts() {
+    struct FontCandidate {
+        const char* regular;
+        const char* bold;
+    };
+
+#if defined(_WIN32)
+    std::string prefix = "C:\\Windows\\Fonts\\";
+    if (const char* windir = std::getenv("WINDIR")) {
+        prefix = std::string(windir) + "\\Fonts\\";
+    }
+    const FontCandidate candidates[] = {
+        {"arial.ttf", "arialbd.ttf"},
+        {"segoeui.ttf", "segoeuib.ttf"},
+        {"tahoma.ttf", "tahomabd.ttf"},
+        {"verdana.ttf", "verdanab.ttf"},
+    };
+#elif defined(__APPLE__)
+    const std::string prefix;
+    const FontCandidate candidates[] = {
+        {"/System/Library/Fonts/Supplemental/Arial.ttf",
+         "/System/Library/Fonts/Supplemental/Arial Bold.ttf"},
+        {"/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf"},
+    };
+#else
+    const std::string prefix;
+    const FontCandidate candidates[] = {
+        {"/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"},
+        {"/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+         "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"},
+        {"/usr/share/fonts/TTF/DejaVuSans.ttf",
+         "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf"},
+        {"/usr/share/fonts/noto/NotoSans-Regular.ttf",
+         "/usr/share/fonts/noto/NotoSans-Bold.ttf"},
+    };
+#endif
+
+    for (const FontCandidate& candidate : candidates) {
+        const std::string regular_path = prefix + candidate.regular;
+        if (!register_overlay_font(regular_path, Rml::Style::FontWeight::Normal, true)) {
+            continue;
+        }
+        const std::string bold_path = prefix + candidate.bold;
+        if (!register_overlay_font(bold_path, Rml::Style::FontWeight::Bold, false)) {
+            // No dedicated bold file; reuse the regular outlines for bold weight
+            // so headings still render (without faux-bold synthesis).
+            register_overlay_font(regular_path, Rml::Style::FontWeight::Bold, false);
+        }
+        std::fprintf(stderr, "[UI] Loaded overlay font: %s\n", regular_path.c_str());
+        return;
+    }
+
+    std::fprintf(stderr,
+                 "[UI] WARNING: no system font found for overlay; settings text will not render\n");
+}
+
 class RmlOverlayRenderer;
 
 class ActionListener final : public Rml::EventListener {
@@ -663,10 +764,7 @@ public:
                 return;
             }
 
-#ifdef __APPLE__
-            Rml::LoadFontFace("/System/Library/Fonts/Supplemental/Arial.ttf", true);
-            Rml::LoadFontFace("/System/Library/Fonts/Supplemental/Arial Bold.ttf", false, Rml::Style::FontWeight::Bold);
-#endif
+            load_overlay_fonts();
         }
 
         std::fprintf(stderr, "[UI] RmlUi RT64 overlay hook initialized\n");
