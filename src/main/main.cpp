@@ -1657,7 +1657,7 @@ int main(int argc, char** argv) {
     sigaction(SIGBUS, &sa, nullptr);
 #endif
     recomp::Version project_version{};
-    recomp::Version::from_string("0.2.0", project_version);
+    recomp::Version::from_string("0.2.1", project_version);
 
     // Set up config path for ROM storage
     std::filesystem::path config_path;
