@@ -23,6 +23,7 @@
 #include <thread>
 #include <chrono>
 #include <filesystem>
+#include <optional>
 #include <cmath>
 #include <string>
 #include <atomic>
@@ -30,6 +31,7 @@
 #include <initializer_list>
 #include <cctype>
 #include <limits.h>
+#include <system_error>
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #endif
@@ -1640,6 +1642,42 @@ static void signal_handler(int sig) {
 
 // ── Main ────────────────────────────────────────────────────────────
 
+static bool lod_path_exists(const std::filesystem::path& path) {
+    std::error_code ec;
+    return std::filesystem::exists(path, ec);
+}
+
+static std::optional<std::filesystem::path> find_portable_config_path(int argc, char** argv) {
+    std::vector<std::filesystem::path> candidate_dirs;
+
+    std::error_code ec;
+    candidate_dirs.emplace_back(std::filesystem::current_path(ec));
+
+    if (argc > 0 && argv != nullptr && argv[0] != nullptr && argv[0][0] != '\0') {
+        std::filesystem::path exe_path(argv[0]);
+        if (exe_path.is_relative()) {
+            exe_path = std::filesystem::current_path(ec) / exe_path;
+        }
+        candidate_dirs.emplace_back(exe_path.lexically_normal().parent_path());
+    }
+
+#ifdef __APPLE__
+    candidate_dirs.emplace_back(lod::get_bundle_directory().parent_path());
+#endif
+
+    for (auto dir : candidate_dirs) {
+        if (dir.empty()) {
+            continue;
+        }
+        dir = dir.lexically_normal();
+        if (lod_path_exists(dir / "portable.txt")) {
+            return dir;
+        }
+    }
+
+    return std::nullopt;
+}
+
 int main(int argc, char** argv) {
     g_argc_for_rom_discovery = argc;
     g_argv_for_rom_discovery = argv;
@@ -1659,24 +1697,31 @@ int main(int argc, char** argv) {
     recomp::Version project_version{};
     recomp::Version::from_string("0.2.2", project_version);
 
-    // Set up config path for ROM storage
+    // Set up config path for ROM storage. If portable.txt exists beside the
+    // executable/app (or in the launch directory), keep config and saves there.
     std::filesystem::path config_path;
+    if (auto portable_path = find_portable_config_path(argc, argv)) {
+        config_path = *portable_path;
+        fprintf(stderr, "[CONFIG] Portable mode enabled: %s\n",
+                config_path.string().c_str());
+    } else {
 #ifdef __APPLE__
-    auto app_support = lod::get_application_support_directory();
-    if (app_support) {
-        config_path = *app_support / "LodRecomp";
-    } else {
-        config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
-    }
+        auto app_support = lod::get_application_support_directory();
+        if (app_support) {
+            config_path = *app_support / "LodRecomp";
+        } else {
+            config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
+        }
 #elif defined(_WIN32)
-    if (const char* appdata = std::getenv("APPDATA")) {
-        config_path = std::filesystem::path(appdata) / "LodRecomp";
-    } else {
-        config_path = std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : ".") / ".lodrecomp";
-    }
+        if (const char* appdata = std::getenv("APPDATA")) {
+            config_path = std::filesystem::path(appdata) / "LodRecomp";
+        } else {
+            config_path = std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : ".") / ".lodrecomp";
+        }
 #else
-    config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
+        config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
 #endif
+    }
     std::filesystem::create_directories(config_path);
     recomp::register_config_path(config_path);
     g_config_path = config_path;

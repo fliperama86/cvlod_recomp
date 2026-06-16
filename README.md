@@ -103,6 +103,8 @@ The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep 
 The app creates a persistent graphics config at `~/Library/Application Support/LodRecomp/graphics.json` on macOS and `%APPDATA%\LodRecomp\graphics.json` on Windows.
 Fresh configs default to `Original2x` internal resolution; existing configs are preserved.
 
+To use portable mode, create an empty `portable.txt` beside `LodRecomp`/`LodRecomp.app`. Config files and saves will be stored in that same folder.
+
 The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The current overlay includes General, Graphics, Controls, and Audio tabs. Graphics options are clickable and staged until **Apply** writes `graphics.json`; **Discard** restores the active renderer values. Esc / controller B closes the overlay, prompting first if graphics changes are pending.
 
 The UI is currently embedded in the executable, so release packages do not need separate `assets/ui` files yet. For automated visual smoke tests, developers may set `RECOMP_UI_OPEN_ON_START=1` to open the otherwise-hidden overlay after renderer initialization.
