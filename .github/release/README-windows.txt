@@ -30,6 +30,8 @@ arrows = D-pad, WASD = analog stick. SDL game controllers are
 supported; see the repository README for bindings and controls.json.
 
 Config files are stored in %APPDATA%\LodRecomp.
+For portable mode, create an empty portable.txt next to LodRecomp.exe;
+config files and saves will stay in that same folder.
 
 This is a fan recompilation runtime; it contains no game assets and
 requires your own ROM. Not affiliated with Konami.
