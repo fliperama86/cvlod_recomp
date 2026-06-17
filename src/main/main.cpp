@@ -76,6 +76,10 @@
 #define LOD_ENABLE_AUDIO_RAW_DUMP 0
 #endif
 
+#ifndef LOD_ENABLE_AUDIO_LATENCY_GUARD
+#define LOD_ENABLE_AUDIO_LATENCY_GUARD 0
+#endif
+
 #ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
 #define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
 #endif
@@ -867,6 +871,29 @@ constexpr uint32_t duplicated_input_frames = 4;
 static uint32_t discarded_output_frames;
 constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
 
+const char* audio_format_name(SDL_AudioFormat format) {
+    switch (format) {
+        case AUDIO_U8: return "U8";
+        case AUDIO_S8: return "S8";
+        case AUDIO_U16LSB: return "U16LSB";
+        case AUDIO_S16LSB: return "S16LSB";
+        case AUDIO_U16MSB: return "U16MSB";
+        case AUDIO_S16MSB: return "S16MSB";
+        case AUDIO_S32LSB: return "S32LSB";
+        case AUDIO_S32MSB: return "S32MSB";
+        case AUDIO_F32LSB: return "F32LSB";
+        case AUDIO_F32MSB: return "F32MSB";
+        default: return "unknown";
+    }
+}
+
+void log_audio_spec(const char* label, const SDL_AudioSpec& spec) {
+    fprintf(stderr,
+            "[AUDIO] %s freq=%d format=%s(0x%04X) channels=%u samples=%u size=%u\n",
+            label, spec.freq, audio_format_name(spec.format), spec.format,
+            (unsigned)spec.channels, (unsigned)spec.samples, spec.size);
+}
+
 void update_audio_converter() {
     SDL_BuildAudioCVT(&audio_convert, AUDIO_F32, input_channels, sample_rate,
                        AUDIO_F32, output_channels, output_sample_rate);
@@ -945,6 +972,37 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     uint32_t num_bytes_to_queue = audio_convert.len_cvt - output_channels * discarded_output_frames * sizeof(swap_buffer[0]);
     float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
 
+#if LOD_ENABLE_AUDIO_LATENCY_GUARD
+    const uint64_t queued_microseconds =
+        uint64_t(SDL_GetQueuedAudioSize(audio_device)) / bytes_per_frame * 1000000 / sample_rate;
+    uint32_t skip_factor = static_cast<uint32_t>(queued_microseconds / 100000);
+    if (skip_factor > 8) {
+        skip_factor = 8;
+    }
+    if (skip_factor != 0) {
+        const uint32_t skip_ratio = 1u << skip_factor;
+        const uint32_t frame_size = output_channels * sizeof(swap_buffer[0]);
+        const uint32_t original_frame_count = num_bytes_to_queue / frame_size;
+        const uint32_t decimated_frame_count = original_frame_count / skip_ratio;
+
+        for (uint32_t frame = 0; frame < decimated_frame_count; frame++) {
+            for (uint32_t channel = 0; channel < output_channels; channel++) {
+                samples_to_queue[frame * output_channels + channel] =
+                    samples_to_queue[frame * skip_ratio * output_channels + channel];
+            }
+        }
+        num_bytes_to_queue = decimated_frame_count * frame_size;
+
+#if LOD_ENABLE_AUDIO_TRACE
+        fprintf(stderr,
+                "[AUDIO] latency_guard queued_us=%" PRIu64 " skip_factor=%u"
+                " skip_ratio=%u frames=%u->%u bytes=%u\n",
+                queued_microseconds, skip_factor, skip_ratio,
+                original_frame_count, decimated_frame_count, num_bytes_to_queue);
+#endif
+    }
+#endif
+
     SDL_QueueAudio(audio_device, samples_to_queue, num_bytes_to_queue);
 #if LOD_ENABLE_AUDIO_TRACE
     if (should_log) {
@@ -985,6 +1043,16 @@ void set_frequency(uint32_t freq) {
 }
 
 void reset_audio(uint32_t output_freq) {
+    const char* audio_driver = SDL_GetCurrentAudioDriver();
+    fprintf(stderr, "[AUDIO] SDL audio driver: %s\n", audio_driver != nullptr ? audio_driver : "(none)");
+
+    SDL_AudioSpec spec_preferred{};
+    if (SDL_GetDefaultAudioInfo(nullptr, &spec_preferred, 0) == 0) {
+        log_audio_spec("default-output", spec_preferred);
+    } else {
+        fprintf(stderr, "[AUDIO] SDL_GetDefaultAudioInfo failed: %s\n", SDL_GetError());
+    }
+
     SDL_AudioSpec spec_desired{
         .freq = (int)output_freq,
         .format = AUDIO_F32,
@@ -996,26 +1064,27 @@ void reset_audio(uint32_t output_freq) {
         .callback = nullptr,
         .userdata = nullptr
     };
+    log_audio_spec("desired", spec_desired);
 
-    audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, nullptr, 0);
+    SDL_AudioSpec spec_obtained{};
+    audio_device = SDL_OpenAudioDevice(nullptr, false, &spec_desired, &spec_obtained, 0);
     if (audio_device == 0) {
         fprintf(stderr, "[WARN] SDL error opening audio device: %s (continuing without audio)\n", SDL_GetError());
     } else {
+        log_audio_spec("obtained", spec_obtained);
         SDL_PauseAudioDevice(audio_device, 0);
 #if LOD_ENABLE_AUDIO_TRACE
         fprintf(stderr,
-                "[AUDIO] opened SDL audio device id=%u output_freq=%u channels=%u\n",
-                audio_device, output_freq, output_channels);
+                "[AUDIO] opened SDL audio device id=%u output=%u channels=%u\n",
+                audio_device, output_sample_rate, output_channels);
 #endif
     }
 
     output_sample_rate = output_freq;
     update_audio_converter();
-#if LOD_ENABLE_AUDIO_TRACE
     fprintf(stderr,
             "[AUDIO] reset_audio output=%u len_mult=%d discarded=%u device=%u\n",
             output_sample_rate, audio_convert.len_mult, discarded_output_frames, audio_device);
-#endif
 }
 
 // ── RSP ─────────────────────────────────────────────────────────────
