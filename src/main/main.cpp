@@ -1813,6 +1813,11 @@ int main(int argc, char** argv) {
     fprintf(stderr, "[CONFIG] Loaded controls config: %s\n",
             controls_config_path().string().c_str());
 
+#ifdef _WIN32
+    // Prefer WASAPI on Windows; SDL queued audio can crackle with DirectSound.
+    SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
+#endif
+
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(48000);
 
