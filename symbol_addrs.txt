@@ -192,6 +192,10 @@ object_executeChildObject  = 0x80010B84; // type:func  // iterates parent slots,
 object_activateChildren    = 0x80010C80; // type:func  // activates deferred children (bit 30 check)
 object_execute             = 0x80010DD4; // type:func  // dispatches object's state function
 
+// Figure/model hierarchy
+Figure_Update              = 0x8000C914; // type:func  // CV64 Figure_Update match
+Figure_UpdateMatrices      = 0x8000C9A4; // type:func  // CV64 Figure_UpdateMatrices match
+
 // NI (Nisitenma-Ichigo) system
 ni_system_dispatcher       = 0x800113EC; // type:func  // template 3 / NI file system per-frame dispatcher
 DMAMgr_updatePendingFileLoad = 0x80011E48; // type:func  // DMAMgr state handler; processes queued DMAChunkMgr file_info slot
@@ -211,6 +215,10 @@ ni_ovl_120_result_schedule_dispatch = 0x0F000484; // type:func  // pair 120: run
 ni_ovl_104_schedule_dispatch = 0x0F000000; // type:func  // pair 104: schedule dispatcher via table 0x0F0026F8; post-expansion-pak gs=5 crash path
 ni_ovl_010_func_0F0039FC = 0x0F0039FC; // type:func  // pair 10: standalone jalr target split from 0F00396C; boss/serpent death path
 ni_ovl_044_set_data0_sub56_bit0 = 0x0F004030; // type:func  // pair 44: indirect dispatch target; sets obj->data0+0x132 bit 0 for Map76 werewolf boss state
+ni_ovl_000_apply_figure_render_state_chain = 0x0F008020; // type:func  // pair 0: applies type/flag/render-state masks through a hardcoded figure chain
+ni_ovl_000_propagate_figure_visual_bytes = 0x0F00836C; // type:func  // pair 0: indirect target; propagates figure visual bytes at +0x1B/+0x1F through the chain
+ni_ovl_000_refresh_figure_render_state = 0x0F00842C; // type:func  // pair 0: refreshes render state then propagates figure visual bytes
+ni_ovl_000_set_figure_visual_byte1b_and_propagate = 0x0F0084B4; // type:func  // pair 0: indirect target; sets +0x1B then calls visual-byte propagation
 
 // NI system handler / overlay_system lifecycle
 ni_system_handler          = 0x8001B9A0; // type:func  // NI system object handler (obj+0x10), increments sys+0x2B24

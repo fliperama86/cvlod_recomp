@@ -29,6 +29,14 @@
 #define LOD_DISABLE_RT64_FORCE_BRANCH 0
 #endif
 
+#ifndef LOD_ENABLE_GBI_MISS_TRACE
+#define LOD_ENABLE_GBI_MISS_TRACE 0
+#endif
+
+extern "C" uint32_t lod_current_map_overlay_rom();
+extern "C" uint32_t lod_current_map_overlay_size();
+extern "C" int lod_current_map_overlay_load_count();
+
 static uint8_t DMEM[0x1000];
 static uint8_t IMEM[0x1000];
 
@@ -423,6 +431,49 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     // Pass DL to RT64 unmodified — no filtering, no rewriting.
     app->state->rsp->reset();
     app->interpreter->loadUCodeGBI(task->t.ucode & 0x3FFFFFF, task->t.ucode_data & 0x3FFFFFF, true);
+#if LOD_ENABLE_GBI_MISS_TRACE
+    if (app->interpreter->hleGBI == nullptr) {
+        static int gbi_miss_task_count = 0;
+        gbi_miss_task_count++;
+
+        int32_t cur_gs = 0;
+        uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+        if (gsm_addr != 0) {
+            uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+            cur_gs = *(int32_t*)(rdram + gsm_phys + 0x24);
+        }
+
+        uint32_t dl0 = *(uint32_t*)(rdram + data_addr + 0);
+        uint32_t dl1 = *(uint32_t*)(rdram + data_addr + 4);
+        uint32_t uc_text = task->t.ucode & 0x3FFFFFF;
+        uint32_t uc_data = task->t.ucode_data & 0x3FFFFFF;
+        uint32_t text0 = *(uint32_t*)(rdram + uc_text + 0);
+        uint32_t text1 = *(uint32_t*)(rdram + uc_text + 4);
+        uint32_t data0 = *(uint32_t*)(rdram + uc_data + 0);
+        uint32_t data1 = *(uint32_t*)(rdram + uc_data + 4);
+        uint32_t data_str0 = 0;
+        uint32_t data_str1 = 0;
+        for (uint32_t i = 0; i < 4; i++) {
+            data_str0 = (data_str0 << 8) | rdram[(uc_data + i) ^ 0x3];
+            data_str1 = (data_str1 << 8) | rdram[(uc_data + 4 + i) ^ 0x3];
+        }
+
+        fprintf(stderr,
+                "[GBI_MISS_TASK] #%d DL#%d gs=%d map#%d map_rom=0x%08X map_size=0x%X "
+                "type=%u flags=0x%X data=0x%08X size=0x%X ucode=0x%08X size=0x%X "
+                "ucode_data=0x%08X size=0x%X dl0=%08X/%08X text0=%08X/%08X "
+                "data0=%08X/%08X data_be0=%08X/%08X\n",
+                gbi_miss_task_count, g_dl_n, cur_gs,
+                lod_current_map_overlay_load_count(),
+                lod_current_map_overlay_rom(),
+                lod_current_map_overlay_size(),
+                task->t.type, task->t.flags,
+                data_addr, task->t.data_size,
+                uc_text, task->t.ucode_size,
+                uc_data, task->t.ucode_data_size,
+                dl0, dl1, text0, text1, data0, data1, data_str0, data_str1);
+    }
+#endif
     app->state->extended.extendRDRAM = true;
     app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
 }
