@@ -481,6 +481,15 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 void lod::renderer::RT64Context::update_screen() {
     static int us_n = 0; us_n++;
 
+#ifdef LOD_USE_ZELDA_MENU
+    // Match ZeldaRecomp's launcher behavior before emulation starts: let the
+    // runtime's dummy VI drive UI-only frames without LoD's gameplay CFB fixups.
+    if (!ultramodern::is_game_started()) {
+        app->updateScreen();
+        return;
+    }
+#endif
+
     // Fix VI_ORIGIN to match the SETCIMG address from the last DL.
     // The game's VI setup produces a mismatched origin (0x700280 vs 0x1DA800).
     // RT64 tracks framebuffers by SETCIMG address. VI_ORIGIN must point to
