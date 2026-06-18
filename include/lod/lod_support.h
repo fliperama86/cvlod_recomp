@@ -11,6 +11,7 @@ namespace lod {
 
 #ifdef __APPLE__
     void dispatch_on_ui_thread(std::function<void()> func);
+    void run_on_ui_thread_sync(std::function<void()> func);
     std::optional<std::filesystem::path> get_application_support_directory();
     std::filesystem::path get_bundle_resource_directory();
     std::filesystem::path get_bundle_directory();

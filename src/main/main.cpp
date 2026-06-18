@@ -1896,16 +1896,33 @@ int main(int argc, char** argv) {
     lod_register_overlays();
 
     // Find the ROM without blocking on a native picker. If discovery fails, boot
-    // the renderer/UI into overlay-only ROM setup so users can choose a ROM.
+    // the renderer/UI into overlay-only ROM setup so users can choose a ROM. In
+    // Zelda-menu mode, cache/validate a discovered ROM here but wait for the
+    // player to press Start Game on the launcher before starting emulation.
     std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
     if (rom_path.empty()) {
+#ifdef LOD_USE_ZELDA_MENU
+        fprintf(stderr, "[LodRecomp] No ROM found automatically; Zelda launcher will wait for ROM selection.\n");
+#else
         fprintf(stderr, "[LodRecomp] No ROM found automatically; starting ROM setup UI.\n");
         lod::ui::set_rom_setup_status("Missing",
             "No ROM was found automatically. Select your ROM file to start the game.",
             "None selected", false);
         lod::ui::show_rom_setup();
+#endif
     } else {
         fprintf(stderr, "[LodRecomp] Candidate ROM: %s\n", rom_path.string().c_str());
+#ifdef LOD_USE_ZELDA_MENU
+        std::u8string game_id = u8"castlevania2.n64.us";
+        fprintf(stderr, "[LodRecomp] Validating ROM for Zelda launcher: %s\n", rom_path.string().c_str());
+        auto result = recomp::select_rom(rom_path, game_id);
+        if (result == recomp::RomValidationError::Good) {
+            fprintf(stderr, "[LodRecomp] ROM validated; waiting for launcher Start Game action.\n");
+        } else {
+            fprintf(stderr, "[LodRecomp] ROM validation failed (%d); Zelda launcher will wait for ROM selection.\n",
+                static_cast<int>(result));
+        }
+#endif
     }
 
     if (std::getenv("RECOMP_UI_OPEN_ON_START") != nullptr) {
@@ -1913,11 +1930,13 @@ int main(int argc, char** argv) {
         fprintf(stderr, "[UI] RECOMP_UI_OPEN_ON_START requested; overlay will open after renderer init\n");
     }
 
+#ifndef LOD_USE_ZELDA_MENU
     if (!rom_path.empty()) {
         // Launch auto-start thread (will validate ROM and start game after runtime initializes).
         std::thread auto_start_thread(auto_start_game, rom_path);
         auto_start_thread.detach();
     }
+#endif
 
     recomp::rsp::callbacks_t rsp_callbacks{
         .get_rsp_microcode = get_rsp_microcode,
