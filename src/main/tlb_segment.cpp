@@ -23,6 +23,14 @@
 #define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
 #endif
 
+#ifndef LOD_ENABLE_TLB_SEG6_TRACE
+#define LOD_ENABLE_TLB_SEG6_TRACE 0
+#endif
+
+#ifndef LOD_FIX_NI_TLB_SKIP_ACTUAL_SPAN
+#define LOD_FIX_NI_TLB_SKIP_ACTUAL_SPAN 0
+#endif
+
 // Track TLB entries so we can re-copy when mappings change
 struct TlbEntry {
     uint32_t vaddr;
@@ -43,6 +51,31 @@ static constexpr uint32_t NI_SEG_0F_BASE = 0x0F000000;
 static constexpr uint32_t NI_SEG_0E_BASE = 0x0E000000;
 static constexpr uint32_t NI_TLB_LEGACY_SKIP_SPAN = 0x00010000;
 static constexpr uint32_t NI_TLB_MAX_SEGMENT_SPAN = 0x00100000;
+
+#if LOD_ENABLE_TLB_SEG6_TRACE
+static constexpr uint32_t SEG6_TRACE_BASE = 0x06000000;
+static constexpr uint32_t SEG6_TRACE_SPAN = 0x01000000;
+static constexpr uint32_t SEG6_TRACE_FOCUS = 0x060073DC;
+
+static bool range_overlaps_u32(uint32_t lhs_start, uint32_t lhs_size,
+                               uint32_t rhs_start, uint32_t rhs_size) {
+    const uint64_t lhs_end = (uint64_t)lhs_start + lhs_size;
+    const uint64_t rhs_end = (uint64_t)rhs_start + rhs_size;
+    return (uint64_t)lhs_start < rhs_end && (uint64_t)rhs_start < lhs_end;
+}
+
+static bool range_contains_u32(uint32_t start, uint32_t size, uint32_t value) {
+    return (uint64_t)value >= start && (uint64_t)value < (uint64_t)start + size;
+}
+
+static uint32_t trace_read_paddr_word(uint8_t* rdram, uint32_t paddr) {
+    return (uint32_t)MEM_W(paddr, (gpr)(int32_t)0x80000000);
+}
+
+static uint32_t trace_read_vaddr_word(uint8_t* rdram, uint32_t vaddr) {
+    return (uint32_t)MEM_W(0, (gpr)(int32_t)vaddr);
+}
+#endif
 
 static uint32_t align_up_u32(uint32_t value, uint32_t alignment) {
     if (alignment == 0) {
@@ -77,6 +110,23 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     uint32_t page_size  = (mask_field + 1) * 4096;
     uint32_t entry_size = page_size * 2;
 
+#if LOD_ENABLE_TLB_SEG6_TRACE
+    const bool seg6_trace_map = range_overlaps_u32(vaddr, entry_size, SEG6_TRACE_BASE, SEG6_TRACE_SPAN);
+    const bool seg6_focus_map = range_contains_u32(vaddr, entry_size, SEG6_TRACE_FOCUS);
+    static uint64_t seg6_trace_count = 0;
+    bool seg6_should_log = false;
+    if (seg6_trace_map) {
+        seg6_trace_count++;
+        seg6_should_log = seg6_trace_count <= 256 || seg6_focus_map || (seg6_trace_count % 1000) == 0;
+        if (seg6_should_log) {
+            fprintf(stderr,
+                    "[osMapTLB_SEG6] map#%llu idx=%d vaddr=0x%08X size=0x%X page=0x%X mask=0x%08X even=0x%08X odd=0x%08X focus=%d\n",
+                    (unsigned long long)seg6_trace_count, index, vaddr, entry_size, page_size, page_mask,
+                    even_paddr, odd_paddr, seg6_focus_map ? 1 : 0);
+        }
+    }
+#endif
+
     // Hook: load NI overlay when mapping 0x0F000000 or 0x0E000000.
     // This copies full overlay data from extended ROM to the segment region.
     // We must skip the normal TLB copy below to avoid overwriting with the
@@ -89,10 +139,12 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // overlay data. Without this, the normal handler overwrites the data
     // section with raw game-decompressed bytes (potentially wrong format).
     //
-    // Preserve the old first-64KB skip window for compatibility, but extend it
-    // to the actual loaded NI overlay size when known. Several real NI overlays
-    // are larger than 64KB, and normal-copying later TLB entries such as
-    // 0x0F012000 can corrupt the segment bytes the NI loader already populated.
+    // Preserve the old first-64KB skip window for compatibility by default, but
+    // allow experiments to use the actual loaded NI overlay span. Several real
+    // NI overlays are larger than 64KB, and normal-copying later TLB entries
+    // such as 0x0F012000 can corrupt the segment bytes the NI loader already
+    // populated. Conversely, using a 64KB minimum for smaller overlays can leave
+    // stale bytes past the actual overlay image in the segment mirror.
     uint32_t ni_base = 0;
     if (ni_segment_base_for_vaddr(vaddr, &ni_base)) {
         bool is_base_map = (vaddr == ni_base);
@@ -110,7 +162,7 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
             // No known NI overlay is resident for this segment. Fall through to
             // the normal TLB copy path.
         } else {
-            if (skip_span < NI_TLB_LEGACY_SKIP_SPAN) {
+            if (!LOD_FIX_NI_TLB_SKIP_ACTUAL_SPAN && skip_span < NI_TLB_LEGACY_SKIP_SPAN) {
                 skip_span = NI_TLB_LEGACY_SKIP_SPAN;
             } else if (skip_span > NI_TLB_MAX_SEGMENT_SPAN) {
                 skip_span = NI_TLB_MAX_SEGMENT_SPAN;
@@ -190,6 +242,38 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     do_tlb_copy(even_paddr, target, page_size);
     do_tlb_copy(odd_paddr, target + page_size, page_size);
 
+#if LOD_ENABLE_TLB_SEG6_TRACE
+    if (seg6_should_log) {
+        auto trace_half = [&](const char* name, uint32_t half_vaddr, uint32_t paddr) {
+            const bool present = paddr != 0xFFFFFFFF;
+            const bool copyable = present && (uint64_t)paddr + page_size <= 0x20000000ULL;
+            const bool has_focus = range_contains_u32(half_vaddr, page_size, SEG6_TRACE_FOCUS);
+            const uint32_t first_src = copyable ? trace_read_paddr_word(rdram, paddr) : 0;
+            const uint32_t first_dst = trace_read_vaddr_word(rdram, half_vaddr);
+            uint32_t focus_src = 0;
+            uint32_t focus_dst = 0;
+            uint32_t focus_off = 0;
+            if (has_focus) {
+                focus_off = SEG6_TRACE_FOCUS - half_vaddr;
+                if (copyable && (uint64_t)focus_off + 4 <= page_size) {
+                    focus_src = trace_read_paddr_word(rdram, paddr + focus_off);
+                }
+                focus_dst = trace_read_vaddr_word(rdram, SEG6_TRACE_FOCUS);
+            }
+            fprintf(stderr,
+                    "[osMapTLB_SEG6]   %s half_vaddr=0x%08X paddr=0x%08X copied=%d first_src=0x%08X first_dst=0x%08X",
+                    name, half_vaddr, paddr, copyable ? 1 : 0, first_src, first_dst);
+            if (has_focus) {
+                fprintf(stderr, " focus_off=0x%X focus_src=0x%08X focus_dst=0x%08X",
+                        focus_off, focus_src, focus_dst);
+            }
+            fputc('\n', stderr);
+        };
+        trace_half("even", vaddr, even_paddr);
+        trace_half("odd ", vaddr + page_size, odd_paddr);
+    }
+#endif
+
     // Save the mapping for debugging
     tlb_table[index] = { vaddr, even_paddr, odd_paddr, page_size, true };
 
@@ -207,6 +291,15 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
 extern "C" void func_800977D0(uint8_t* rdram, recomp_context* ctx) {
     int32_t index = (int32_t)ctx->r4;
     if (index >= 0 && index < 32) {
+#if LOD_ENABLE_TLB_SEG6_TRACE
+        if (tlb_table[index].valid &&
+            range_overlaps_u32(tlb_table[index].vaddr, tlb_table[index].page_size * 2,
+                               SEG6_TRACE_BASE, SEG6_TRACE_SPAN)) {
+            fprintf(stderr, "[osUnmapTLB_SEG6] idx=%d vaddr=0x%08X size=0x%X even=0x%08X odd=0x%08X\n",
+                    index, tlb_table[index].vaddr, tlb_table[index].page_size * 2,
+                    tlb_table[index].even_paddr, tlb_table[index].odd_paddr);
+        }
+#endif
         tlb_table[index].valid = false;
     }
 }

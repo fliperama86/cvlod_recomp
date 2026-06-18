@@ -9471,7 +9471,7 @@ L_801CDB98:
     // 0x801CDB9C: jal         0x8000C9A4
     // 0x801CDBA0: sw          $t0, 0x50($sp)
     MEM_W(0X50, ctx->r29) = ctx->r8;
-    func_8000C9A4(rdram, ctx);
+    Figure_UpdateMatrices(rdram, ctx);
         goto after_3;
     // 0x801CDBA0: sw          $t0, 0x50($sp)
     MEM_W(0X50, ctx->r29) = ctx->r8;
@@ -12403,7 +12403,7 @@ L_801CEC68:
     // 0x801CEC88: jal         0x8000C9A4
     // 0x801CEC8C: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_8000C9A4(rdram, ctx);
+    Figure_UpdateMatrices(rdram, ctx);
         goto after_3;
     // 0x801CEC8C: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
@@ -12777,7 +12777,7 @@ L_801CEE3C:
     // 0x801CEE5C: jal         0x8000C9A4
     // 0x801CEE60: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_8000C9A4(rdram, ctx);
+    Figure_UpdateMatrices(rdram, ctx);
         goto after_8;
     // 0x801CEE60: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;

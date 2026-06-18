@@ -69,6 +69,10 @@
 #define LOD_FIX_NI_PERSIST_OVERLAY_DATA 0
 #endif
 
+#ifndef LOD_FIX_NI_SEG6_CPU_ALIAS
+#define LOD_FIX_NI_SEG6_CPU_ALIAS 0
+#endif
+
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
 extern "C" void unload_overlays(int32_t ram_addr, uint32_t size);
 extern "C" uint32_t lod_current_map_overlay_rom();
@@ -2090,6 +2094,58 @@ static uint8_t* ni_segment_base(uint8_t* rdram, uint32_t vram) {
     return rdram + (uint64_t)vram + 0x80000000ULL;
 }
 
+#if LOD_FIX_NI_SEG6_CPU_ALIAS
+// Some LoD model/node records carry segment-6 pointers (0x06xxxxxx) into data
+// that lives in the reusable NI segment mirror. Recompiled CPU MEM_* accesses do
+// not perform RSP-style segment lookup, so 0x06xxxxxx maps to rdram+0x86xxxxxx.
+// Keep that alias populated with the active NI segment image when this
+// experiment is enabled.
+static constexpr uint32_t NI_SEG6_CPU_ALIAS_VADDR = 0x06000000;
+static constexpr uint32_t NI_SEG6_CPU_ALIAS_MAX_SIZE = 0x00100000;
+
+static void ni_mirror_segment_to_seg6_cpu_alias(uint8_t* rdram,
+                                                const uint8_t* segment_base,
+                                                int pair_index,
+                                                uint32_t vram,
+                                                uint32_t size,
+                                                const char* reason) {
+    if (size == 0 || size > NI_SEG6_CPU_ALIAS_MAX_SIZE) {
+        return;
+    }
+
+    uint8_t* alias = rdram + (uint64_t)NI_SEG6_CPU_ALIAS_VADDR + 0x80000000ULL;
+    uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+    uint8_t* aligned = (uint8_t*)((uintptr_t)alias & ~page_mask);
+    size_t aligned_size = ((alias + size) - aligned + page_mask) & ~page_mask;
+    if (mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE) != 0) {
+        static int fail_count = 0;
+        fail_count++;
+        if (fail_count <= 8) {
+            fprintf(stderr,
+                    "[NI_SEG6_ALIAS] mprotect failed #%d pair=%d vram=0x%08X "
+                    "size=0x%X reason=%s\n",
+                    fail_count, pair_index, vram, size, reason);
+        }
+        return;
+    }
+
+    memcpy(alias, segment_base, size);
+
+    static int copy_count = 0;
+    copy_count++;
+    if (copy_count <= 24 || (copy_count % 200) == 0) {
+        const uint32_t w0 = size >= 4 ? *(const uint32_t*)(segment_base + 0x00) : 0;
+        const uint32_t w4 = size >= 8 ? *(const uint32_t*)(segment_base + 0x04) : 0;
+        const uint32_t w73dc = size >= 0x73E0 ? *(const uint32_t*)(segment_base + 0x73DC) : 0;
+        fprintf(stderr,
+                "[NI_SEG6_ALIAS] copy#%d pair=%d vram=0x%08X size=0x%X "
+                "reason=%s alias=0x%08X words={0x%08X,0x%08X,+73DC=0x%08X}\n",
+                copy_count, pair_index, vram, size, reason,
+                NI_SEG6_CPU_ALIAS_VADDR, w0, w4, w73dc);
+    }
+}
+#endif
+
 #if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
 // Pair 99's pause item-list code keeps the built item table in its NI data
 // segment at 0x0F004EA0. In-game this survives the rapid pair99/pair101 TLB
@@ -2260,6 +2316,10 @@ static void copy_overlay_data_to_segment(uint8_t* rdram, int pair_index, uint32_
 #if LOD_FIX_NI_PAIR99_ITEM_LIST_PERSIST
     ni_pair99_restore_item_list_if_saved(dst, pair_index, vram, size);
 #endif
+
+#if LOD_FIX_NI_SEG6_CPU_ALIAS
+    ni_mirror_segment_to_seg6_cpu_alias(rdram, dst, pair_index, vram, size, "copy");
+#endif
 }
 
 static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vaddr) {
@@ -2275,6 +2335,10 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     // reload below, which resets overlay data when the game actually swaps NI
     // overlays.
     if (pair_index == loaded_pair) {
+#if LOD_FIX_NI_SEG6_CPU_ALIAS
+        ni_mirror_segment_to_seg6_cpu_alias(rdram, ni_segment_base(rdram, vram),
+            pair_index, vram, ni_ovl_data[pair_index].full_size, "same-pair");
+#endif
         return;
     }
 #endif
