@@ -53,6 +53,8 @@ license change explicitly.
     set `LOD_ZELDA_WAIT_FOR_START=1` to validate/cache a discovered ROM and wait
     for the launcher Start Game action. Default/no-env startup remains the
     confirmed-good auto-start behavior.
+  - Added trace-only diagnostics behind `LOD_ZELDA_UI_TRACE=1` for SDL queueing,
+    UI event dequeue/dispatch, context capture state, and Rml listener firing.
   - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
   - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
 - Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD

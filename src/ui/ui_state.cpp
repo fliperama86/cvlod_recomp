@@ -4,6 +4,8 @@
 #else
 #include <SDL2/SDL_video.h>
 #endif
+#include <cstdio>
+#include <cstdlib>
 #include <chrono>
 #include <fstream>
 #include <sstream>
@@ -31,6 +33,28 @@
 #include "ui_mod_installer.h"
 #endif
 #include "ui_renderer.h"
+
+static bool zelda_ui_trace_enabled() {
+    const char* value = std::getenv("LOD_ZELDA_UI_TRACE");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+static const char* zelda_sdl_event_name(uint32_t type) {
+    switch (type) {
+        case SDL_KEYDOWN: return "KEYDOWN";
+        case SDL_KEYUP: return "KEYUP";
+        case SDL_TEXTINPUT: return "TEXTINPUT";
+        case SDL_MOUSEMOTION: return "MOUSEMOTION";
+        case SDL_MOUSEBUTTONDOWN: return "MOUSEBUTTONDOWN";
+        case SDL_MOUSEBUTTONUP: return "MOUSEBUTTONUP";
+        case SDL_MOUSEWHEEL: return "MOUSEWHEEL";
+        case SDL_CONTROLLERBUTTONDOWN: return "CONTROLLERBUTTONDOWN";
+        case SDL_CONTROLLERBUTTONUP: return "CONTROLLERBUTTONUP";
+        case SDL_CONTROLLERAXISMOTION: return "CONTROLLERAXISMOTION";
+        case SDL_WINDOWEVENT: return "WINDOWEVENT";
+        default: return "OTHER";
+    }
+}
 
 bool can_focus(Rml::Element* element) {
     return element->GetOwnerDocument() != nullptr && element->GetProperty(Rml::PropertyId::TabIndex)->Get<Rml::Style::TabIndex>() != Rml::Style::TabIndex::None;
@@ -88,10 +112,18 @@ Rml::Element* get_target(Rml::ElementDocument* document, Rml::Element* element) 
 namespace recompui {
     class UiEventListener : public Rml::EventListener {
         event_handler_t* handler_;
+        Rml::String event_type_;
         Rml::String param_;
     public:
-        UiEventListener(event_handler_t* handler, Rml::String&& param) : handler_(handler), param_(std::move(param)) {}
+        UiEventListener(event_handler_t* handler, Rml::String&& event_type, Rml::String&& param)
+            : handler_(handler), event_type_(std::move(event_type)), param_(std::move(param)) {}
         void ProcessEvent(Rml::Event& event) override {
+            if (zelda_ui_trace_enabled()) {
+                fprintf(stderr, "[UI_TRACE] Rml listener fired: %s event=%s param=%s\n",
+                    event_type_.c_str(),
+                    event.GetType().c_str(),
+                    param_.c_str());
+            }
             handler_(param_, event);
         }
     };
@@ -114,7 +146,7 @@ namespace recompui {
             if (find_handler_it != handler_map_.end()) {
                 // A handler was found, create a listener and return it.
                 Rml::String event_param = value.substr(std::min(delimiter_pos, value.size()));
-                return &listener_map_.emplace(value, UiEventListener{ find_handler_it->second, std::move(event_param) }).first->second;
+                return &listener_map_.emplace(value, UiEventListener{ find_handler_it->second, std::move(event_type), std::move(event_param) }).first->second;
             }
 
             return nullptr;
@@ -354,6 +386,14 @@ public:
             .context = context,
             .document = document
         });
+        if (zelda_ui_trace_enabled()) {
+            fprintf(stderr, "[UI_TRACE] show context slot=%u captures_input=%d captures_mouse=%d shown_count=%zu game_started=%d\n",
+                context.slot_id,
+                context.captures_input() ? 1 : 0,
+                context.captures_mouse() ? 1 : 0,
+                shown_contexts.size(),
+                ultramodern::is_game_started() ? 1 : 0);
+        }
 
         // auto& on_show = context.on_show;
         // if (on_show) {
@@ -590,6 +630,15 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
     while (recompui::try_deque_event(cur_event)) {
         bool context_capturing_input = recompui::is_context_capturing_input();
         bool context_capturing_mouse = recompui::is_context_capturing_mouse();
+        if (zelda_ui_trace_enabled()) {
+            fprintf(stderr, "[UI_TRACE] dequeued SDL %s type=%u shown=%d capture_input=%d capture_mouse=%d game_started=%d\n",
+                zelda_sdl_event_name(cur_event.type),
+                cur_event.type,
+                recompui::is_any_context_shown() ? 1 : 0,
+                context_capturing_input ? 1 : 0,
+                context_capturing_mouse ? 1 : 0,
+                ultramodern::is_game_started() ? 1 : 0);
+        }
 
         // Handle up button events even when input is disabled to avoid missing them during binding.
         if (cur_event.type == SDL_EventType::SDL_CONTROLLERBUTTONUP) {
@@ -698,12 +747,22 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
             // Send the event to RmlUi if this type of event is being captured.
             if (is_mouse_input) {
                 if (context_capturing_mouse) {
+                    if (zelda_ui_trace_enabled()) {
+                        fprintf(stderr, "[UI_TRACE] dispatch SDL %s to Rml mouse\n", zelda_sdl_event_name(cur_event.type));
+                    }
                     RmlSDL::InputEventHandler(ui_state->context, cur_event);
+                } else if (zelda_ui_trace_enabled()) {
+                    fprintf(stderr, "[UI_TRACE] skip SDL %s for Rml mouse: mouse not captured\n", zelda_sdl_event_name(cur_event.type));
                 }
             }
             else {
                 if (context_capturing_input) {
+                    if (zelda_ui_trace_enabled()) {
+                        fprintf(stderr, "[UI_TRACE] dispatch SDL %s to Rml input\n", zelda_sdl_event_name(cur_event.type));
+                    }
                     RmlSDL::InputEventHandler(ui_state->context, cur_event);
+                } else if (zelda_ui_trace_enabled()) {
+                    fprintf(stderr, "[UI_TRACE] skip SDL %s for Rml input: input not captured\n", zelda_sdl_event_name(cur_event.type));
                 }
             }
         }

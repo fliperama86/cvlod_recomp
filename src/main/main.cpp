@@ -865,6 +865,84 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 
 static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path);
 
+#ifdef LOD_USE_ZELDA_MENU
+static bool zelda_ui_trace_enabled() {
+    const char* value = std::getenv("LOD_ZELDA_UI_TRACE");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+static const char* zelda_sdl_event_name(uint32_t type) {
+    switch (type) {
+        case SDL_KEYDOWN: return "KEYDOWN";
+        case SDL_KEYUP: return "KEYUP";
+        case SDL_TEXTINPUT: return "TEXTINPUT";
+        case SDL_MOUSEMOTION: return "MOUSEMOTION";
+        case SDL_MOUSEBUTTONDOWN: return "MOUSEBUTTONDOWN";
+        case SDL_MOUSEBUTTONUP: return "MOUSEBUTTONUP";
+        case SDL_MOUSEWHEEL: return "MOUSEWHEEL";
+        case SDL_CONTROLLERBUTTONDOWN: return "CONTROLLERBUTTONDOWN";
+        case SDL_CONTROLLERBUTTONUP: return "CONTROLLERBUTTONUP";
+        case SDL_CONTROLLERAXISMOTION: return "CONTROLLERAXISMOTION";
+        case SDL_WINDOWEVENT: return "WINDOWEVENT";
+        default: return "OTHER";
+    }
+}
+
+static void trace_zelda_queued_event(const SDL_Event& event) {
+    if (!zelda_ui_trace_enabled()) {
+        return;
+    }
+
+    switch (event.type) {
+        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s scancode=%d sym=%d repeat=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.key.keysym.scancode),
+                static_cast<int>(event.key.keysym.sym),
+                static_cast<int>(event.key.repeat));
+            break;
+        case SDL_MOUSEMOTION:
+            fprintf(stderr, "[UI_TRACE] queued SDL MOUSEMOTION x=%d y=%d rel=%d,%d\n",
+                event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s button=%d x=%d y=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.button.button),
+                event.button.x,
+                event.button.y);
+            break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s button=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.cbutton.button));
+            break;
+        case SDL_CONTROLLERAXISMOTION:
+            fprintf(stderr, "[UI_TRACE] queued SDL CONTROLLERAXISMOTION axis=%d value=%d\n",
+                static_cast<int>(event.caxis.axis),
+                static_cast<int>(event.caxis.value));
+            break;
+        case SDL_WINDOWEVENT:
+            fprintf(stderr, "[UI_TRACE] queued SDL WINDOWEVENT event=%d\n",
+                static_cast<int>(event.window.event));
+            break;
+        default:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s type=%u\n",
+                zelda_sdl_event_name(event.type),
+                event.type);
+            break;
+    }
+}
+
+static void queue_zelda_ui_event(const SDL_Event& event) {
+    recompui::queue_event(event);
+    trace_zelda_queued_event(event);
+}
+#endif
+
 void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -886,7 +964,7 @@ void update_gfx(void*) {
                     break;
                 }
 #ifdef LOD_USE_ZELDA_MENU
-                recompui::queue_event(event);
+                queue_zelda_ui_event(event);
                 break;
 #else
                 if (lod::ui::queue_platform_event(event)) {
@@ -905,7 +983,7 @@ void update_gfx(void*) {
             case SDL_CONTROLLERAXISMOTION:
             case SDL_WINDOWEVENT:
 #ifdef LOD_USE_ZELDA_MENU
-                recompui::queue_event(event);
+                queue_zelda_ui_event(event);
                 break;
 #else
                 if (lod::ui::queue_platform_event(event)) {
