@@ -11,17 +11,6 @@ namespace lod {
         });
     }
 
-    void run_on_ui_thread_sync(std::function<void()> func) {
-        if ([NSThread isMainThread]) {
-            func();
-            return;
-        }
-
-        dispatch_sync(dispatch_get_main_queue(), ^{
-            func();
-        });
-    }
-
     std::optional<std::filesystem::path> get_application_support_directory() {
         NSArray *dirs = NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory, NSUserDomainMask, YES);
         if ([dirs count] > 0) {

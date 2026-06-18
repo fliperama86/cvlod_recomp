@@ -26,7 +26,6 @@
 #include "elements/ui_element.h"
 
 #include "librecomp/game.hpp"
-#include "lod/lod_support.h"
 #include "lod/lod_settings.hpp"
 #include "ultramodern/config.hpp"
 #include "ultramodern/ultramodern.hpp"
@@ -278,10 +277,8 @@ void bind_option_string(Rml::DataModelConstructor& constructor,
 }
 
 void select_rom() {
-    std::fprintf(stderr, "[UI] launcher event: select_rom\n");
     zelda64::open_file_dialog([](bool success, const std::filesystem::path& path) {
         if (!success) {
-            std::fprintf(stderr, "[UI] ROM selection cancelled\n");
             g_rom_status = "ROM selection cancelled.";
             dirty_launcher();
             return;
@@ -291,14 +288,11 @@ void select_rom() {
         dirty_launcher();
 
         std::u8string game_id = lod_game_id();
-        std::fprintf(stderr, "[UI] Validating selected ROM: %s\n", path.string().c_str());
         recomp::RomValidationError result = recomp::select_rom(path, game_id);
         g_rom_valid = (result == recomp::RomValidationError::Good);
         if (g_rom_valid) {
-            std::fprintf(stderr, "[UI] Selected ROM validated\n");
             g_rom_status = "ROM ready: " + path.filename().string();
         } else {
-            std::fprintf(stderr, "[UI] Selected ROM validation failed (%d)\n", static_cast<int>(result));
             g_rom_status = rom_validation_message(result);
         }
         dirty_launcher();
@@ -316,7 +310,6 @@ public:
             select_rom();
         });
         recompui::register_event(listener, "start_game", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] launcher event: start_game\n");
             std::u8string game_id = lod_game_id();
             if (!g_rom_valid && !recomp::is_rom_valid(game_id)) {
                 g_rom_status = "Select a valid Legacy of Darkness ROM first.";
@@ -328,27 +321,23 @@ public:
             recompui::process_game_started();
         });
         recompui::register_event(listener, "open_settings", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] launcher event: open_settings\n");
             reset_pending_graphics_from_active();
             recompui::set_config_tab(recompui::ConfigTab::General);
             recompui::hide_all_contexts();
             recompui::show_context(recompui::get_config_context_id(), "");
         });
         recompui::register_event(listener, "open_controls", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] launcher event: open_controls\n");
             reset_pending_graphics_from_active();
             recompui::set_config_tab(recompui::ConfigTab::Controls);
             recompui::hide_all_contexts();
             recompui::show_context(recompui::get_config_context_id(), "");
         });
         recompui::register_event(listener, "open_mods", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] launcher event: open_mods\n");
             recompui::set_config_tab(recompui::ConfigTab::Mods);
             recompui::hide_all_contexts();
             recompui::show_context(recompui::get_config_context_id(), "");
         });
         recompui::register_event(listener, "exit_game", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] launcher event: exit_game\n");
             ultramodern::quit();
         });
     }
@@ -380,31 +369,24 @@ public:
 
     void register_events(recompui::UiEventListenerInstancer& listener) override {
         recompui::register_event(listener, "close_config_menu", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: close_config_menu\n");
             close_config_menu();
         });
         recompui::register_event(listener, "apply_graphics", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: apply_graphics\n");
             apply_pending_graphics("Zelda menu apply");
         });
         recompui::register_event(listener, "discard_graphics", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: discard_graphics\n");
             discard_pending_graphics();
         });
         recompui::register_event(listener, "show_general_tab", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: show_general_tab\n");
             recompui::set_config_tab(recompui::ConfigTab::General);
         });
         recompui::register_event(listener, "show_graphics_tab", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: show_graphics_tab\n");
             recompui::set_config_tab(recompui::ConfigTab::Graphics);
         });
         recompui::register_event(listener, "show_controls_tab", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: show_controls_tab\n");
             recompui::set_config_tab(recompui::ConfigTab::Controls);
         });
         recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
-            std::fprintf(stderr, "[UI] config event: show_audio_tab\n");
             recompui::set_config_tab(recompui::ConfigTab::Sound);
         });
         recompui::register_event(listener, "config_keydown", [](const std::string&, Rml::Event& event) {
@@ -522,36 +504,27 @@ std::filesystem::path zelda64::get_asset_path(const char* asset) {
 }
 
 void zelda64::open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback) {
-    bool success = false;
-    std::filesystem::path selected;
+    if (NFD_Init() != NFD_OKAY) {
+        std::fprintf(stderr, "[UI] NFD_Init failed: %s\n", NFD_GetError());
+        callback(false, {});
+        return;
+    }
 
-    auto run_dialog = [&]() {
-        if (NFD_Init() != NFD_OKAY) {
-            std::fprintf(stderr, "[UI] NFD_Init failed: %s\n", NFD_GetError());
-            return;
-        }
-
-        nfdchar_t* out_path = nullptr;
-        nfdfilteritem_t filters[] = {{"Nintendo 64 ROM", "z64,n64,v64"}};
-        nfdresult_t result = NFD_OpenDialog(&out_path, filters, 1, nullptr);
-        if (result == NFD_OKAY) {
-            selected = std::filesystem::path(out_path);
-            success = true;
-            NFD_FreePath(out_path);
-        } else if (result == NFD_ERROR) {
+    nfdchar_t* out_path = nullptr;
+    nfdfilteritem_t filters[] = {{"Nintendo 64 ROM", "z64,n64,v64"}};
+    nfdresult_t result = NFD_OpenDialog(&out_path, filters, 1, nullptr);
+    if (result == NFD_OKAY) {
+        std::filesystem::path selected(out_path);
+        NFD_FreePath(out_path);
+        NFD_Quit();
+        callback(true, selected);
+    } else {
+        if (result == NFD_ERROR) {
             std::fprintf(stderr, "[UI] Native file dialog failed: %s\n", NFD_GetError());
         }
-
         NFD_Quit();
-    };
-
-#ifdef __APPLE__
-    lod::run_on_ui_thread_sync(run_dialog);
-#else
-    run_dialog();
-#endif
-
-    callback(success, selected);
+        callback(false, {});
+    }
 }
 
 void zelda64::open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback) {
@@ -561,24 +534,6 @@ void zelda64::open_file_dialog_multiple(std::function<void(bool success, const s
 void zelda64::show_error_message_box(const char* title, const char* message) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, nullptr);
 }
-
-#ifdef __APPLE__
-void zelda64::dispatch_on_ui_thread(std::function<void()> func) {
-    lod::dispatch_on_ui_thread(std::move(func));
-}
-
-std::optional<std::filesystem::path> zelda64::get_application_support_directory() {
-    return lod::get_application_support_directory();
-}
-
-std::filesystem::path zelda64::get_bundle_resource_directory() {
-    return lod::get_bundle_resource_directory();
-}
-
-std::filesystem::path zelda64::get_bundle_directory() {
-    return lod::get_bundle_directory();
-}
-#endif
 
 void zelda64::save_config() {}
 bool zelda64::get_debug_mode_enabled() { return g_debug_enabled; }
