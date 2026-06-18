@@ -156,11 +156,12 @@ public:
         interface_ = interface;
         device_ = device;
 
-        // Enable 4X MSAA if supported by the device.
-        const RenderSampleCounts desired_sample_count = RenderSampleCount::COUNT_8;
-        if (device_->getSampleCountsSupported(SwapChainFormat) & desired_sample_count) {
-            multisampling_.sampleCount = desired_sample_count;
-        }
+        // LoD: keep the menu renderer on the direct swapchain path for now.
+        // The imported Zelda renderer forces an offscreen MSAA UI target and
+        // resolves it back over the swapchain. After fullscreen/windowed swaps,
+        // that extra resize path can expose the swapchain clear color in LoD's
+        // letterbox/overscan area. The old LoD overlay draws directly.
+        multisampling_ = RenderMultisampling();
 
         vertex_buffer_.flags_ = RenderBufferFlag::VERTEX;
         index_buffer_.flags_ = RenderBufferFlag::INDEX;

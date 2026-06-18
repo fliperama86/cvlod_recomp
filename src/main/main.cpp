@@ -521,6 +521,27 @@ static ultramodern::renderer::GraphicsConfig default_graphics_config() {
     return config;
 }
 
+static bool sanitize_lod_graphics_config(ultramodern::renderer::GraphicsConfig& config) {
+    bool changed = false;
+
+    // LoD currently relies on RT64's original VI timing and original aspect path.
+    // Non-original refresh modes enable frame matching/interpolation, and expanded
+    // aspect changes the widescreen projection/scissor path; both are known to
+    // flicker with camera-dependent gameplay scenes.
+    if (config.ar_option != ultramodern::renderer::AspectRatio::Original) {
+        config.ar_option = ultramodern::renderer::AspectRatio::Original;
+        changed = true;
+    }
+
+    if (config.rr_option != ultramodern::renderer::RefreshRate::Original) {
+        config.rr_option = ultramodern::renderer::RefreshRate::Original;
+        config.rr_manual_value = 60;
+        changed = true;
+    }
+
+    return changed;
+}
+
 static nlohmann::json graphics_config_to_json(const ultramodern::renderer::GraphicsConfig& config) {
     return nlohmann::json{
         {"developer_mode", config.developer_mode},
@@ -581,6 +602,10 @@ static ultramodern::renderer::GraphicsConfig graphics_config_from_json(const nlo
         if (value >= 1 && value <= 8) {
             config.ds_option = value;
         }
+    }
+
+    if (sanitize_lod_graphics_config(config)) {
+        fprintf(stderr, "[CONFIG] Sanitized unstable LoD graphics options: forcing aspect=Original refresh=Original\n");
     }
 
     return config;
@@ -682,17 +707,21 @@ static const char* graphics_refresh_name(ultramodern::renderer::RefreshRate valu
 
 static void apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
                                            const char* reason) {
-    ultramodern::renderer::set_graphics_config(config);
-    save_graphics_config(config);
+    auto sanitized = config;
+    if (sanitize_lod_graphics_config(sanitized)) {
+        fprintf(stderr, "[CONFIG] %s: sanitized unstable LoD graphics options\n", reason);
+    }
+    ultramodern::renderer::set_graphics_config(sanitized);
+    save_graphics_config(sanitized);
     fprintf(stderr,
             "[CONFIG] %s: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
             reason,
-            graphics_resolution_name(config.res_option),
-            graphics_window_mode_name(config.wm_option),
-            graphics_aspect_name(config.ar_option),
-            graphics_msaa_name(config.msaa_option),
-            graphics_refresh_name(config.rr_option),
-            config.rr_manual_value);
+            graphics_resolution_name(sanitized.res_option),
+            graphics_window_mode_name(sanitized.wm_option),
+            graphics_aspect_name(sanitized.ar_option),
+            graphics_msaa_name(sanitized.msaa_option),
+            graphics_refresh_name(sanitized.rr_option),
+            sanitized.rr_manual_value);
 }
 
 std::filesystem::path lod::settings::config_path() {

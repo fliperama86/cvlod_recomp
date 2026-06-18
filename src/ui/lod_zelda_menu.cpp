@@ -222,9 +222,8 @@ const char* aspect_ratio_to_string(ultramodern::renderer::AspectRatio value) {
 }
 
 void set_aspect_ratio_from_string(const std::string& value) {
-    if (value == "Original") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Original;
-    else if (value == "Expand") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Expand;
-    else if (value == "Manual") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Manual;
+    (void)value;
+    g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Original;
 }
 
 const char* msaa_to_string(ultramodern::renderer::Antialiasing value) {
@@ -256,9 +255,9 @@ const char* refresh_rate_to_string(ultramodern::renderer::RefreshRate value) {
 }
 
 void set_refresh_rate_from_string(const std::string& value) {
-    if (value == "Original") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Original;
-    else if (value == "Display") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Display;
-    else if (value == "Manual") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Manual;
+    (void)value;
+    g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Original;
+    g_pending_graphics.rr_manual_value = 60;
 }
 
 void bind_option_string(Rml::DataModelConstructor& constructor,
