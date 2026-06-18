@@ -1815,7 +1815,9 @@ int main(int argc, char** argv) {
 
 #ifdef _WIN32
     // Prefer WASAPI on Windows; SDL queued audio can crackle with DirectSound.
-    SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
+    if (SDL_getenv("SDL_AUDIODRIVER") == nullptr) {
+        SDL_setenv("SDL_AUDIODRIVER", "wasapi", false);
+    }
 #endif
 
     SDL_InitSubSystem(SDL_INIT_AUDIO);
