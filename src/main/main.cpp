@@ -1669,6 +1669,30 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
     validate_and_start_rom(rom_path, false, "startup discovery");
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+static bool zelda_wait_for_start_enabled() {
+    const char* value = std::getenv("LOD_ZELDA_WAIT_FOR_START");
+    if (value == nullptr || value[0] == '\0') {
+        return false;
+    }
+
+    std::string normalized = ascii_lower(value);
+    return normalized != "0" && normalized != "false" && normalized != "off" && normalized != "no";
+}
+
+static void validate_rom_for_zelda_launcher(const std::filesystem::path& rom_path) {
+    std::u8string game_id = u8"castlevania2.n64.us";
+    fprintf(stderr, "[LodRecomp] Validating ROM for Zelda launcher: %s\n", rom_path.string().c_str());
+    auto result = recomp::select_rom(rom_path, game_id);
+    if (result == recomp::RomValidationError::Good) {
+        fprintf(stderr, "[LodRecomp] ROM validated; waiting for launcher Start Game action.\n");
+    } else {
+        fprintf(stderr, "[LodRecomp] ROM validation failed (%d); Zelda launcher will wait for ROM selection.\n",
+            static_cast<int>(result));
+    }
+}
+#endif
+
 // ── Signal handling ─────────────────────────────────────────────────
 
 // Declared in overlays.cpp
@@ -1895,17 +1919,33 @@ int main(int argc, char** argv) {
 
     lod_register_overlays();
 
+#ifdef LOD_USE_ZELDA_MENU
+    const bool zelda_wait_for_start = zelda_wait_for_start_enabled();
+#endif
+
     // Find the ROM without blocking on a native picker. If discovery fails, boot
     // the renderer/UI into overlay-only ROM setup so users can choose a ROM.
     std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
     if (rom_path.empty()) {
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            fprintf(stderr, "[LodRecomp] No ROM found automatically; Zelda launcher will wait for ROM selection.\n");
+        } else
+#endif
+        {
         fprintf(stderr, "[LodRecomp] No ROM found automatically; starting ROM setup UI.\n");
         lod::ui::set_rom_setup_status("Missing",
             "No ROM was found automatically. Select your ROM file to start the game.",
             "None selected", false);
         lod::ui::show_rom_setup();
+        }
     } else {
         fprintf(stderr, "[LodRecomp] Candidate ROM: %s\n", rom_path.string().c_str());
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            validate_rom_for_zelda_launcher(rom_path);
+        }
+#endif
     }
 
     if (std::getenv("RECOMP_UI_OPEN_ON_START") != nullptr) {
@@ -1914,9 +1954,16 @@ int main(int argc, char** argv) {
     }
 
     if (!rom_path.empty()) {
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            fprintf(stderr, "[LodRecomp] LOD_ZELDA_WAIT_FOR_START enabled; waiting for launcher Start Game action.\n");
+        } else
+#endif
+        {
         // Launch auto-start thread (will validate ROM and start game after runtime initializes).
         std::thread auto_start_thread(auto_start_game, rom_path);
         auto_start_thread.detach();
+        }
     }
 
     recomp::rsp::callbacks_t rsp_callbacks{

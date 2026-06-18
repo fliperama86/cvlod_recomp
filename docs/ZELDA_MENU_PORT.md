@@ -46,5 +46,14 @@ license change explicitly.
   - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
   - Bounded smoke run of `build-zelda-menu/LodRecomp` loaded the Zelda UI assets,
     reached startup/game init, and exited by 20s timeout without a stale process.
+- Regression recovery on macOS (2026-06-18):
+  - Reverted `5a770a1` and `07d3f3d`; the branch tip matches the confirmed-good
+    `fb2d1f8` tree plus revert commits.
+  - Reintroduced launcher-wait behavior as an opt-in runtime experiment only:
+    set `LOD_ZELDA_WAIT_FOR_START=1` to validate/cache a discovered ROM and wait
+    for the launcher Start Game action. Default/no-env startup remains the
+    confirmed-good auto-start behavior.
+  - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
+  - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
 - Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD
   controls and any real audio options.
