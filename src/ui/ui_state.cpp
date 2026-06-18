@@ -461,52 +461,8 @@ void init_hook(RenderInterface* interface, RenderDevice* device) {
 
 moodycamel::ConcurrentQueue<SDL_Event> ui_event_queue{};
 
-static SDL_Event scale_mouse_event_to_rml_context(const SDL_Event& event) {
-    SDL_Event scaled = event;
-
-    if (window == nullptr) {
-        return scaled;
-    }
-
-    int window_width = 0;
-    int window_height = 0;
-    int pixel_width = 0;
-    int pixel_height = 0;
-    SDL_GetWindowSize(window, &window_width, &window_height);
-    SDL_GetWindowSizeInPixels(window, &pixel_width, &pixel_height);
-
-    if (window_width <= 0 || window_height <= 0 || pixel_width <= 0 || pixel_height <= 0) {
-        return scaled;
-    }
-
-    const float scale_x = static_cast<float>(pixel_width) / static_cast<float>(window_width);
-    const float scale_y = static_cast<float>(pixel_height) / static_cast<float>(window_height);
-    if (scale_x == 1.0f && scale_y == 1.0f) {
-        return scaled;
-    }
-
-    switch (scaled.type) {
-        case SDL_MOUSEMOTION:
-            scaled.motion.x = static_cast<int>(scaled.motion.x * scale_x);
-            scaled.motion.y = static_cast<int>(scaled.motion.y * scale_y);
-            scaled.motion.xrel = static_cast<int>(scaled.motion.xrel * scale_x);
-            scaled.motion.yrel = static_cast<int>(scaled.motion.yrel * scale_y);
-            break;
-        case SDL_MOUSEBUTTONDOWN:
-        case SDL_MOUSEBUTTONUP:
-            scaled.button.x = static_cast<int>(scaled.button.x * scale_x);
-            scaled.button.y = static_cast<int>(scaled.button.y * scale_y);
-            break;
-        default:
-            break;
-    }
-
-    return scaled;
-}
-
 void recompui::queue_event(const SDL_Event& event) {
-    SDL_Event scaled = scale_mouse_event_to_rml_context(event);
-    ui_event_queue.enqueue(scaled);
+    ui_event_queue.enqueue(event);
 }
 
 bool recompui::try_deque_event(SDL_Event& out) {
@@ -566,130 +522,6 @@ int cont_axis_to_key(SDL_ControllerAxisEvent& axis, float value) {
         return SDLK_LEFT;
     }
     return 0;
-}
-
-void recompui::process_events() {
-    if (!ui_state) {
-        return;
-    }
-
-#ifdef LOD_USE_ZELDA_MENU
-    // This pre-present pump is only for the launcher-before-game path. Once the
-    // game has started, leave input draining to draw_hook so in-game menu hotkeys
-    // keep their existing behavior.
-    if (ultramodern::is_game_started()) {
-        return;
-    }
-#endif
-
-    std::lock_guard lock{ ui_state_mutex };
-
-    SDL_Event cur_event{};
-    bool mouse_moved = false;
-    bool mouse_clicked = false;
-    bool non_mouse_interacted = false;
-    bool cont_interacted = false;
-    bool kb_interacted = false;
-
-    while (recompui::try_deque_event(cur_event)) {
-        bool context_capturing_input = recompui::is_context_capturing_input();
-        bool context_capturing_mouse = recompui::is_context_capturing_mouse();
-
-        if (recomp::all_input_disabled()) {
-            continue;
-        }
-
-        bool is_mouse_input = false;
-        switch (cur_event.type) {
-        case SDL_EventType::SDL_MOUSEMOTION: {
-            int *last_mouse_pos = ui_state->last_active_mouse_position;
-
-            if (!ui_state->mouse_is_active) {
-                float xD = cur_event.motion.x - last_mouse_pos[0];
-                float yD = cur_event.motion.y - last_mouse_pos[1];
-                if (sqrt(xD * xD + yD * yD) < 100) {
-                    break;
-                }
-            }
-            last_mouse_pos[0] = cur_event.motion.x;
-            last_mouse_pos[1] = cur_event.motion.y;
-
-            if (recompui::get_cont_active()) {
-                break;
-            }
-        }
-        // fallthrough
-        case SDL_EventType::SDL_MOUSEBUTTONDOWN:
-            mouse_moved = true;
-            mouse_clicked = true;
-            is_mouse_input = true;
-            break;
-
-        case SDL_EventType::SDL_MOUSEBUTTONUP:
-        case SDL_EventType::SDL_MOUSEWHEEL:
-            is_mouse_input = true;
-            break;
-
-        case SDL_EventType::SDL_CONTROLLERBUTTONDOWN: {
-            int sdl_key = cont_button_to_key(cur_event.cbutton);
-            if (context_capturing_input && sdl_key) {
-                ui_state->context->ProcessKeyDown(RmlSDL::ConvertKey(sdl_key), 0);
-            }
-            non_mouse_interacted = true;
-            cont_interacted = true;
-            break;
-        }
-
-        case SDL_EventType::SDL_CONTROLLERBUTTONUP:
-            non_mouse_interacted = true;
-            cont_interacted = true;
-            break;
-
-        case SDL_EventType::SDL_CONTROLLERAXISMOTION: {
-            SDL_ControllerAxisEvent* axis_event = &cur_event.caxis;
-            if (axis_event->axis != SDL_GameControllerAxis::SDL_CONTROLLER_AXIS_LEFTY &&
-                axis_event->axis != SDL_GameControllerAxis::SDL_CONTROLLER_AXIS_LEFTX) {
-                break;
-            }
-
-            float axis_value = axis_event->value * (1 / 32768.0f);
-            if (fabsf(axis_value) > 0.5f) {
-                non_mouse_interacted = true;
-                cont_interacted = true;
-                int sdl_key = cont_axis_to_key(cur_event.caxis, axis_value);
-                if (context_capturing_input && sdl_key) {
-                    ui_state->context->ProcessKeyDown(RmlSDL::ConvertKey(sdl_key), 0);
-                }
-            }
-            break;
-        }
-
-        case SDL_EventType::SDL_KEYDOWN:
-        case SDL_EventType::SDL_KEYUP:
-            non_mouse_interacted = true;
-            kb_interacted = true;
-            break;
-
-        default:
-            break;
-        }
-
-        if (is_mouse_input) {
-            if (context_capturing_mouse) {
-                RmlSDL::InputEventHandler(ui_state->context, cur_event);
-            }
-        } else if (context_capturing_input) {
-            RmlSDL::InputEventHandler(ui_state->context, cur_event);
-        }
-    }
-
-    if (cont_interacted || kb_interacted || mouse_clicked) {
-        recompui::set_cont_active(cont_interacted);
-    }
-    recomp::config_menu_set_cont_or_kb(ui_state->cont_is_active);
-
-    ui_state->update_primary_input(mouse_moved, non_mouse_interacted);
-    ui_state->update_focus(mouse_moved, non_mouse_interacted);
 }
 
 void apply_background_input_mode() {
@@ -758,6 +590,7 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
     while (recompui::try_deque_event(cur_event)) {
         bool context_capturing_input = recompui::is_context_capturing_input();
         bool context_capturing_mouse = recompui::is_context_capturing_mouse();
+
         // Handle up button events even when input is disabled to avoid missing them during binding.
         if (cur_event.type == SDL_EventType::SDL_CONTROLLERBUTTONUP) {
             int sdl_key = cont_button_to_key(cur_event.cbutton);

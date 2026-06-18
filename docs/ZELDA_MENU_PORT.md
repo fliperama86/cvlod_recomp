@@ -59,16 +59,5 @@ license change explicitly.
   - Interactive launch of `build-zelda-menu/LodRecomp` validates the discovered
     ROM and logs that it is waiting for the launcher Start Game action; no game
     init occurs before the launcher action.
-- Validation after pre-game launcher event pump fix on macOS (2026-06-18):
-  - Added a small N64ModernRuntime hook on submodule branch
-    `experiment/lod-zelda-menu-ui-pump` so LoD can request a gfx-thread screen
-    update before the game starts and pump Rml input on the gfx thread.
-  - The Zelda launcher now requests an initial present when the gfx thread is
-    ready, and SDL input requests additional presents only while emulation has
-    not started. After game start, the existing `draw_hook` input path remains
-    responsible for in-game menu hotkeys.
-  - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
-  - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
-- Next step: visually inspect/menu-drive the Zelda settings UI after the
-  launcher is visible on first present, then wire LoD controls and any real
-  audio options.
+- Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD
+  controls and any real audio options.
