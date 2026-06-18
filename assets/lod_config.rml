@@ -1,0 +1,27 @@
+<rml>
+<head>
+    <title>Settings</title>
+    <link type="text/rcss" href="rml.rcss"/>
+    <link type="text/rcss" href="recomp.rcss"/>
+    <style>
+        body { width: 100%; height: 100%; }
+        .lod-settings-copy { padding: 16dp 0; opacity: 0.85; }
+    </style>
+</head>
+<body class="window">
+    <div id="window" class="rmlui-window" data-model="config_model">
+        <div class="centered-page">
+            <div class="centered-page__modal">
+                <div class="config">
+                    <h1>Settings</h1>
+                    <label class="lod-settings-copy">The full LoD settings menu is being ported. Use the current config files/hotkeys for now.</label>
+                    <button onclick="close_config_menu" class="menu-list-item" autofocus>
+                        <div class="menu-list-item__bullet">•</div>
+                        <div class="menu-list-item__label">Back</div>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

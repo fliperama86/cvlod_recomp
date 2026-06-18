@@ -59,6 +59,9 @@
 #include "lod/lod_paths.hpp"
 #include "lod/target_rom.hpp"
 #include "lod_ui_overlay.h"
+#ifdef LOD_USE_ZELDA_MENU
+#include "recomp_ui.h"
+#endif
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
@@ -107,7 +110,11 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     return {};
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+SDL_Window* window = nullptr;
+#else
 static SDL_Window* window = nullptr;
+#endif
 static SDL_GameController* game_controller = nullptr;
 static SDL_JoystickID game_controller_instance = -1;
 static std::filesystem::path g_config_path;
@@ -835,9 +842,14 @@ void update_gfx(void*) {
                 if (event.key.repeat == 0 && handle_graphics_hotkey(event.key.keysym.sym)) {
                     break;
                 }
+#ifdef LOD_USE_ZELDA_MENU
+                recompui::queue_event(event);
+                break;
+#else
                 if (lod::ui::queue_platform_event(event)) {
                     break;
                 }
+#endif
                 break;
             case SDL_KEYUP:
             case SDL_TEXTINPUT:
@@ -849,9 +861,14 @@ void update_gfx(void*) {
             case SDL_CONTROLLERBUTTONUP:
             case SDL_CONTROLLERAXISMOTION:
             case SDL_WINDOWEVENT:
+#ifdef LOD_USE_ZELDA_MENU
+                recompui::queue_event(event);
+                break;
+#else
                 if (lod::ui::queue_platform_event(event)) {
                     break;
                 }
+#endif
                 break;
         }
     }
@@ -1138,9 +1155,15 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     *x = 0.0f;
     *y = 0.0f;
 
+#ifdef LOD_USE_ZELDA_MENU
+    if (recompui::is_context_capturing_input()) {
+        return true;
+    }
+#else
     if (lod::ui::captures_input()) {
         return true;
     }
+#endif
 
     const uint8_t* keys = SDL_GetKeyboardState(nullptr);
 

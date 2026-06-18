@@ -253,6 +253,10 @@ option(LOD_ENABLE_GS5_NI_TRACE "Enable debug-only NI pair 53/104/149 scheduler t
 if (LOD_ENABLE_GS5_NI_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_GS5_NI_TRACE=1)
 endif()
+option(LOD_USE_ZELDA_MENU "Use the experimental Zelda64Recomp menu framework instead of the current LoD overlay hooks" OFF)
+if (LOD_USE_ZELDA_MENU)
+    target_compile_definitions(LodRecomp PRIVATE LOD_USE_ZELDA_MENU=1 LOD_ZELDA_MENU_MINIMAL=1)
+endif()
 option(LOD_ENABLE_BGSTATE_TRACE "Enable debug-only background-state tracing for gs=5 recovery" OFF)
 if (LOD_ENABLE_BGSTATE_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_BGSTATE_TRACE=1)
@@ -281,6 +285,34 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
 )
 
+if (LOD_USE_ZELDA_MENU)
+    list(APPEND SOURCES
+        ${CMAKE_SOURCE_DIR}/src/ui/lod_zelda_menu.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_renderer.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_state.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_prompt.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_color_hack.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_rml_hacks.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_elements.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/ui_utils.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/util/hsv.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/core/ui_context.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_button.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_clickable.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_container.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_element.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_image.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_label.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_radio.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_scroll_container.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_slider.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_span.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_style.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_text_input.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/elements/ui_toggle.cpp
+    )
+endif()
+
 if (APPLE)
     list(APPEND SOURCES ${CMAKE_SOURCE_DIR}/src/main/support_apple.mm)
 endif()
@@ -289,6 +321,8 @@ target_include_directories(LodRecomp PRIVATE
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_SOURCE_DIR}/src/ui
     ${CMAKE_SOURCE_DIR}/src/ui/shaders
+    ${CMAKE_SOURCE_DIR}/lib/concurrentqueue
+    ${CMAKE_SOURCE_DIR}/lib/SlotMap
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Include
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends

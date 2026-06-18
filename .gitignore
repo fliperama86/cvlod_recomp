@@ -11,7 +11,20 @@ resources/
 
 # splat generated output (regenerated from ROM + YAML config)
 asm/
-assets/
+assets/*
+!assets/*.otf
+!assets/*.ttf
+!assets/*.rml
+!assets/*.rcss
+!assets/*.svg
+!assets/config_menu/
+!assets/config_menu/**
+!assets/icons/
+!assets/icons/**
+!assets/promptfont/
+!assets/promptfont/**
+!assets/scss/
+!assets/scss/**
 build*/
 castlevania2.ld
 castlevania2.d
