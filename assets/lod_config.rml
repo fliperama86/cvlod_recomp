@@ -1,0 +1,148 @@
+<rml>
+<head>
+    <title>Settings</title>
+    <link type="text/rcss" href="rml.rcss"/>
+    <link type="text/rcss" href="recomp.rcss"/>
+    <style>
+        body { width: 100%; height: 100%; }
+        .lod-config-copy { margin: 10dp 0 18dp 0; opacity: 0.84; }
+        .lod-config-tabs { display: flex; flex-direction: row; gap: 8dp; margin-bottom: 14dp; }
+        .lod-config-tab { padding: 8dp 14dp; }
+        .lod-config-status { margin-top: 14dp; opacity: 0.84; }
+        .lod-config-actions { display: flex; flex-direction: row; gap: 10dp; margin-top: 18dp; }
+        .lod-config-readonly { opacity: 0.82; margin: 8dp 0; }
+    </style>
+</head>
+<body class="window">
+    <div id="window" class="rmlui-window" data-model="config_model" onkeydown="config_keydown">
+        <div class="centered-page">
+            <div class="centered-page__modal">
+                <div class="config">
+                    <h1>Settings</h1>
+                    <div class="lod-config-tabs">
+                        <button onclick="show_general_tab" class="button lod-config-tab" autofocus>
+                            <div class="button__label">General</div>
+                        </button>
+                        <button onclick="show_graphics_tab" class="button lod-config-tab">
+                            <div class="button__label">Graphics</div>
+                        </button>
+                        <button onclick="show_controls_tab" class="button lod-config-tab">
+                            <div class="button__label">Controls</div>
+                        </button>
+                        <button onclick="show_audio_tab" class="button lod-config-tab">
+                            <div class="button__label">Audio</div>
+                        </button>
+                    </div>
+
+                    <div data-if="active_tab == 'General'">
+                        <h2>General</h2>
+                        <label class="lod-config-copy">Shared Zelda-style settings shell for LoD. Graphics are functional in this slice.</label>
+                        <p class="lod-config-readonly">Config folder: {{config_path}}</p>
+                        <p class="lod-config-readonly">Background input currently follows the runtime default.</p>
+                    </div>
+
+                    <div data-if="active_tab == 'Graphics'">
+                        <h2>Graphics</h2>
+                        <label class="lod-config-copy">Changes are staged first. Apply writes graphics.json and updates the renderer.</label>
+
+                        <div class="config-option">
+                            <label class="config-option__title">Resolution</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="resolution" data-checked="res_option" value="Original" id="lod_res_original" />
+                                <label class="config-option__tab-label" for="lod_res_original">Original</label>
+                                <input type="radio" name="resolution" data-checked="res_option" value="Original2x" id="lod_res_2x" />
+                                <label class="config-option__tab-label" for="lod_res_2x">Original 2x</label>
+                                <input type="radio" name="resolution" data-checked="res_option" value="Auto" id="lod_res_auto" />
+                                <label class="config-option__tab-label" for="lod_res_auto">Auto</label>
+                            </div>
+                        </div>
+
+                        <div class="config-option">
+                            <label class="config-option__title">Window Mode</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" />
+                                <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
+                                <input type="radio" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" />
+                                <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
+                            </div>
+                        </div>
+
+                        <div class="config-option">
+                            <label class="config-option__title">Aspect Ratio !</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" />
+                                <label class="config-option__tab-label" for="lod_ar_original">Original</label>
+                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Expand" id="lod_ar_expand" />
+                                <label class="config-option__tab-label" for="lod_ar_expand">Expand</label>
+                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" />
+                                <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
+                            </div>
+                            <label class="lod-config-readonly">! LoD currently forces Original on apply; widescreen modes cause camera-dependent flicker.</label>
+                        </div>
+
+                        <div class="config-option">
+                            <label class="config-option__title">MS Anti-Aliasing</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" />
+                                <label class="config-option__tab-label" for="lod_msaa_none">None</label>
+                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA2X" id="lod_msaa_2x" />
+                                <label class="config-option__tab-label" for="lod_msaa_2x">2x</label>
+                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA4X" id="lod_msaa_4x" />
+                                <label class="config-option__tab-label" for="lod_msaa_4x">4x</label>
+                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" />
+                                <label class="config-option__tab-label" for="lod_msaa_8x">8x</label>
+                            </div>
+                        </div>
+
+                        <div class="config-option">
+                            <label class="config-option__title">Refresh Rate !</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" />
+                                <label class="config-option__tab-label" for="lod_rr_original">Original</label>
+                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Display" id="lod_rr_display" />
+                                <label class="config-option__tab-label" for="lod_rr_display">Display ({{display_refresh_rate}}Hz)</label>
+                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" />
+                                <label class="config-option__tab-label" for="lod_rr_manual">Manual</label>
+                            </div>
+                            <div data-if="rr_option == 'Manual'" class="config-option__range-wrapper config-option__list">
+                                <label class="config-option__range-label">{{rr_manual_value}}Hz</label>
+                                <input type="range" min="20" max="360" data-value="rr_manual_value" style="flex:1; margin: 0dp;" />
+                            </div>
+                            <label class="lod-config-readonly">! LoD currently forces Original on apply; Display/Manual RT64 frame matching is unstable.</label>
+                        </div>
+
+                        <label class="lod-config-status" data-if="options_changed">Pending changes</label>
+                        <label class="lod-config-status" data-if="!options_changed">No pending changes</label>
+                        <label class="lod-config-status">{{config_status}}</label>
+
+                        <div class="lod-config-actions">
+                            <button onclick="apply_graphics" class="button button--success">
+                                <div class="button__label">Apply</div>
+                            </button>
+                            <button onclick="discard_graphics" class="button button--warning">
+                                <div class="button__label">Discard</div>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div data-if="active_tab == 'Controls'">
+                        <h2>Controls</h2>
+                        <label class="lod-config-copy">The Zelda controls layout is imported, but LoD's control persistence is different. This page will be wired next.</label>
+                    </div>
+
+                    <div data-if="active_tab == 'Audio'">
+                        <h2>Audio</h2>
+                        <label class="lod-config-copy">LoD currently exposes audio status rather than separate BGM/SFX sliders. Real volume controls will be added after the mixer path is defined.</label>
+                    </div>
+
+                    <div class="lod-config-actions">
+                        <button onclick="close_config_menu" class="button" id="config__close-menu-button">
+                            <div class="button__label">Back</div>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</rml>

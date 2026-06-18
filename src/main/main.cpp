@@ -57,8 +57,12 @@
 #include "lod/lod_support.h"
 #include "lod/lod_fault_trace.hpp"
 #include "lod/lod_paths.hpp"
+#include "lod/lod_settings.hpp"
 #include "lod/target_rom.hpp"
 #include "lod_ui_overlay.h"
+#ifdef LOD_USE_ZELDA_MENU
+#include "recomp_ui.h"
+#endif
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
 #include "librecomp/rsp.hpp"
@@ -107,7 +111,11 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     return {};
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+SDL_Window* window = nullptr;
+#else
 static SDL_Window* window = nullptr;
+#endif
 static SDL_GameController* game_controller = nullptr;
 static SDL_JoystickID game_controller_instance = -1;
 static std::filesystem::path g_config_path;
@@ -513,6 +521,27 @@ static ultramodern::renderer::GraphicsConfig default_graphics_config() {
     return config;
 }
 
+static bool sanitize_lod_graphics_config(ultramodern::renderer::GraphicsConfig& config) {
+    bool changed = false;
+
+    // LoD currently relies on RT64's original VI timing and original aspect path.
+    // Non-original refresh modes enable frame matching/interpolation, and expanded
+    // aspect changes the widescreen projection/scissor path; both are known to
+    // flicker with camera-dependent gameplay scenes.
+    if (config.ar_option != ultramodern::renderer::AspectRatio::Original) {
+        config.ar_option = ultramodern::renderer::AspectRatio::Original;
+        changed = true;
+    }
+
+    if (config.rr_option != ultramodern::renderer::RefreshRate::Original) {
+        config.rr_option = ultramodern::renderer::RefreshRate::Original;
+        config.rr_manual_value = 60;
+        changed = true;
+    }
+
+    return changed;
+}
+
 static nlohmann::json graphics_config_to_json(const ultramodern::renderer::GraphicsConfig& config) {
     return nlohmann::json{
         {"developer_mode", config.developer_mode},
@@ -573,6 +602,10 @@ static ultramodern::renderer::GraphicsConfig graphics_config_from_json(const nlo
         if (value >= 1 && value <= 8) {
             config.ds_option = value;
         }
+    }
+
+    if (sanitize_lod_graphics_config(config)) {
+        fprintf(stderr, "[CONFIG] Sanitized unstable LoD graphics options: forcing aspect=Original refresh=Original\n");
     }
 
     return config;
@@ -674,23 +707,52 @@ static const char* graphics_refresh_name(ultramodern::renderer::RefreshRate valu
 
 static void apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
                                            const char* reason) {
-    ultramodern::renderer::set_graphics_config(config);
-    save_graphics_config(config);
+    auto sanitized = config;
+    if (sanitize_lod_graphics_config(sanitized)) {
+        fprintf(stderr, "[CONFIG] %s: sanitized unstable LoD graphics options\n", reason);
+    }
+    ultramodern::renderer::set_graphics_config(sanitized);
+    save_graphics_config(sanitized);
     fprintf(stderr,
             "[CONFIG] %s: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
             reason,
-            graphics_resolution_name(config.res_option),
-            graphics_window_mode_name(config.wm_option),
-            graphics_aspect_name(config.ar_option),
-            graphics_msaa_name(config.msaa_option),
-            graphics_refresh_name(config.rr_option),
-            config.rr_manual_value);
+            graphics_resolution_name(sanitized.res_option),
+            graphics_window_mode_name(sanitized.wm_option),
+            graphics_aspect_name(sanitized.ar_option),
+            graphics_msaa_name(sanitized.msaa_option),
+            graphics_refresh_name(sanitized.rr_option),
+            sanitized.rr_manual_value);
+}
+
+std::filesystem::path lod::settings::config_path() {
+    return g_config_path;
+}
+
+std::filesystem::path lod::settings::graphics_config_path() {
+    return ::graphics_config_path();
+}
+
+void lod::settings::apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
+                                                   const char* reason) {
+    ::apply_and_save_graphics_config(config, reason);
 }
 
 static bool handle_graphics_hotkey(SDL_Keycode key) {
     switch (key) {
         case SDLK_F1:
         {
+#ifdef LOD_USE_ZELDA_MENU
+            recompui::ContextId config_context = recompui::get_config_context_id();
+            if (config_context != recompui::ContextId::null() && recompui::is_context_shown(config_context)) {
+                recompui::hide_context(config_context);
+                fprintf(stderr, "[UI] F1 Zelda settings hidden\n");
+            } else if (config_context != recompui::ContextId::null()) {
+                recompui::hide_all_contexts();
+                recompui::set_config_tab(recompui::ConfigTab::Graphics);
+                recompui::show_context(config_context, "");
+                fprintf(stderr, "[UI] F1 Zelda settings shown\n");
+            }
+#else
             const bool was_visible = lod::ui::overlay_visible();
             lod::ui::toggle_overlay();
             const bool is_visible = lod::ui::overlay_visible();
@@ -698,16 +760,23 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
                     was_visible
                         ? (lod::ui::rom_setup_visible() ? "ROM setup active" : (is_visible ? "close requested" : "hidden"))
                         : (is_visible ? "shown" : "hidden"));
+#endif
             return true;
         }
         default:
             break;
     }
 
+#ifndef LOD_USE_ZELDA_MENU
     if (lod::ui::handle_graphics_hotkey(key)) {
         fprintf(stderr, "[UI] handled graphics hotkey in overlay\n");
         return true;
     }
+#else
+    if (recompui::is_context_capturing_input()) {
+        return false;
+    }
+#endif
 
     auto config = ultramodern::renderer::get_graphics_config();
 
@@ -717,27 +786,37 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
                 ? ultramodern::renderer::WindowMode::Windowed
                 : ultramodern::renderer::WindowMode::Fullscreen;
             apply_and_save_graphics_config(config, "F11");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F5:
             config.res_option = next_graphics_option(config.res_option);
             apply_and_save_graphics_config(config, "F5");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F6:
             config.ar_option = next_graphics_option(config.ar_option);
             apply_and_save_graphics_config(config, "F6");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F7:
             config.msaa_option = next_graphics_option(config.msaa_option);
             apply_and_save_graphics_config(config, "F7");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F8:
             config.rr_option = next_graphics_option(config.rr_option);
             apply_and_save_graphics_config(config, "F8");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         default:
             return false;
@@ -815,6 +894,84 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 
 static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path);
 
+#ifdef LOD_USE_ZELDA_MENU
+static bool zelda_ui_trace_enabled() {
+    const char* value = std::getenv("LOD_ZELDA_UI_TRACE");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+static const char* zelda_sdl_event_name(uint32_t type) {
+    switch (type) {
+        case SDL_KEYDOWN: return "KEYDOWN";
+        case SDL_KEYUP: return "KEYUP";
+        case SDL_TEXTINPUT: return "TEXTINPUT";
+        case SDL_MOUSEMOTION: return "MOUSEMOTION";
+        case SDL_MOUSEBUTTONDOWN: return "MOUSEBUTTONDOWN";
+        case SDL_MOUSEBUTTONUP: return "MOUSEBUTTONUP";
+        case SDL_MOUSEWHEEL: return "MOUSEWHEEL";
+        case SDL_CONTROLLERBUTTONDOWN: return "CONTROLLERBUTTONDOWN";
+        case SDL_CONTROLLERBUTTONUP: return "CONTROLLERBUTTONUP";
+        case SDL_CONTROLLERAXISMOTION: return "CONTROLLERAXISMOTION";
+        case SDL_WINDOWEVENT: return "WINDOWEVENT";
+        default: return "OTHER";
+    }
+}
+
+static void trace_zelda_queued_event(const SDL_Event& event) {
+    if (!zelda_ui_trace_enabled()) {
+        return;
+    }
+
+    switch (event.type) {
+        case SDL_KEYDOWN:
+        case SDL_KEYUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s scancode=%d sym=%d repeat=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.key.keysym.scancode),
+                static_cast<int>(event.key.keysym.sym),
+                static_cast<int>(event.key.repeat));
+            break;
+        case SDL_MOUSEMOTION:
+            fprintf(stderr, "[UI_TRACE] queued SDL MOUSEMOTION x=%d y=%d rel=%d,%d\n",
+                event.motion.x, event.motion.y, event.motion.xrel, event.motion.yrel);
+            break;
+        case SDL_MOUSEBUTTONDOWN:
+        case SDL_MOUSEBUTTONUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s button=%d x=%d y=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.button.button),
+                event.button.x,
+                event.button.y);
+            break;
+        case SDL_CONTROLLERBUTTONDOWN:
+        case SDL_CONTROLLERBUTTONUP:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s button=%d\n",
+                zelda_sdl_event_name(event.type),
+                static_cast<int>(event.cbutton.button));
+            break;
+        case SDL_CONTROLLERAXISMOTION:
+            fprintf(stderr, "[UI_TRACE] queued SDL CONTROLLERAXISMOTION axis=%d value=%d\n",
+                static_cast<int>(event.caxis.axis),
+                static_cast<int>(event.caxis.value));
+            break;
+        case SDL_WINDOWEVENT:
+            fprintf(stderr, "[UI_TRACE] queued SDL WINDOWEVENT event=%d\n",
+                static_cast<int>(event.window.event));
+            break;
+        default:
+            fprintf(stderr, "[UI_TRACE] queued SDL %s type=%u\n",
+                zelda_sdl_event_name(event.type),
+                event.type);
+            break;
+    }
+}
+
+static void queue_zelda_ui_event(const SDL_Event& event) {
+    recompui::queue_event(event);
+    trace_zelda_queued_event(event);
+}
+#endif
+
 void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -835,9 +992,14 @@ void update_gfx(void*) {
                 if (event.key.repeat == 0 && handle_graphics_hotkey(event.key.keysym.sym)) {
                     break;
                 }
+#ifdef LOD_USE_ZELDA_MENU
+                queue_zelda_ui_event(event);
+                break;
+#else
                 if (lod::ui::queue_platform_event(event)) {
                     break;
                 }
+#endif
                 break;
             case SDL_KEYUP:
             case SDL_TEXTINPUT:
@@ -849,9 +1011,14 @@ void update_gfx(void*) {
             case SDL_CONTROLLERBUTTONUP:
             case SDL_CONTROLLERAXISMOTION:
             case SDL_WINDOWEVENT:
+#ifdef LOD_USE_ZELDA_MENU
+                queue_zelda_ui_event(event);
+                break;
+#else
                 if (lod::ui::queue_platform_event(event)) {
                     break;
                 }
+#endif
                 break;
         }
     }
@@ -1138,9 +1305,15 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     *x = 0.0f;
     *y = 0.0f;
 
+#ifdef LOD_USE_ZELDA_MENU
+    if (recompui::is_context_capturing_input()) {
+        return true;
+    }
+#else
     if (lod::ui::captures_input()) {
         return true;
     }
+#endif
 
     const uint8_t* keys = SDL_GetKeyboardState(nullptr);
 
@@ -1603,6 +1776,30 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
     validate_and_start_rom(rom_path, false, "startup discovery");
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+static bool zelda_wait_for_start_enabled() {
+    const char* value = std::getenv("LOD_ZELDA_WAIT_FOR_START");
+    if (value == nullptr || value[0] == '\0') {
+        return false;
+    }
+
+    std::string normalized = ascii_lower(value);
+    return normalized != "0" && normalized != "false" && normalized != "off" && normalized != "no";
+}
+
+static void validate_rom_for_zelda_launcher(const std::filesystem::path& rom_path) {
+    std::u8string game_id = u8"castlevania2.n64.us";
+    fprintf(stderr, "[LodRecomp] Validating ROM for Zelda launcher: %s\n", rom_path.string().c_str());
+    auto result = recomp::select_rom(rom_path, game_id);
+    if (result == recomp::RomValidationError::Good) {
+        fprintf(stderr, "[LodRecomp] ROM validated; waiting for launcher Start Game action.\n");
+    } else {
+        fprintf(stderr, "[LodRecomp] ROM validation failed (%d); Zelda launcher will wait for ROM selection.\n",
+            static_cast<int>(result));
+    }
+}
+#endif
+
 // ── Signal handling ─────────────────────────────────────────────────
 
 // Declared in overlays.cpp
@@ -1829,17 +2026,33 @@ int main(int argc, char** argv) {
 
     lod_register_overlays();
 
+#ifdef LOD_USE_ZELDA_MENU
+    const bool zelda_wait_for_start = zelda_wait_for_start_enabled();
+#endif
+
     // Find the ROM without blocking on a native picker. If discovery fails, boot
     // the renderer/UI into overlay-only ROM setup so users can choose a ROM.
     std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
     if (rom_path.empty()) {
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            fprintf(stderr, "[LodRecomp] No ROM found automatically; Zelda launcher will wait for ROM selection.\n");
+        } else
+#endif
+        {
         fprintf(stderr, "[LodRecomp] No ROM found automatically; starting ROM setup UI.\n");
         lod::ui::set_rom_setup_status("Missing",
             "No ROM was found automatically. Select your ROM file to start the game.",
             "None selected", false);
         lod::ui::show_rom_setup();
+        }
     } else {
         fprintf(stderr, "[LodRecomp] Candidate ROM: %s\n", rom_path.string().c_str());
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            validate_rom_for_zelda_launcher(rom_path);
+        }
+#endif
     }
 
     if (std::getenv("RECOMP_UI_OPEN_ON_START") != nullptr) {
@@ -1848,9 +2061,16 @@ int main(int argc, char** argv) {
     }
 
     if (!rom_path.empty()) {
+#ifdef LOD_USE_ZELDA_MENU
+        if (zelda_wait_for_start) {
+            fprintf(stderr, "[LodRecomp] LOD_ZELDA_WAIT_FOR_START enabled; waiting for launcher Start Game action.\n");
+        } else
+#endif
+        {
         // Launch auto-start thread (will validate ROM and start game after runtime initializes).
         std::thread auto_start_thread(auto_start_game, rom_path);
         auto_start_thread.detach();
+        }
     }
 
     recomp::rsp::callbacks_t rsp_callbacks{

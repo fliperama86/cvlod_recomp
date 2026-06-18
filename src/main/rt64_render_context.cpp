@@ -15,7 +15,11 @@
 #include "ultramodern/config.hpp"
 
 #include "lod/lod_render.h"
+#ifdef LOD_USE_ZELDA_MENU
+#include "recomp_ui.h"
+#else
 #include "lod_ui_overlay.h"
+#endif
 
 #ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
 #define LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS 0
@@ -180,7 +184,11 @@ ultramodern::renderer::GraphicsApi map_graphics_api(RT64::UserConfiguration::Gra
 
 lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::WindowHandle window_handle, bool debug) {
     static unsigned char dummy_rom_header[0x40];
+#ifdef LOD_USE_ZELDA_MENU
+    recompui::set_render_hooks();
+#else
     lod::ui::set_render_hooks();
+#endif
 
     RT64::Application::Core appCore{};
 #if defined(_WIN32)
@@ -472,6 +480,15 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 
 void lod::renderer::RT64Context::update_screen() {
     static int us_n = 0; us_n++;
+
+#ifdef LOD_USE_ZELDA_MENU
+    // Match ZeldaRecomp's launcher behavior before emulation starts: let the
+    // runtime's dummy VI drive UI-only frames without LoD's gameplay CFB fixups.
+    if (!ultramodern::is_game_started()) {
+        app->updateScreen();
+        return;
+    }
+#endif
 
     // Fix VI_ORIGIN to match the SETCIMG address from the last DL.
     // The game's VI setup produces a mismatched origin (0x700280 vs 0x1DA800).
