@@ -42,6 +42,7 @@ namespace recompui {
 
     void queue_event(const SDL_Event& event);
     bool try_deque_event(SDL_Event& out);
+    void process_events();
 
     std::unique_ptr<UiEventListenerInstancer> make_event_listener_instancer();
     void register_event(UiEventListenerInstancer& listener, const std::string& name, event_handler_t* handler);

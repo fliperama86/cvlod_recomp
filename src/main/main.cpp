@@ -865,6 +865,20 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 
 static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path);
 
+#ifdef LOD_USE_ZELDA_MENU
+static void zelda_menu_gfx_init() {
+    // The launcher is shown before the game starts, so there may be no VI-driven
+    // frame yet. Force one present as soon as the gfx thread is ready.
+    ultramodern::events::request_screen_update();
+}
+
+static void request_zelda_menu_screen_update() {
+    if (!ultramodern::is_game_started()) {
+        ultramodern::events::request_screen_update();
+    }
+}
+#endif
+
 void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -887,6 +901,7 @@ void update_gfx(void*) {
                 }
 #ifdef LOD_USE_ZELDA_MENU
                 recompui::queue_event(event);
+                request_zelda_menu_screen_update();
                 break;
 #else
                 if (lod::ui::queue_platform_event(event)) {
@@ -906,6 +921,7 @@ void update_gfx(void*) {
             case SDL_WINDOWEVENT:
 #ifdef LOD_USE_ZELDA_MENU
                 recompui::queue_event(event);
+                request_zelda_menu_screen_update();
                 break;
 #else
                 if (lod::ui::queue_platform_event(event)) {
@@ -1967,7 +1983,17 @@ int main(int argc, char** argv) {
 
     ultramodern::events::callbacks_t events_callbacks{
         .vi_callback = nullptr,
-        .gfx_init_callback = nullptr,
+        .gfx_init_callback =
+#ifdef LOD_USE_ZELDA_MENU
+            zelda_menu_gfx_init,
+#else
+            nullptr,
+#endif
+#ifdef LOD_USE_ZELDA_MENU
+        .gfx_update_callback = recompui::process_events,
+#else
+        .gfx_update_callback = nullptr,
+#endif
     };
 
     ultramodern::error_handling::callbacks_t error_handling_callbacks{
