@@ -57,6 +57,7 @@
 #include "lod/lod_support.h"
 #include "lod/lod_fault_trace.hpp"
 #include "lod/lod_paths.hpp"
+#include "lod/lod_settings.hpp"
 #include "lod/target_rom.hpp"
 #include "lod_ui_overlay.h"
 #ifdef LOD_USE_ZELDA_MENU
@@ -694,10 +695,35 @@ static void apply_and_save_graphics_config(const ultramodern::renderer::Graphics
             config.rr_manual_value);
 }
 
+std::filesystem::path lod::settings::config_path() {
+    return g_config_path;
+}
+
+std::filesystem::path lod::settings::graphics_config_path() {
+    return ::graphics_config_path();
+}
+
+void lod::settings::apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
+                                                   const char* reason) {
+    ::apply_and_save_graphics_config(config, reason);
+}
+
 static bool handle_graphics_hotkey(SDL_Keycode key) {
     switch (key) {
         case SDLK_F1:
         {
+#ifdef LOD_USE_ZELDA_MENU
+            recompui::ContextId config_context = recompui::get_config_context_id();
+            if (config_context != recompui::ContextId::null() && recompui::is_context_shown(config_context)) {
+                recompui::hide_context(config_context);
+                fprintf(stderr, "[UI] F1 Zelda settings hidden\n");
+            } else if (config_context != recompui::ContextId::null()) {
+                recompui::hide_all_contexts();
+                recompui::set_config_tab(recompui::ConfigTab::Graphics);
+                recompui::show_context(config_context, "");
+                fprintf(stderr, "[UI] F1 Zelda settings shown\n");
+            }
+#else
             const bool was_visible = lod::ui::overlay_visible();
             lod::ui::toggle_overlay();
             const bool is_visible = lod::ui::overlay_visible();
@@ -705,16 +731,23 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
                     was_visible
                         ? (lod::ui::rom_setup_visible() ? "ROM setup active" : (is_visible ? "close requested" : "hidden"))
                         : (is_visible ? "shown" : "hidden"));
+#endif
             return true;
         }
         default:
             break;
     }
 
+#ifndef LOD_USE_ZELDA_MENU
     if (lod::ui::handle_graphics_hotkey(key)) {
         fprintf(stderr, "[UI] handled graphics hotkey in overlay\n");
         return true;
     }
+#else
+    if (recompui::is_context_capturing_input()) {
+        return false;
+    }
+#endif
 
     auto config = ultramodern::renderer::get_graphics_config();
 
@@ -724,27 +757,37 @@ static bool handle_graphics_hotkey(SDL_Keycode key) {
                 ? ultramodern::renderer::WindowMode::Windowed
                 : ultramodern::renderer::WindowMode::Fullscreen;
             apply_and_save_graphics_config(config, "F11");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F5:
             config.res_option = next_graphics_option(config.res_option);
             apply_and_save_graphics_config(config, "F5");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F6:
             config.ar_option = next_graphics_option(config.ar_option);
             apply_and_save_graphics_config(config, "F6");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F7:
             config.msaa_option = next_graphics_option(config.msaa_option);
             apply_and_save_graphics_config(config, "F7");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         case SDLK_F8:
             config.rr_option = next_graphics_option(config.rr_option);
             apply_and_save_graphics_config(config, "F8");
+#ifndef LOD_USE_ZELDA_MENU
             lod::ui::notify_graphics_config_changed();
+#endif
             return true;
         default:
             return false;

@@ -3,6 +3,7 @@
 #include "zelda_config.h"
 #include "zelda_support.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdio>
 #include <filesystem>
@@ -25,6 +26,8 @@
 #include "elements/ui_element.h"
 
 #include "librecomp/game.hpp"
+#include "lod/lod_settings.hpp"
+#include "ultramodern/config.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "nfd.h"
 
@@ -46,6 +49,9 @@ Rml::DataModelHandle g_config_model;
 bool g_rom_valid = false;
 std::string g_rom_status = "Select your Legacy of Darkness (USA) ROM.";
 std::string g_version_string;
+ultramodern::renderer::GraphicsConfig g_pending_graphics{};
+std::string g_config_status = "Graphics changes are staged until Apply.";
+std::string g_config_path_display;
 
 std::u8string lod_game_id() {
     return u8"castlevania2.n64.us";
@@ -97,6 +103,179 @@ const char* rom_validation_message(recomp::RomValidationError error) {
     return "ROM validation failed.";
 }
 
+
+const char* config_tab_name(recompui::ConfigTab tab) {
+    switch (tab) {
+        case recompui::ConfigTab::General: return "General";
+        case recompui::ConfigTab::Controls: return "Controls";
+        case recompui::ConfigTab::Graphics: return "Graphics";
+        case recompui::ConfigTab::Sound: return "Audio";
+        case recompui::ConfigTab::Mods: return "Mods";
+        case recompui::ConfigTab::Debug: return "Debug";
+    }
+    return "General";
+}
+
+bool graphics_changed() {
+    return g_pending_graphics != ultramodern::renderer::get_graphics_config();
+}
+
+void dirty_config() {
+    if (!g_config_model) {
+        return;
+    }
+    g_config_model.DirtyAllVariables();
+}
+
+void reset_pending_graphics_from_active() {
+    g_pending_graphics = ultramodern::renderer::get_graphics_config();
+    g_config_path_display = lod::settings::config_path().empty()
+        ? std::string{"Registered at startup"}
+        : lod::settings::config_path().string();
+    g_config_status = "Graphics changes are staged until Apply.";
+    dirty_config();
+}
+
+void apply_pending_graphics(const char* reason) {
+    lod::settings::apply_and_save_graphics_config(g_pending_graphics, reason);
+    g_config_status = "Graphics settings applied and saved.";
+    dirty_config();
+}
+
+void discard_pending_graphics() {
+    reset_pending_graphics_from_active();
+    g_config_status = "Graphics changes discarded.";
+    dirty_config();
+}
+
+void hide_config_menu() {
+    recompui::hide_context(recompui::get_config_context_id());
+    if (!ultramodern::is_game_started()) {
+        recompui::show_context(recompui::get_launcher_context_id(), "");
+    }
+}
+
+void close_config_menu() {
+    if (!graphics_changed()) {
+        hide_config_menu();
+        return;
+    }
+
+    recompui::open_choice_prompt(
+        "Graphics options have changed",
+        "Would you like to apply or discard the changes?",
+        "Apply",
+        "Discard",
+        []() {
+            apply_pending_graphics("Zelda menu close");
+            hide_config_menu();
+        },
+        []() {
+            discard_pending_graphics();
+            hide_config_menu();
+        },
+        recompui::ButtonVariant::Success,
+        recompui::ButtonVariant::Error,
+        true,
+        "config__close-menu-button"
+    );
+}
+
+const char* resolution_to_string(ultramodern::renderer::Resolution value) {
+    switch (value) {
+        case ultramodern::renderer::Resolution::Original: return "Original";
+        case ultramodern::renderer::Resolution::Original2x: return "Original2x";
+        case ultramodern::renderer::Resolution::Auto: return "Auto";
+        case ultramodern::renderer::Resolution::OptionCount: break;
+    }
+    return "Original2x";
+}
+
+void set_resolution_from_string(const std::string& value) {
+    if (value == "Original") g_pending_graphics.res_option = ultramodern::renderer::Resolution::Original;
+    else if (value == "Original2x") g_pending_graphics.res_option = ultramodern::renderer::Resolution::Original2x;
+    else if (value == "Auto") g_pending_graphics.res_option = ultramodern::renderer::Resolution::Auto;
+}
+
+const char* window_mode_to_string(ultramodern::renderer::WindowMode value) {
+    switch (value) {
+        case ultramodern::renderer::WindowMode::Windowed: return "Windowed";
+        case ultramodern::renderer::WindowMode::Fullscreen: return "Fullscreen";
+        case ultramodern::renderer::WindowMode::OptionCount: break;
+    }
+    return "Windowed";
+}
+
+void set_window_mode_from_string(const std::string& value) {
+    if (value == "Windowed") g_pending_graphics.wm_option = ultramodern::renderer::WindowMode::Windowed;
+    else if (value == "Fullscreen") g_pending_graphics.wm_option = ultramodern::renderer::WindowMode::Fullscreen;
+}
+
+const char* aspect_ratio_to_string(ultramodern::renderer::AspectRatio value) {
+    switch (value) {
+        case ultramodern::renderer::AspectRatio::Original: return "Original";
+        case ultramodern::renderer::AspectRatio::Expand: return "Expand";
+        case ultramodern::renderer::AspectRatio::Manual: return "Manual";
+        case ultramodern::renderer::AspectRatio::OptionCount: break;
+    }
+    return "Original";
+}
+
+void set_aspect_ratio_from_string(const std::string& value) {
+    if (value == "Original") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Original;
+    else if (value == "Expand") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Expand;
+    else if (value == "Manual") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Manual;
+}
+
+const char* msaa_to_string(ultramodern::renderer::Antialiasing value) {
+    switch (value) {
+        case ultramodern::renderer::Antialiasing::None: return "None";
+        case ultramodern::renderer::Antialiasing::MSAA2X: return "MSAA2X";
+        case ultramodern::renderer::Antialiasing::MSAA4X: return "MSAA4X";
+        case ultramodern::renderer::Antialiasing::MSAA8X: return "MSAA8X";
+        case ultramodern::renderer::Antialiasing::OptionCount: break;
+    }
+    return "None";
+}
+
+void set_msaa_from_string(const std::string& value) {
+    if (value == "None") g_pending_graphics.msaa_option = ultramodern::renderer::Antialiasing::None;
+    else if (value == "MSAA2X") g_pending_graphics.msaa_option = ultramodern::renderer::Antialiasing::MSAA2X;
+    else if (value == "MSAA4X") g_pending_graphics.msaa_option = ultramodern::renderer::Antialiasing::MSAA4X;
+    else if (value == "MSAA8X") g_pending_graphics.msaa_option = ultramodern::renderer::Antialiasing::MSAA8X;
+}
+
+const char* refresh_rate_to_string(ultramodern::renderer::RefreshRate value) {
+    switch (value) {
+        case ultramodern::renderer::RefreshRate::Original: return "Original";
+        case ultramodern::renderer::RefreshRate::Display: return "Display";
+        case ultramodern::renderer::RefreshRate::Manual: return "Manual";
+        case ultramodern::renderer::RefreshRate::OptionCount: break;
+    }
+    return "Original";
+}
+
+void set_refresh_rate_from_string(const std::string& value) {
+    if (value == "Original") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Original;
+    else if (value == "Display") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Display;
+    else if (value == "Manual") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Manual;
+}
+
+void bind_option_string(Rml::DataModelConstructor& constructor,
+                        const char* name,
+                        const std::function<const char*()>& getter,
+                        const std::function<void(const std::string&)>& setter) {
+    constructor.BindFunc(name,
+        [getter](Rml::Variant& out) {
+            out = getter();
+        },
+        [setter, name](const Rml::Variant& in) {
+            setter(in.Get<std::string>());
+            g_config_status = "Graphics changes pending.";
+            dirty_config();
+        });
+}
+
 void select_rom() {
     zelda64::open_file_dialog([](bool success, const std::filesystem::path& path) {
         if (!success) {
@@ -142,11 +321,13 @@ public:
             recompui::process_game_started();
         });
         recompui::register_event(listener, "open_settings", [](const std::string&, Rml::Event&) {
+            reset_pending_graphics_from_active();
             recompui::set_config_tab(recompui::ConfigTab::General);
             recompui::hide_all_contexts();
             recompui::show_context(recompui::get_config_context_id(), "");
         });
         recompui::register_event(listener, "open_controls", [](const std::string&, Rml::Event&) {
+            reset_pending_graphics_from_active();
             recompui::set_config_tab(recompui::ConfigTab::Controls);
             recompui::hide_all_contexts();
             recompui::show_context(recompui::get_config_context_id(), "");
@@ -188,15 +369,79 @@ public:
 
     void register_events(recompui::UiEventListenerInstancer& listener) override {
         recompui::register_event(listener, "close_config_menu", [](const std::string&, Rml::Event&) {
-            recompui::hide_context(recompui::get_config_context_id());
-            if (!ultramodern::is_game_started()) {
-                recompui::show_context(recompui::get_launcher_context_id(), "");
+            close_config_menu();
+        });
+        recompui::register_event(listener, "apply_graphics", [](const std::string&, Rml::Event&) {
+            apply_pending_graphics("Zelda menu apply");
+        });
+        recompui::register_event(listener, "discard_graphics", [](const std::string&, Rml::Event&) {
+            discard_pending_graphics();
+        });
+        recompui::register_event(listener, "show_general_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::General);
+        });
+        recompui::register_event(listener, "show_graphics_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::Graphics);
+        });
+        recompui::register_event(listener, "show_controls_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::Controls);
+        });
+        recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::Sound);
+        });
+        recompui::register_event(listener, "config_keydown", [](const std::string&, Rml::Event& event) {
+            if (recompui::is_prompt_open() || event.GetId() != Rml::EventId::Keydown) {
+                return;
+            }
+            const auto key = event.GetParameter<Rml::Input::KeyIdentifier>(
+                "key_identifier",
+                Rml::Input::KeyIdentifier::KI_UNKNOWN);
+            if (key == Rml::Input::KeyIdentifier::KI_ESCAPE) {
+                close_config_menu();
+            } else if (key == Rml::Input::KeyIdentifier::KI_F) {
+                apply_pending_graphics("Zelda menu key apply");
             }
         });
     }
 
     void make_bindings(Rml::Context* context) override {
+        reset_pending_graphics_from_active();
         Rml::DataModelConstructor constructor = context->CreateDataModel("config_model");
+        constructor.BindFunc("active_tab", [](Rml::Variant& out) {
+            out = config_tab_name(g_active_tab);
+        });
+        constructor.BindFunc("options_changed", [](Rml::Variant& out) {
+            out = graphics_changed();
+        });
+        constructor.Bind("config_status", &g_config_status);
+        constructor.Bind("config_path", &g_config_path_display);
+        constructor.BindFunc("display_refresh_rate", [](Rml::Variant& out) {
+            out = ultramodern::get_display_refresh_rate();
+        });
+        bind_option_string(constructor, "res_option",
+            []() { return resolution_to_string(g_pending_graphics.res_option); },
+            [](const std::string& value) { set_resolution_from_string(value); });
+        bind_option_string(constructor, "wm_option",
+            []() { return window_mode_to_string(g_pending_graphics.wm_option); },
+            [](const std::string& value) { set_window_mode_from_string(value); });
+        bind_option_string(constructor, "ar_option",
+            []() { return aspect_ratio_to_string(g_pending_graphics.ar_option); },
+            [](const std::string& value) { set_aspect_ratio_from_string(value); });
+        bind_option_string(constructor, "msaa_option",
+            []() { return msaa_to_string(g_pending_graphics.msaa_option); },
+            [](const std::string& value) { set_msaa_from_string(value); });
+        bind_option_string(constructor, "rr_option",
+            []() { return refresh_rate_to_string(g_pending_graphics.rr_option); },
+            [](const std::string& value) { set_refresh_rate_from_string(value); });
+        constructor.BindFunc("rr_manual_value",
+            [](Rml::Variant& out) {
+                out = g_pending_graphics.rr_manual_value;
+            },
+            [](const Rml::Variant& in) {
+                g_pending_graphics.rr_manual_value = std::clamp(in.Get<int>(), 20, 360);
+                g_config_status = "Graphics changes pending.";
+                dirty_config();
+            });
         g_config_model = constructor.GetModelHandle();
     }
 };
@@ -316,7 +561,11 @@ recompui::ContextId recompui::get_config_sub_menu_context_id() {
 }
 
 void recompui::set_config_tab(ConfigTab tab) {
+    if (!recompui::is_context_shown(g_config_context)) {
+        reset_pending_graphics_from_active();
+    }
     g_active_tab = tab;
+    dirty_config();
 }
 
 int recompui::config_tab_to_index(ConfigTab tab) {

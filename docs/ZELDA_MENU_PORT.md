@@ -35,10 +35,16 @@ license change explicitly.
 - Added `LOD_USE_ZELDA_MENU` (default OFF) so the existing LoD overlay remains
   the default runtime path.
 - Added a minimal LoD adapter/launcher/config slice for the Zelda menu framework.
+- Added the first real settings slice: Zelda-styled General/Graphics/Controls/Audio shell, with Graphics backed by LoD's active `graphics.json` path and apply/save logic.
 - Validation on macOS (2026-06-18):
   - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
   - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
   - Bounded smoke run of `build-zelda-menu/LodRecomp` reached startup/game init
     and was terminated by the 20s timeout; no stale process remained.
-- Next step: visually inspect/menu-drive the Zelda UI, then replace the
-  placeholder settings model with real LoD graphics/audio/control bindings.
+- Validation after the Graphics settings slice on macOS (2026-06-18):
+  - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
+  - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
+  - Bounded smoke run of `build-zelda-menu/LodRecomp` loaded the Zelda UI assets,
+    reached startup/game init, and exited by 20s timeout without a stale process.
+- Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD
+  controls and any real audio options.
