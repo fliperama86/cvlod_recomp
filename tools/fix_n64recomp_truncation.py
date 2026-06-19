@@ -45,13 +45,17 @@ def _repair_funcs_h_partial_declarations(content):
     changed = False
     for line in lines:
         stripped = line.rstrip()
-        if stripped == 'void':
+        if stripped and 'void'.startswith(stripped):
             # Truncated at exactly the return type. Drop the dangling fragment;
             # the complete declaration will be recovered from definitions.
             changed = True
             continue
         if stripped and stripped.startswith('void ') and not stripped.endswith(';') and not stripped.endswith('{'):
-            if re.search(r'\(uint8_t\*\s*rdram,\s*recomp_context\*\s*ctx\s*$', stripped):
+            if re.search(r'\(uint8_t\*\s*rdram,\s*recomp_context\*\s*ctx\s*\)\s*$', stripped):
+                # Truncated after the full prototype but before the semicolon.
+                line = line.rstrip() + ';'
+                changed = True
+            elif re.search(r'\(uint8_t\*\s*rdram,\s*recomp_context\*\s*ctx\s*$', stripped):
                 # Truncated after the ctx argument — add the missing close.
                 line = line.rstrip() + ');'
                 changed = True
@@ -286,18 +290,32 @@ def fix_truncated_c_files():
              if "// PATCH: rest of function truncated by N64Recomp overlay_system output bug" in line),
             None,
         )
-        if existing_patch_idx is not None and existing_patch_idx > 0:
-            tail = lines[existing_patch_idx - 1].rstrip()
+        if existing_patch_idx is not None:
+            prev_idx = existing_patch_idx - 1
+            while prev_idx >= 0 and not lines[prev_idx].strip():
+                prev_idx -= 1
+
+            tail = lines[prev_idx].rstrip() if prev_idx >= 0 else ""
             stripped = tail.strip()
-            if (stripped and not stripped.startswith("//") and
-                    not stripped.endswith((";", ":", "{", "}"))):
-                print(f"  Fixing {fname} (incomplete tail before existing truncation patch)")
-                print("    Dropped 1 incomplete tail line")
-                del lines[existing_patch_idx - 1]
+            if stripped.endswith(';}'):
+                print(f"  Fixing {fname} (redundant truncation patch after complete function)")
+                lines = lines[:prev_idx + 1]
                 with open(path, 'w', newline='\n') as f:
                     f.write("\n".join(lines).rstrip() + "\n")
                 fixed = True
                 continue
+            if (stripped and not stripped.startswith("//") and
+                    not stripped.endswith((";", ":", "{", "}"))):
+                print(f"  Fixing {fname} (incomplete tail before existing truncation patch)")
+                print("    Dropped 1 incomplete tail line")
+                del lines[prev_idx]
+                with open(path, 'w', newline='\n') as f:
+                    f.write("\n".join(lines).rstrip() + "\n")
+                fixed = True
+                continue
+
+            # Existing truncation patch is still needed and syntactically sane.
+            continue
 
         if lines and lines[-1].strip().endswith(';}'):
             continue  # already complete

@@ -214,6 +214,10 @@ Known state-3 inputs:
 | Address | Name | Description |
 |---------|------|-------------|
 | 0x801CB5CC | NI_systemInit | Creates NI file management object at sys+0x295C |
+| 0x0F001444 (NI pair 7) | ni_ovl_007_func_0F001444 | Pair-7 dispatcher that can call the `0x0F01A0F8` state table; table entry `0` targets internal label/function boundary `0x0F00162C` |
+| 0x0F00162C (NI pair 7) | ni_ovl_007_func_0F00162C | Split from the tail of `0x0F001444`; required because pair-7 dispatch table targets this address directly, and range fallback to `0x0F001444` causes recursive re-entry |
+| 0x0F010084 (NI pair 7) | ni_ovl_007_func_0F010084 | Pair-7 state handler reached from the `0x0F01A5C0` table; originally included the internal target `0x0F010218` in its tail |
+| 0x0F010218 (NI pair 7) | ni_ovl_007_func_0F010218 | Split from the tail of `0x0F010084`; required because pair-7 table entry `3` targets this address directly, and range fallback to `0x0F010084` caused recursive re-entry |
 | 0x0F000F9C (NI pair 23) | ni_ovl_023_bike_skeleton_root_update | Pair-23 root update/wrapper: dispatches table `0x0F006F80[state]`; state `3` reaches `ni_ovl_023_bike_skeleton_spawn_dispatch` |
 | 0x0F003358 (NI pair 23) | ni_ovl_023_bike_skeleton_state_spawn_gate | Pair-23 state-table handler reached from `0x0F006F80`; manages child/effect spawn gate state |
 | 0x0F00469C (NI pair 23) | ni_ovl_023_bike_skeleton_spawn_dispatch | Pair-23 bike-skeleton spawn sub-dispatcher: dispatches two-entry table `0x0F006FC8[state]`; entry `1` is internal label `0x0F004A24`, and entry `2` falls into adjacent `"No memory..."` string data |
