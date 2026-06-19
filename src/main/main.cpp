@@ -1961,7 +1961,7 @@ int main(int argc, char** argv) {
     sigaction(SIGBUS, &sa, nullptr);
 #endif
     recomp::Version project_version{};
-    recomp::Version::from_string("0.2.6", project_version);
+    recomp::Version::from_string("0.2.8", project_version);
 
     // Set up config path for ROM storage. If portable.txt exists beside the
     // executable/app (or in the launch directory), keep config and saves there.
