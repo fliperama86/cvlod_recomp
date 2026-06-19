@@ -11,8 +11,10 @@ Why this exists:
 
 The audit is intentionally conservative:
   * It scans each raw NI overlay blob independently.
-  * It treats 4-byte aligned words inside that overlay's executable VRAM range
-    as candidate indirect targets.
+  * By default, it treats 4-byte aligned words inside that overlay's executable
+    VRAM range as candidate indirect targets.
+  * With --scan-full-raw, it scans the whole raw blob for data/rodata pointer
+    tables, while still only accepting targets into executable text.
   * It reports candidates that are not declared function starts in the same
     syms.toml section.
 
@@ -20,6 +22,7 @@ Usage:
   python3 tools/audit_indirect_targets.py
   python3 tools/audit_indirect_targets.py --fail-on-missing
   python3 tools/audit_indirect_targets.py --section 44
+  python3 tools/audit_indirect_targets.py --scan-full-raw --section 7 --target 0x0F010218
 """
 
 from __future__ import annotations
@@ -53,6 +56,11 @@ def parse_args() -> argparse.Namespace:
                         help="Directory containing ni_ovl_XXX.bin raw blobs")
     parser.add_argument("--section", type=int, action="append",
                         help="Only audit a specific NI overlay pair/index; may be repeated")
+    parser.add_argument("--scan-full-raw", action="store_true",
+                        help=("Scan the full raw blob for table references. Targets are still "
+                              "restricted to the executable text range."))
+    parser.add_argument("--target", type=lambda s: int(s, 0), action="append",
+                        help="Only report a specific target VRAM address; may be repeated")
     parser.add_argument("--limit", type=int, default=200,
                         help="Maximum missing target rows to print")
     parser.add_argument("--fail-on-missing", action="store_true",
@@ -105,7 +113,9 @@ def words_at(data: bytes, offset: int, count: int = 4) -> list[int]:
     return words
 
 
-def scan_section(pair: int, section: dict[str, Any], raw_path: Path) -> list[dict[str, Any]]:
+def scan_section(pair: int, section: dict[str, Any], raw_path: Path,
+                 scan_full_raw: bool = False,
+                 only_targets: set[int] | None = None) -> list[dict[str, Any]]:
     vram = int(section["vram"])
     size = int(section["size"])
     functions = section.get("functions", [])
@@ -116,15 +126,18 @@ def scan_section(pair: int, section: dict[str, Any], raw_path: Path) -> list[dic
     ]
 
     data = raw_path.read_bytes()
-    scan_size = min(size, len(data))
-    vram_end = vram + scan_size
+    text_size = min(size, len(data))
+    text_end = vram + text_size
+    scan_size = len(data) if scan_full_raw else text_size
 
     refs: dict[int, list[int]] = {}
     for raw_off in range(0, max(0, scan_size - 3), 4):
         value = struct.unpack_from(">I", data, raw_off)[0]
         if value % 4 != 0:
             continue
-        if vram <= value < vram_end:
+        if vram <= value < text_end:
+            if only_targets is not None and value not in only_targets:
+                continue
             refs.setdefault(value, []).append(vram + raw_off)
 
     missing: list[dict[str, Any]] = []
@@ -148,6 +161,10 @@ def scan_section(pair: int, section: dict[str, Any], raw_path: Path) -> list[dic
             "target": target,
             "refs": len(sites),
             "sites": sites[:8],
+            "site_regions": [
+                "text" if vram <= site < vram + text_size else "data"
+                for site in sites[:8]
+            ],
             "words": target_words,
             "containing": containing,
         })
@@ -158,6 +175,7 @@ def scan_section(pair: int, section: dict[str, Any], raw_path: Path) -> list[dic
 def main() -> int:
     args = parse_args()
     only = set(args.section) if args.section else None
+    only_targets = set(args.target) if args.target else None
 
     syms = load_toml(args.syms)
     sections = list(iter_ni_sections(syms, args.raw_dir, only))
@@ -174,7 +192,9 @@ def main() -> int:
         if entry["missing_raw"]:
             continue
         scanned += 1
-        missing.extend(scan_section(entry["pair"], entry["section"], entry["raw_path"]))
+        missing.extend(scan_section(entry["pair"], entry["section"], entry["raw_path"],
+                                    scan_full_raw=args.scan_full_raw,
+                                    only_targets=only_targets))
 
     if missing_raw:
         print(f"[audit_indirect_targets] Warning: {len(missing_raw)} raw blob(s) missing; skipped.")
@@ -182,12 +202,20 @@ def main() -> int:
             print(f"  ni_ovl_{entry['pair']:03d}: {entry['raw_path']}")
 
     if not missing:
-        print(f"[audit_indirect_targets] OK: scanned {scanned} NI overlay raw blob(s); no missing indirect targets found.")
+        scope = "full raw blobs" if args.scan_full_raw else "executable ranges"
+        target_note = ""
+        if only_targets:
+            target_note = " for target(s) " + ", ".join(f"0x{target:08X}" for target in sorted(only_targets))
+        print(f"[audit_indirect_targets] OK: scanned {scanned} NI overlay {scope}{target_note}; no missing indirect targets found.")
         return 0
 
-    print(f"[audit_indirect_targets] Found {len(missing)} missing candidate indirect target(s):")
+    scope = "full-raw" if args.scan_full_raw else "text-range"
+    print(f"[audit_indirect_targets] Found {len(missing)} missing {scope} candidate indirect target(s):")
     for row in missing[:args.limit]:
-        sites = ", ".join(f"0x{site:08X}" for site in row["sites"])
+        sites = ", ".join(
+            f"0x{site:08X}:{region}"
+            for site, region in zip(row["sites"], row["site_regions"])
+        )
         words = " ".join(f"{word:08X}" for word in row["words"])
         containing = row["containing"] or "(no containing declared function)"
         print(

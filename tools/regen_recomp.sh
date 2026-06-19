@@ -183,4 +183,12 @@ else
     python3 "$(dirname "$0")/apply_symbols.py"
 fi
 
+# --- Step 10: Audit NI indirect targets that should be declared function starts ---
+echo "==> Auditing NI indirect function targets..."
+if [ $DRY_RUN -eq 1 ]; then
+    echo "    [dry-run] Would run: python3 tools/audit_indirect_targets.py --fail-on-missing"
+else
+    python3 "$(dirname "$0")/audit_indirect_targets.py" --fail-on-missing
+fi
+
 echo "==> Done. Review changes with: git diff $FUNC_DIR/"
