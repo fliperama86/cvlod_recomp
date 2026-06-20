@@ -18,8 +18,6 @@
 #ifndef LOD_SYMBOLS_H
 #define LOD_SYMBOLS_H
 
-#include <stdint.h>
-
 #ifdef LOD_FIX_INTRO_6C_MODEL38_TLB
 uint32_t lod_tlb_translate_virtual_to_physical_or_zero(uint32_t vaddr, uint32_t size);
 #endif

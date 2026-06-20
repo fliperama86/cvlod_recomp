@@ -3,7 +3,6 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-#include <cstdio>
 #include <fstream>
 #include <filesystem>
 
@@ -21,19 +20,14 @@
 #include "InterfacePS.hlsl.spirv.h"
 
 #ifdef _WIN32
-#   if __has_include("InterfaceVS.hlsl.dxil.h") && __has_include("InterfacePS.hlsl.dxil.h")
-#       include "InterfaceVS.hlsl.dxil.h"
-#       include "InterfacePS.hlsl.dxil.h"
-#       define LOD_ZELDA_MENU_HAS_DXIL_SHADERS 1
-#   else
-#       define LOD_ZELDA_MENU_HAS_DXIL_SHADERS 0
-#   endif
+#   include "InterfaceVS.hlsl.dxil.h"
+#   include "InterfacePS.hlsl.dxil.h"
 #elif defined(__APPLE__)
 #   include "InterfaceVS.hlsl.metal.h"
 #   include "InterfacePS.hlsl.metal.h"
 #endif
 
-#if defined(_WIN32) && LOD_ZELDA_MENU_HAS_DXIL_SHADERS
+#ifdef _WIN32
 #    define GET_SHADER_BLOB(name, format) \
         ((format) == RenderShaderFormat::SPIRV ? name##BlobSPIRV : \
         (format) == RenderShaderFormat::DXIL ? name##BlobDXIL : nullptr)
@@ -199,17 +193,8 @@ public:
         // Create the shaders
         RenderShaderFormat shaderFormat = interface_->getCapabilities().shaderFormat;
 
-        const void* vertex_blob = GET_SHADER_BLOB(InterfaceVS, shaderFormat);
-        const void* pixel_blob = GET_SHADER_BLOB(InterfacePS, shaderFormat);
-        const size_t vertex_blob_size = GET_SHADER_SIZE(InterfaceVS, shaderFormat);
-        const size_t pixel_blob_size = GET_SHADER_SIZE(InterfacePS, shaderFormat);
-        if (vertex_blob == nullptr || pixel_blob == nullptr || vertex_blob_size == 0 || pixel_blob_size == 0) {
-            std::fprintf(stderr, "[UI] Unsupported renderer shader format for Zelda RmlUi menu\n");
-            return;
-        }
-
-        vertex_shader_ = device_->createShader(vertex_blob, vertex_blob_size, "VSMain", shaderFormat);
-        pixel_shader_ = device_->createShader(pixel_blob, pixel_blob_size, "PSMain", shaderFormat);
+        vertex_shader_ = device_->createShader(GET_SHADER_BLOB(InterfaceVS, shaderFormat), GET_SHADER_SIZE(InterfaceVS, shaderFormat), "VSMain", shaderFormat);
+        pixel_shader_ = device_->createShader(GET_SHADER_BLOB(InterfacePS, shaderFormat), GET_SHADER_SIZE(InterfacePS, shaderFormat), "PSMain", shaderFormat);
 
 
         // Create the descriptor set that contains the sampler
