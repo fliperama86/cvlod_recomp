@@ -276,6 +276,27 @@ Notes:
 - The current compatibility fix scopes the internal-label behavior to `ni_ovl_120_result_schedule_dispatch` only.
 - N64Recomp's range fallback resolves internal-label jumps to the containing function start; that is useful for many computed jumps but wrong for this callback table.
 
+NI pair 15 / Art Tower knight (`actor_id=0x20DD`) notes:
+
+| Address | Symbol | Notes |
+|---------|--------|-------|
+| 0x0F000000 | ni_ovl_015_knight_dispatch_primary | Primary ni015 dispatcher; uses table rooted near `0x0F008928` |
+| 0x0F000070 | ni_ovl_015_knight_dispatch_secondary | Secondary ni015 dispatcher |
+| 0x0F0000E0 | ni_ovl_015_knight_update_main | Main Art Tower knight update. Chooses enemy-list state `0x03` when far and `0x23` when near, calls the local AI state machine, updates collision/probe data, and checks the `visual+0xB0` high-bit death gate before entering death/list state `0x10` |
+| 0x0F002830 | ni_ovl_015_func_0F002830 | Knight state-table handler before the internal `0x0F002A4C` cleanup target |
+| 0x0F002A4C | ni_ovl_015_knight_clear_motion_substate | Internal table target used by `0x0F008944[8]` and `0x0F008964[0]`; must be split from `0x0F002830` so indirect dispatch does not range-fallback into the wrong state handler. Splitting this fixed the Art Tower knight no-chase/repeated-animation loop. |
+| 0x0F002E74 | ni_ovl_015_knight_swing_anim_a_update | Swing/animation state handler; calls the attack-effect and motion-pulse helpers, then the animation-finish enemy-list helper when the animation event byte matches `0x80` |
+| 0x0F0030B4 | ni_ovl_015_knight_swing_anim_b_update | Sibling swing/animation state handler |
+| 0x0F0032F4 | ni_ovl_015_knight_swing_anim_c_update | Sibling swing/animation state handler |
+| 0x0F003530 | ni_ovl_015_knight_death_update | Death-state update; traced as death-writer path, but it does not run unless the main update/death gate transitions first |
+| 0x0F0038A0 | ni_ovl_015_knight_collision_probe_update | Updates the knight collision/probe parameters under `visual+0x164` |
+| 0x0F00394C | ni_ovl_015_knight_ai_state_machine_update | Dispatches the local AI/animation state from `visual+0x11C`; adjacent words `visual+0x114/+0x118` are flags and `visual+0x120/+0x124` are previous/substate fields |
+| 0x0F003F5C | ni_ovl_015_knight_attack_effect_update | Handles attack effect/sound/visual flags during swing states |
+| 0x0F0040C8 | ni_ovl_015_knight_motion_pulse_update | Updates temporary swing/motion pulse while `visual+0x154 & 0x400` |
+| 0x0F0044A4 | ni_ovl_015_knight_finish_anim_enemy_state_update | Animation-finish helper; normally calls enemy-list state `0x03`, or `0x02` when `actor->3C->60` bit 25 is set |
+| 0x0F004628 | ni_ovl_015_knight_close_action_check | Checks close/player-action condition used by a death/interaction path |
+| 0x0F004698 | ni_ovl_015_knight_xz_distance_to_player | Computes XZ distance between the knight and player |
+
 ## Key Globals
 | Address | Name | Description |
 |---------|------|-------------|
