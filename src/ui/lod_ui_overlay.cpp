@@ -1545,7 +1545,7 @@ private:
         std::ostringstream out;
         out << "<h1 class='recomp-page-title'>General</h1>";
         out << "<p class='recomp-page-help'>Runtime status and release-facing paths. ROM setup is tracked separately because the current app exits before UI startup when no ROM is found.</p>";
-        out << make_readonly_row("Version", "Current project version from main configuration.", "0.2.8");
+        out << make_readonly_row("Version", "Current project version from main configuration.", "0.2.9");
         out << make_readonly_row("ROM", "Normal releases look for a legally dumped LoD ROM named rom.z64 beside the app.", "Loaded before runtime start");
         out << make_readonly_row("Settings Overlay", "The overlay starts hidden and does not affect gameplay until opened.", "F1 toggles");
         out << make_readonly_row("Config Folder", "Graphics and controls settings are stored in the platform config folder.", g_config_path_display.empty() ? "Registered at startup" : g_config_path_display);
