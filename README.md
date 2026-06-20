@@ -37,8 +37,8 @@ git submodule update --remote
 
 ## Experimental ZeldaRecomp menu branch
 
-This branch imports Zelda64Recomp menu code/assets behind `-DLOD_USE_ZELDA_MENU=ON`.
-The flag defaults to OFF, so normal builds still use the existing LoD overlay.
+This branch imports Zelda64Recomp menu code/assets behind `LOD_USE_ZELDA_MENU`.
+The flag defaults to ON; pass `-DLOD_USE_ZELDA_MENU=OFF` to build the legacy LoD overlay path.
 Because the imported menu framework/assets are GPL-3.0, this branch is licensed
 under GPL-3.0; see `LICENSE`, `COPYING`, and `docs/ZELDA_MENU_PORT.md`.
 

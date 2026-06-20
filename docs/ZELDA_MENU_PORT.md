@@ -32,8 +32,8 @@ license change explicitly.
 ## Porting status
 
 - Imported ZeldaRecomp menu framework/assets.
-- Added `LOD_USE_ZELDA_MENU` (default OFF) so the existing LoD overlay remains
-  the default runtime path.
+- Added `LOD_USE_ZELDA_MENU`; it now defaults ON so the ZeldaRecomp menu is the
+  default runtime path, while `-DLOD_USE_ZELDA_MENU=OFF` keeps the legacy LoD overlay available.
 - Added a minimal LoD adapter/launcher/config slice for the Zelda menu framework.
 - Added the first real settings slice: Zelda-styled General/Graphics/Controls/Audio shell, with Graphics backed by LoD's active `graphics.json` path and apply/save logic.
 - Validation on macOS (2026-06-18):
@@ -57,5 +57,15 @@ license change explicitly.
     UI event dequeue/dispatch, context capture state, and Rml listener firing.
   - `cmake --build build-zelda-menu -j 8` passes with `LOD_USE_ZELDA_MENU=ON`.
   - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
+- Windows validation (2026-06-20):
+  - Regenerated `RecompiledFuncs/` with the documented Windows N64Recomp
+    post-processing chain after stale generated symbols caused a link failure.
+  - `python tools\audit_indirect_targets.py --scan-call-tables --fail-on-missing`
+    passes.
+  - `cmake -S . -B build-win -DLOD_USE_ZELDA_MENU=ON` and
+    `cmake --build build-win --config RelWithDebInfo --target LodRecomp` pass.
+  - The Zelda renderer now treats DXIL UI shader headers as optional; without
+    generated DXIL headers it builds and reports unsupported shader format at
+    runtime instead of failing compilation.
 - Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD
   controls and any real audio options.

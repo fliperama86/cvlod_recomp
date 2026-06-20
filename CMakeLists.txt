@@ -312,7 +312,7 @@ option(LOD_ENABLE_GS5_NI_TRACE "Enable debug-only NI pair 53/104/149 scheduler t
 if (LOD_ENABLE_GS5_NI_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_GS5_NI_TRACE=1)
 endif()
-option(LOD_USE_ZELDA_MENU "Use the experimental Zelda64Recomp menu framework instead of the current LoD overlay hooks" OFF)
+option(LOD_USE_ZELDA_MENU "Use the experimental Zelda64Recomp menu framework instead of the current LoD overlay hooks" ON)
 if (LOD_USE_ZELDA_MENU)
     target_compile_definitions(LodRecomp PRIVATE LOD_USE_ZELDA_MENU=1 LOD_ZELDA_MENU_MINIMAL=1)
 endif()
