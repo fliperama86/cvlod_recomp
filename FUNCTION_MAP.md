@@ -276,6 +276,13 @@ Notes:
 - The current compatibility fix scopes the internal-label behavior to `ni_ovl_120_result_schedule_dispatch` only.
 - N64Recomp's range fallback resolves internal-label jumps to the containing function start; that is useful for many computed jumps but wrong for this callback table.
 
+General NI call-table boundary audit:
+
+- `tools/audit_indirect_targets.py --scan-call-tables` detects raw-data callback/state tables by locally slicing MIPS `jalr` table-load patterns. This catches tables beyond a section's executable byte range without the false positives from scanning the full raw blob.
+- `--fix-syms` splits missing call-table targets that land inside declared functions, using generated `ni_ovl_XXX_func_XXXXXXXX` names. The generalized pass added 166 build-safe NI function-boundary splits after the `ni_ovl_015_knight_clear_motion_substate` fix.
+- Regen now runs the strengthened audit with `--scan-call-tables --fail-on-missing`; future missing internal call targets should fail regeneration before becoming runtime range-fallback bugs.
+- Exclusions are intentionally narrow: `ni118` labels `0x0F0014D8`/`0x0F00150C` make current N64Recomp abort while sizing a local jump table, and `ni120` result labels remain handled by the scoped pair-120 runtime shim.
+
 NI pair 15 / Art Tower knight (`actor_id=0x20DD`) notes:
 
 | Address | Symbol | Notes |
