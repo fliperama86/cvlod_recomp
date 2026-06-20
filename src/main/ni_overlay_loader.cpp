@@ -73,6 +73,10 @@
 #define LOD_FIX_NI_SEG6_CPU_ALIAS 0
 #endif
 
+#ifndef LOD_FIX_RUN_DL_STALE_NI_FALLBACK
+#define LOD_FIX_RUN_DL_STALE_NI_FALLBACK 0
+#endif
+
 extern "C" void load_overlays(uint32_t rom, int32_t ram_addr, uint32_t size);
 extern "C" void unload_overlays(int32_t ram_addr, uint32_t size);
 extern "C" uint32_t lod_current_map_overlay_rom();
@@ -2240,6 +2244,169 @@ static void ni_pair99_restore_item_list_if_saved(uint8_t* segment_base,
 }
 #endif
 
+
+#if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
+struct LodNiStaleOverlaySnapshot {
+    std::vector<uint8_t> bytes;
+    bool valid = false;
+};
+
+static std::array<LodNiStaleOverlaySnapshot, NI_PAIR_COUNT> ni_stale_0f_data;
+static std::array<LodNiStaleOverlaySnapshot, NI_PAIR_COUNT> ni_stale_0e_data;
+static std::array<int, NI_PAIR_COUNT> ni_stale_0f_recent = {};
+static std::array<int, NI_PAIR_COUNT> ni_stale_0e_recent = {};
+static uint32_t ni_stale_0f_recent_count = 0;
+static uint32_t ni_stale_0e_recent_count = 0;
+
+static std::array<int, NI_PAIR_COUNT>* ni_stale_recent_for_vram(uint32_t vram, uint32_t** count_out) {
+    if (vram == 0x0F000000) {
+        *count_out = &ni_stale_0f_recent_count;
+        return &ni_stale_0f_recent;
+    }
+    if (vram == 0x0E000000) {
+        *count_out = &ni_stale_0e_recent_count;
+        return &ni_stale_0e_recent;
+    }
+    *count_out = nullptr;
+    return nullptr;
+}
+
+static LodNiStaleOverlaySnapshot* ni_stale_snapshot_for_vram(uint32_t vram, int pair_index) {
+    if (pair_index < 0 || pair_index >= NI_OVL_COUNT) {
+        return nullptr;
+    }
+    if (vram == 0x0F000000) {
+        return &ni_stale_0f_data[(size_t)pair_index];
+    }
+    if (vram == 0x0E000000) {
+        return &ni_stale_0e_data[(size_t)pair_index];
+    }
+    return nullptr;
+}
+
+static void ni_stale_mark_recent(uint32_t vram, int pair_index) {
+    uint32_t* count = nullptr;
+    std::array<int, NI_PAIR_COUNT>* recent = ni_stale_recent_for_vram(vram, &count);
+    if (recent == nullptr || count == nullptr || pair_index < 0 || pair_index >= NI_OVL_COUNT) {
+        return;
+    }
+
+    uint32_t found = NI_PAIR_COUNT;
+    for (uint32_t i = 0; i < *count; i++) {
+        if ((*recent)[i] == pair_index) {
+            found = i;
+            break;
+        }
+    }
+    if (found != NI_PAIR_COUNT) {
+        for (uint32_t i = found; i > 0; i--) {
+            (*recent)[i] = (*recent)[i - 1];
+        }
+        (*recent)[0] = pair_index;
+        return;
+    }
+
+    const uint32_t max_count = (uint32_t)recent->size();
+    if (*count < max_count) {
+        (*count)++;
+    }
+    for (uint32_t i = *count - 1; i > 0; i--) {
+        (*recent)[i] = (*recent)[i - 1];
+    }
+    (*recent)[0] = pair_index;
+}
+
+static void ni_stale_save_overlay_data(uint8_t* rdram, uint32_t vram, int pair_index) {
+    LodNiStaleOverlaySnapshot* slot = ni_stale_snapshot_for_vram(vram, pair_index);
+    if (slot == nullptr) {
+        return;
+    }
+
+    const uint32_t size = ni_ovl_data[pair_index].full_size;
+    uint8_t* segment_base = ni_segment_base(rdram, vram);
+    slot->bytes.resize(size);
+    memcpy(slot->bytes.data(), segment_base, size);
+    slot->valid = true;
+    ni_stale_mark_recent(vram, pair_index);
+}
+
+static bool ni_stale_base_and_offset(uint32_t segmented_address, uint32_t* vram_out, uint32_t* offset_out) {
+    const uint32_t hi = segmented_address & 0xFF000000u;
+    if (hi == 0x0F000000u || hi == 0x8F000000u) {
+        *vram_out = 0x0F000000u;
+        *offset_out = segmented_address & 0x00FFFFFFu;
+        return true;
+    }
+    if (hi == 0x0E000000u || hi == 0x8E000000u) {
+        *vram_out = 0x0E000000u;
+        *offset_out = segmented_address & 0x00FFFFFFu;
+        return true;
+    }
+    return false;
+}
+
+extern "C" const void* lod_ni_stale_dl_candidate(uint8_t* rdram, uint32_t segmented_address,
+                                                  uint32_t min_size, uint32_t attempt,
+                                                  int* pair_out, uint32_t* source_out) {
+    uint32_t vram = 0;
+    uint32_t offset = 0;
+    if (!ni_stale_base_and_offset(segmented_address, &vram, &offset)) {
+        return nullptr;
+    }
+
+    uint32_t* count = nullptr;
+    std::array<int, NI_PAIR_COUNT>* recent = ni_stale_recent_for_vram(vram, &count);
+    if (recent == nullptr || count == nullptr) {
+        return nullptr;
+    }
+
+    int current_pair = -1;
+    if (vram == 0x0F000000u) {
+        current_pair = loaded_0f_pair;
+    }
+    else if (vram == 0x0E000000u) {
+        current_pair = loaded_0e_pair;
+    }
+
+    uint32_t visible_index = 0;
+    for (uint32_t i = 0; i < *count; i++) {
+        const int pair = (*recent)[i];
+        if (pair < 0 || pair >= NI_OVL_COUNT || pair == current_pair) {
+            continue;
+        }
+
+        const NiOvlData& data = ni_ovl_data[pair];
+        if (min_size > data.full_size || offset > data.full_size - min_size) {
+            continue;
+        }
+        if (visible_index++ != attempt) {
+            continue;
+        }
+
+        const LodNiStaleOverlaySnapshot* snapshot = ni_stale_snapshot_for_vram(vram, pair);
+        if (snapshot != nullptr && snapshot->valid && snapshot->bytes.size() == data.full_size) {
+            if (pair_out != nullptr) {
+                *pair_out = pair;
+            }
+            if (source_out != nullptr) {
+                *source_out = 1; // outgoing-pair snapshot
+            }
+            return snapshot->bytes.data() + offset;
+        }
+
+        if (pair_out != nullptr) {
+            *pair_out = pair;
+        }
+        if (source_out != nullptr) {
+            *source_out = 2; // pristine extended-ROM data
+        }
+        return rdram + 0x10000000u + data.rom_offset + offset;
+    }
+
+    return nullptr;
+}
+#endif
+
 #if LOD_FIX_NI_PERSIST_OVERLAY_DATA
 struct LodNiPersistedOverlayData {
     std::vector<uint8_t> bytes;
@@ -2339,12 +2506,20 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
         ni_mirror_segment_to_seg6_cpu_alias(rdram, ni_segment_base(rdram, vram),
             pair_index, vram, ni_ovl_data[pair_index].full_size, "same-pair");
 #endif
+#if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
+        ni_stale_mark_recent(vram, pair_index);
+#endif
         return;
     }
 #endif
 
     // Save mutable data that belongs to the outgoing NI pair before the shared
     // 0x8F/0x8E mirror is overwritten by the incoming pair's pristine ROM data.
+#if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
+    if (loaded_pair >= 0 && pair_index != loaded_pair) {
+        ni_stale_save_overlay_data(rdram, vram, loaded_pair);
+    }
+#endif
 #if LOD_FIX_NI_PERSIST_OVERLAY_DATA
     if (loaded_pair >= 0 && pair_index != loaded_pair) {
         ni_persist_save_overlay_data(rdram, vram, loaded_pair, "pair-swap");
@@ -2385,6 +2560,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     // before the early-return path so remaps keep the segment bytes fresh.
     copy_overlay_data_to_segment(rdram, pair_index, vram);
     loaded_pair = pair_index;
+#if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
+    ni_stale_mark_recent(vram, pair_index);
+#endif
 
 #if LOD_FIX_NI_PAIR120_RESULT_LABELS
     if (pair_index == 120) {

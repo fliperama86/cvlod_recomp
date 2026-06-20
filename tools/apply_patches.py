@@ -20,10 +20,18 @@ ENABLE_LEGACY_RECOMP_PATCHES = os.environ.get("LOD_ENABLE_LEGACY_RECOMP_PATCHES"
 PATCHES = []
 
 def patch(description):
-    """Decorator to register a patch function."""
+    """Decorator to register a legacy bring-up patch function."""
     def decorator(fn):
         if ENABLE_LEGACY_RECOMP_PATCHES:
             PATCHES.append((description, fn))
+        return fn
+    return decorator
+
+
+def active_patch(description):
+    """Decorator to register a current patch that should always be applied."""
+    def decorator(fn):
+        PATCHES.append((description, fn))
         return fn
     return decorator
 
@@ -216,6 +224,57 @@ def patch_pool_tick_hook():
     return True
 
 
+
+# =============================================================================
+# Current patch: translate intro asset 0x6C model display-list returns
+# Target: ni_ovl_003_func_0F000070 (VRAM 0x0F000070)
+# =============================================================================
+@active_patch("Translate intro asset 0x6C model DL returns through active TLB")
+def patch_intro_6c_model38_tlb():
+    path, content = find_file_with_function("0F000070")
+    if not path:
+        return False
+
+    if "PATCH: translate intro asset 0x6C model DL return" in content:
+        return False
+
+    ensure_include(path, '#include "lod_symbols.h"')
+    with open(path) as f:
+        content = f.read()
+
+    patch_code = """#ifdef LOD_FIX_INTRO_6C_MODEL38_TLB
+    // --- PATCH: translate intro asset 0x6C model DL return through active TLB ---
+    {
+        uint32_t translated_model_dl = lod_tlb_translate_virtual_to_physical_or_zero((uint32_t)ctx->r4, 1);
+        if (translated_model_dl != 0) {
+            ctx->r2 = translated_model_dl;
+        }
+    }
+    // --- END PATCH ---
+#endif
+"""
+
+    patched = 0
+    for addr in [
+        "0F000178", "0F000198", "0F0001BC", "0F0001F8", "0F000238",
+        "0F000248", "0F000260", "0F000274", "0F000290", "0F0002A0",
+        "0F0002B8", "0F0002CC", "0F0002FC",
+    ]:
+        marker = f"    // 0x{addr}: sw          $v0, 0x38("
+        idx = content.find(marker)
+        if idx < 0:
+            print(f"    WARNING: Cannot find intro 0x6C store at 0x{addr}")
+            continue
+        content = content[:idx] + patch_code + content[idx:]
+        patched += 1
+
+    if patched == 0:
+        return False
+
+    with open(path, 'w', newline='\n') as f:
+        f.write(content)
+    return True
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -223,7 +282,6 @@ def main():
     if not ENABLE_LEGACY_RECOMP_PATCHES:
         print("  Legacy hand-written RecompiledFuncs patches disabled.")
         print("  Set LOD_ENABLE_LEGACY_RECOMP_PATCHES=1 to reapply old bring-up patches.")
-        return 0
 
     applied = 0
     for desc, fn in PATCHES:

@@ -96,6 +96,52 @@ static bool ni_segment_base_for_vaddr(uint32_t vaddr, uint32_t* base_out) {
     return false;
 }
 
+static bool tlb_paddr_copyable(uint32_t paddr, uint32_t size) {
+    return paddr != 0xFFFFFFFF && (uint64_t)paddr + size <= 0x20000000ULL;
+}
+
+static bool tlb_range_contains_u64(uint32_t start, uint32_t size,
+                                   uint64_t query_start, uint64_t query_end) {
+    const uint64_t end = (uint64_t)start + size;
+    return query_start >= (uint64_t)start && query_end <= end;
+}
+
+extern "C" bool lod_tlb_translate_virtual_to_physical(uint32_t vaddr, uint32_t size, uint32_t* paddr_out) {
+    if (paddr_out == nullptr || size == 0) {
+        return false;
+    }
+    const uint64_t query_start = vaddr;
+    const uint64_t query_end = query_start + size;
+    if (query_end < query_start) {
+        return false;
+    }
+
+    for (const TlbEntry& entry : tlb_table) {
+        if (!entry.valid) {
+            continue;
+        }
+
+        const uint32_t even_start = entry.vaddr;
+        const uint32_t odd_start = entry.vaddr + entry.page_size;
+        if (tlb_range_contains_u64(even_start, entry.page_size, query_start, query_end) &&
+            tlb_paddr_copyable(entry.even_paddr, (uint32_t)(vaddr - even_start) + size)) {
+            *paddr_out = entry.even_paddr + (vaddr - even_start);
+            return true;
+        }
+        if (tlb_range_contains_u64(odd_start, entry.page_size, query_start, query_end) &&
+            tlb_paddr_copyable(entry.odd_paddr, (uint32_t)(vaddr - odd_start) + size)) {
+            *paddr_out = entry.odd_paddr + (vaddr - odd_start);
+            return true;
+        }
+    }
+    return false;
+}
+
+extern "C" uint32_t lod_tlb_translate_virtual_to_physical_or_zero(uint32_t vaddr, uint32_t size) {
+    uint32_t paddr = 0;
+    return lod_tlb_translate_virtual_to_physical(vaddr, size, &paddr) ? paddr : 0;
+}
+
 // Override the weak RECOMP_FUNC stub in funcs_40.c
 // osMapTLB(index, page_mask, vaddr, even_paddr, odd_paddr, asid)
 extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
@@ -233,9 +279,8 @@ extern "C" void func_80097730(uint8_t* rdram, recomp_context* ctx) {
     // Handles both low RDRAM addresses (0x1000-0x7FFFFF, DMA'd overlay data)
     // and ROM-mapped addresses (0x10000000+, NI file system data).
     auto do_tlb_copy = [&](uint32_t paddr, uint8_t* dst, uint32_t size) {
-        if (paddr == 0xFFFFFFFF) return;
-        // Check bounds: must be within the usable RDRAM+ROM region
-        if (paddr + size <= 0x20000000) { // 512MB max
+        // Check bounds: must be within the usable RDRAM+ROM region.
+        if (tlb_paddr_copyable(paddr, size)) {
             memcpy(dst, rdram + paddr, size);
         }
     };

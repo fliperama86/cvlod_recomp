@@ -18,6 +18,10 @@
 #ifndef LOD_SYMBOLS_H
 #define LOD_SYMBOLS_H
 
+#ifdef LOD_FIX_INTRO_6C_MODEL38_TLB
+uint32_t lod_tlb_translate_virtual_to_physical_or_zero(uint32_t vaddr, uint32_t size);
+#endif
+
 /* ===================================================================
  * Object struct (0x74 bytes) — from CV64 include/game/object.h
  * =================================================================== */

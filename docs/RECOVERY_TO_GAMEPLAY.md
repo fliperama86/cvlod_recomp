@@ -166,6 +166,28 @@ Regression checks:
 - Verify logs do not show repeated zero texture loads from `0x061A....` when render tracing is enabled.
 - Keep the fix scoped to segment-table bases only; do not globally rewrite arbitrary `0x86....` texture addresses unless future evidence requires it.
 
+
+## Intro Lantern Vampire / Stale NI Display Lists (2026-06-20)
+
+Status: user-validated in the intro lantern/table scene; promoted to default-on compatibility fixes.
+
+What changed:
+
+- Added `LOD_FIX_RUN_DL_STALE_NI_FALLBACK`, default ON. When RT64 sees a stale `0x0E/0x0F` NI `G_DL` target that is outside the currently loaded pair or fails the active-GBI guard, it can resolve the display list from recently swapped-out NI overlay snapshots instead of skipping or parsing stale bytes.
+- Added `LOD_FIX_INTRO_6C_MODEL38_TLB`, default ON, and moved its generated-code edit into `tools/apply_patches.py` so regen keeps the fix. It translates intro asset `0x6C` model display-list returns through the active TLB before writing model `+0x38`.
+- Removed the need for hardcoded one-off AD/A5/97 material-display-list substitutions in the release path.
+
+Evidence:
+
+- The missing lantern-carrying vampire was traced to asset `0x97`: material/root DL `0x0F000D38` belonged to NI pair `57`, but the scene later drew it after pair `91` replaced segment `0x0F`; the validated generalized fallback resolved that stale DL from the saved pair snapshot.
+- The target intro scene was manually confirmed good by the user: lantern vampire visible, table visible, vampire lady stable/no black flicker.
+- The same build also kept the previously affected skull/enemy route fixed according to user confirmation.
+
+Regression checks:
+
+- Watch the intro lantern/table section: the lantern vampire should be visible during the target shot, the table should render, and nearby characters should not flicker black.
+- If a future intro/model render regression appears, first compare `LOD_FIX_RUN_DL_STALE_NI_FALLBACK=0/1` and `LOD_FIX_INTRO_6C_MODEL38_TLB=0/1` before adding one-off asset remaps.
+
 ## Pause Item Menu Rendering Fix (2026-06-06)
 
 Status: locally validated with automated controller input and built-in CFB snapshots; ready for user manual verification.
@@ -346,6 +368,8 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_FIX_PRESERVE_GBI_ON_LOAD_MISS` | **on** | RT64 safety baseline: unknown mid-display-list ucode loads preserve the active GBI rather than making the HLE interpreter null | Keep on; investigate any new unknown ucode hashes before expanding the GBI database |
 | `LOD_FIX_RUN_DL_USE_GBI_MAP` | **on** | RT64 safety baseline: `G_DL` targets are validated against the active GBI opcode map instead of a broad numeric opcode range that accepts garbage/MIPS data | Keep on; use `=0` only for targeted A/B regression |
 | `LOD_FIX_RUN_DL_NI_BOUNDS` | **on** | RT64 safety baseline: `0x8E`/`0x8F` NI display-list targets must fall inside the currently loaded NI overlay span before RT64 dereferences them | Keep on; `LOD_ENABLE_RENDER_ADDR_TRACE=1` enables throttled skip logs |
+| `LOD_FIX_RUN_DL_STALE_NI_FALLBACK` | **on** | General stale-NI render fix: recover validated `G_DL` targets from recent NI overlay snapshots when the current pair no longer owns the bytes | Keep on; disable only for A/B regressions in intro/model rendering |
+| `LOD_FIX_INTRO_6C_MODEL38_TLB` | **on** | Intro asset `0x6C` model setup needs TLB translation before storing model display-list pointers; carried by `tools/apply_patches.py` on regen | Keep on; disable only for table/lady intro A/B regression |
 | `LOD_ENABLE_GBI_MISS_TRACE` / `LOD_ENABLE_RUN_DL_SUSPICIOUS_TRACE` | off | Debug-only RT64 HLE diagnostics for unknown ucode hashes, preserve events, and suspicious NI `G_DL` parent dumps | Enable only for fresh black-screen/HLE regressions; keep off for normal gameplay |
 | `LOD_FIX_NI_SEG6_CPU_ALIAS` | off | Rejected A/B experiment that mirrors active NI segment data into CPU `0x06xxxxxx`; did not solve the current RT64 black-screen path | Keep off unless a future CPU-side segment-6 pointer crash proves this exact alias is needed |
 | `LOD_FIX_NI_TLB_SKIP_ACTUAL_SPAN` | off | A/B experiment to skip normal NI TLB copies only across the actual overlay span instead of preserving the legacy 64KB minimum; current accepted baseline keeps the legacy minimum | Keep off; use only to reproduce/diagnose stale bytes beyond small NI overlays |
