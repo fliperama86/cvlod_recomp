@@ -144,7 +144,7 @@ license change explicitly.
   - Each tab uses Zelda-style `config__form`, `config__hz-wrapper`, `config__wrapper`, `config-option`, hover/focus `set_cur_config_index`, and right-side description panes.
   - General, Controls, Graphics, Sound, and Debug panels use the same visual classes and tab/window/footer chrome as ZeldaRecomp.
   - The Sound tab label now matches ZeldaRecomp naming.
-  - Graphics keeps LoD's real renderer settings and staged Apply/Discard/Reset flow, with Zelda-style secondary footer buttons and an input-aware Apply prompt glyph.
+  - Graphics keeps LoD's real renderer settings and staged Apply flow, with a Zelda-style single secondary Apply footer button and an input-aware Apply prompt glyph.
 - `src/ui/lod_zelda_menu.cpp` now binds `cur_config_index`, `set_cur_config_index`, and `gfx_help__apply` for Zelda-style descriptions and input-aware Apply labels.
 - Controls remain intentionally read-only and truthful until the real rebinding backend is ported. Do not present rebinding as complete until the versioned binding arrays, scanning, clear/reset actions, persistence migration, and `get_n64_input()` integration are implemented and validated.
 - Validation:
@@ -154,3 +154,4 @@ license change explicitly.
   - Bounded bundle smoke from `/tmp` exits with timeout status 124, finds the portable build ROM, loads bundled Zelda assets and PromptFont, waits at the Zelda launcher, and leaves no stale `LodRecomp` process.
   - Bounded config smoke with `RECOMP_UI_OPEN_ON_START=1 LOD_ZELDA_WAIT_FOR_START=1 timeout 10 build-zelda-menu/LodRecomp` exits with timeout status 124, loads Zelda menu assets and PromptFont, and leaves no stale `LodRecomp` process.
   - `cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build --target LodRecomp --parallel` passes.
+- 2026-06-21 follow-up: the Graphics footer was tightened to a single Apply button because the extra Discard and Reset Defaults buttons stacked vertically at runtime instead of matching ZeldaRecomp's footer layout.

@@ -233,24 +233,8 @@ Display refresh: {{display_refresh_rate}}Hz
                                 </div>
                             </div>
                             <div class="config__footer">
+                                <div />
                                 <div>
-                                    <label data-if="options_changed">Pending changes</label>
-                                    <label data-if="!options_changed">No pending changes</label>
-                                </div>
-                                <div>
-                                    <button
-                                        onclick="discard_graphics"
-                                        class="button button--secondary"
-                                        data-attrif-disabled="!options_changed"
-                                    >
-                                        <div class="button__label">Discard</div>
-                                    </button>
-                                    <button
-                                        onclick="reset_graphics"
-                                        class="button button--secondary"
-                                    >
-                                        <div class="button__label">Reset Defaults</div>
-                                    </button>
                                     <button
                                         onclick="apply_graphics"
                                         class="button button--secondary"
