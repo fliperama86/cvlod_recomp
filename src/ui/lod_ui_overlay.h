@@ -5,6 +5,7 @@
 
 #include "ultramodern/config.hpp"
 
+struct SDL_Window;
 union SDL_Event;
 
 namespace lod::ui {
@@ -19,6 +20,7 @@ namespace lod::ui {
     };
 
     void set_render_hooks();
+    void set_sdl_window(SDL_Window* window);
     void set_graphics_apply_callback(GraphicsApplyCallback callback);
     void set_config_path_display(std::string path);
     void set_connected_controller_name(std::string name);
