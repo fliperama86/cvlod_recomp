@@ -119,6 +119,8 @@ jobs:
           New-Item -ItemType Directory -Force "stage\$name" | Out-Null
           Copy-Item build-win\RelWithDebInfo\LodRecomp.exe "stage\$name\"
           Copy-Item build-win\RelWithDebInfo\*.dll "stage\$name\"
+          $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows\bin"
+          if (Test-Path $vcpkgBin) { Copy-Item (Join-Path $vcpkgBin "*.dll") "stage\$name\" -ErrorAction SilentlyContinue }
           python tools\copy_release_assets.py "stage\$name\assets"
           python tools\ci_smoke.py --cwd "stage\$name" --seconds 5 --log "$env:RUNNER_TEMP\lodrecomp-smoke.log" -- ".\LodRecomp.exe"
           Copy-Item .github\release\README-windows.txt "stage\$name\README.txt"

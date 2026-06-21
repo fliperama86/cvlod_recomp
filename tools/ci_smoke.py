@@ -38,6 +38,27 @@ def stop_process(proc: subprocess.Popen[object]) -> None:
         proc.wait(timeout=5)
 
 
+def resolve_command(command: list[str], cwd: Path) -> list[str]:
+    resolved = list(command)
+    executable = Path(resolved[0])
+    if not executable.is_absolute():
+        candidate = (cwd / executable).resolve()
+        if candidate.exists():
+            resolved[0] = str(candidate)
+    return resolved
+
+
+def print_cwd_listing(cwd: Path) -> None:
+    print(f"[ci-smoke] Directory listing for {cwd}:")
+    try:
+        for child in sorted(cwd.iterdir()):
+            kind = "dir" if child.is_dir() else "file"
+            size = child.stat().st_size if child.is_file() else 0
+            print(f"[ci-smoke]   {kind:4} {size:10d} {child.name}")
+    except OSError as exc:
+        print(f"[ci-smoke] Failed to list directory: {exc}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cwd", type=Path, required=True)
@@ -63,19 +84,25 @@ def main() -> int:
     env = os.environ.copy()
     env.setdefault("SDL_AUDIODRIVER", "dummy")
     env.setdefault("LOD_ZELDA_WAIT_FOR_START", "1")
+    command = resolve_command(command, cwd)
 
     print(f"[ci-smoke] Starting: {' '.join(command)}")
     print(f"[ci-smoke] Working directory: {cwd}")
     print(f"[ci-smoke] Required survival time: {args.seconds:.1f}s")
 
     with log_path.open("wb") as log_file:
-        proc = subprocess.Popen(
-            command,
-            cwd=str(cwd),
-            stdout=log_file,
-            stderr=subprocess.STDOUT,
-            env=env,
-        )
+        try:
+            proc = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+            )
+        except FileNotFoundError as exc:
+            print_cwd_listing(cwd)
+            print(f"[ci-smoke] Failed to launch command: {exc}")
+            return 127
 
         deadline = time.monotonic() + args.seconds
         while time.monotonic() < deadline:
