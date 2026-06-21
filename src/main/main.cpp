@@ -1672,6 +1672,35 @@ static bool is_lod_named_rom_path(const std::filesystem::path& path) {
            name.find("nd4e") != std::string::npos;
 }
 
+static std::filesystem::path find_rom_in_directory(const std::filesystem::path& dir) {
+    std::error_code ec;
+    if (dir.empty() || !std::filesystem::exists(dir, ec) || !std::filesystem::is_directory(dir, ec)) {
+        return {};
+    }
+
+    // Prefer LoD-named ROMs. This repository may also contain the original
+    // CV64 reference ROM, so avoid matching plain "castlevania" here.
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) {
+            return {};
+        }
+        if (is_n64_rom_path(entry.path()) && is_lod_named_rom_path(entry.path())) {
+            return entry.path();
+        }
+    }
+
+    for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+        if (ec) {
+            return {};
+        }
+        if (is_n64_rom_path(entry.path())) {
+            return entry.path();
+        }
+    }
+
+    return {};
+}
+
 static const char* rom_validation_error_name(recomp::RomValidationError error) {
     switch (error) {
         case recomp::RomValidationError::Good: return "Ready";
@@ -1761,35 +1790,33 @@ static std::filesystem::path discover_rom_path(int argc, char** argv,
         return stored_rom;
     }
 
-    // Look for ROM in current directory
-    for (const auto& entry : std::filesystem::directory_iterator(".")) {
-        if (is_n64_rom_path(entry.path()) && is_lod_named_rom_path(entry.path())) {
-            return entry.path();
-        }
+    // Portable and selected-ROM setups often keep the ROM in the active config
+    // folder. This is especially important for macOS .app launches, where
+    // Launch Services does not preserve the shell working directory.
+    std::filesystem::path config_rom = find_rom_in_directory(config_path);
+    if (!config_rom.empty()) {
+        return config_rom;
     }
 
-    // Fall back to any .z64 file
-    for (const auto& entry : std::filesystem::directory_iterator(".")) {
-        if (is_n64_rom_path(entry.path())) {
-            return entry.path();
-        }
+#ifdef __APPLE__
+    std::filesystem::path bundle_parent_rom = find_rom_in_directory(lod::get_bundle_directory().parent_path());
+    if (!bundle_parent_rom.empty()) {
+        return bundle_parent_rom;
+    }
+#endif
+
+    // Look for ROM in current directory.
+    std::filesystem::path cwd_rom = find_rom_in_directory(".");
+    if (!cwd_rom.empty()) {
+        return cwd_rom;
     }
 
-    // Also search in resources/ subdirectory
-    auto search_dir = [](const std::filesystem::path& dir) -> std::filesystem::path {
-        // Prefer LoD-named ROMs. This repository may also contain the original
-        // CV64 reference ROM, so avoid matching plain "castlevania" here.
-        for (const auto& entry : std::filesystem::directory_iterator(dir)) {
-            if (is_n64_rom_path(entry.path()) && is_lod_named_rom_path(entry.path())) {
-                return entry.path();
-            }
-        }
-        return {};
-    };
-
+    // Also search in resources/ subdirectory.
     if (std::filesystem::exists("resources")) {
-        auto p = search_dir("resources");
-        if (!p.empty()) return p;
+        auto p = find_rom_in_directory("resources");
+        if (!p.empty()) {
+            return p;
+        }
     }
 
     return {};
@@ -1911,7 +1938,7 @@ static void auto_start_game(const std::filesystem::path& rom_path) {
 static bool zelda_wait_for_start_enabled() {
     const char* value = std::getenv("LOD_ZELDA_WAIT_FOR_START");
     if (value == nullptr || value[0] == '\0') {
-        return false;
+        return true;
     }
 
     std::string normalized = ascii_lower(value);

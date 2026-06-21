@@ -30,6 +30,7 @@
 #include "elements/ui_element.h"
 
 #include "librecomp/game.hpp"
+#include "lod/lod_support.h"
 #include "lod/lod_settings.hpp"
 #include "promptfont.h"
 #include "ultramodern/config.hpp"
@@ -882,10 +883,21 @@ bool recomp::game_input_disabled() { return recompui::is_context_capturing_input
 bool recomp::all_input_disabled() { return false; }
 
 std::filesystem::path zelda64::get_program_path() {
+#if defined(__APPLE__)
+    return lod::get_bundle_resource_directory();
+#else
     return std::filesystem::current_path();
+#endif
 }
 
 std::filesystem::path zelda64::get_asset_path(const char* asset) {
+#if defined(__APPLE__)
+    std::filesystem::path bundled_asset = lod::get_bundle_resource_directory() / "assets" / asset;
+    if (std::filesystem::exists(bundled_asset)) {
+        return bundled_asset;
+    }
+#endif
+
     return std::filesystem::current_path() / "assets" / asset;
 }
 

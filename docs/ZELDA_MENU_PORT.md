@@ -108,3 +108,19 @@ license change explicitly.
   - `cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF && cmake --build build --target LodRecomp --parallel` passes.
   - Bounded Zelda-mode smoke: `RECOMP_UI_OPEN_ON_START=1 LOD_ZELDA_WAIT_FOR_START=1 timeout 10 build-zelda-menu/LodRecomp`, exited with status 124 from timeout, loaded Zelda UI assets and PromptFont, no stale `LodRecomp` process.
   - Bounded default smoke: `RECOMP_UI_OPEN_ON_START=1 timeout 10 build/LodRecomp`, exited with status 124 from timeout, auto-started the ROM and initialized runtime/audio/UI, no stale `LodRecomp` process.
+
+## 2026-06-21 macOS app-bundle launch fix
+
+- Root cause for `open ./build/LodRecomp.app` not showing the Zelda launcher:
+  - The local bundle had been packaged from `build/LodRecomp`, a default `LOD_USE_ZELDA_MENU=OFF` binary, instead of `build-zelda-menu/LodRecomp`.
+  - `.app` launches do not preserve the shell cwd, so Zelda menu assets were looked up under the launch cwd instead of the bundle resources folder.
+  - ROM discovery did not search the active portable/config folder for LoD-named ROMs such as `build/castlevania2.n64.us.z64`.
+- Fixes:
+  - `make_app.sh` now bundles the Zelda UI asset subset under `Contents/Resources/assets`.
+  - Zelda asset lookup now prefers `Contents/Resources/assets` on macOS, then falls back to `cwd/assets`.
+  - ROM discovery now searches the active config/portable directory and the macOS bundle parent for LoD-named ROMs before cwd/resources fallback.
+  - Zelda-menu builds now wait at the launcher by default. Set `LOD_ZELDA_WAIT_FOR_START=0` to opt back into auto-start.
+- Validation:
+  - Rebuilt `build-zelda-menu/LodRecomp`.
+  - Packaged `build/LodRecomp.app` from the Zelda binary.
+  - Bounded bundle smoke from `/tmp` without env vars found portable config at `build/`, found `build/castlevania2.n64.us.z64`, loaded fonts from `build/LodRecomp.app/Contents/Resources/assets`, waited at the Zelda launcher, and exited with timeout status 124 with no stale process.
