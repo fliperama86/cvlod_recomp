@@ -6,7 +6,13 @@ namespace lod {
 #if defined(__APPLE__)
         return get_bundle_resource_directory();
 #else
-        return "";
+        char* base_path = SDL_GetBasePath();
+        if (base_path != nullptr) {
+            std::filesystem::path path(base_path);
+            SDL_free(base_path);
+            return path;
+        }
+        return std::filesystem::current_path();
 #endif
     }
 

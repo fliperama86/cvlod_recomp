@@ -1055,6 +1055,12 @@ std::filesystem::path zelda64::get_program_path() {
 #if defined(__APPLE__)
     return lod::get_bundle_resource_directory();
 #else
+    char* base_path = SDL_GetBasePath();
+    if (base_path != nullptr) {
+        std::filesystem::path path(base_path);
+        SDL_free(base_path);
+        return path;
+    }
     return std::filesystem::current_path();
 #endif
 }
@@ -1066,6 +1072,11 @@ std::filesystem::path zelda64::get_asset_path(const char* asset) {
         return bundled_asset;
     }
 #endif
+
+    std::filesystem::path executable_asset = zelda64::get_program_path() / "assets" / asset;
+    if (std::filesystem::exists(executable_asset)) {
+        return executable_asset;
+    }
 
     return std::filesystem::current_path() / "assets" / asset;
 }
