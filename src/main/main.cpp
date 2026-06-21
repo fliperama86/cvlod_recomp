@@ -875,6 +875,7 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
     if (window == nullptr) {
         exit_error("Failed to create window: %s\n", SDL_GetError());
     }
+    lod::ui::set_sdl_window(window);
 
     SDL_SysWMinfo wmInfo;
     SDL_VERSION(&wmInfo.version);

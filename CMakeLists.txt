@@ -402,6 +402,10 @@ target_compile_options(LodRecomp PRIVATE
     -fms-extensions
 )
 
+target_compile_definitions(LodRecomp PRIVATE
+    RMLUI_SDL_VERSION_MAJOR=2
+)
+
 if (APPLE)
     # Use ld64 wrapper for writable+executable memory (required for mod patching)
     target_link_options(LodRecomp PRIVATE

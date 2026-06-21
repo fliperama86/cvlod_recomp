@@ -116,6 +116,7 @@ std::atomic_bool g_ui_failed{false};
 std::atomic_bool g_rom_setup_visible{false};
 std::atomic<int> g_rom_setup_request{static_cast<int>(lod::ui::RomSetupRequest::None)};
 bool g_rml_initialised = false;
+SDL_Window* g_sdl_window = nullptr;
 
 std::mutex g_ui_mutex;
 std::mutex g_event_mutex;
@@ -754,7 +755,12 @@ public:
         create_texture(1, transparent_pixel, Rml::Vector2i{1, 1});
 
         if (!g_rml_initialised) {
-            system_interface_ = std::make_unique<SystemInterface_SDL>();
+            if (g_sdl_window == nullptr) {
+                std::fprintf(stderr, "[UI] RmlUi initialise failed: SDL window not set\n");
+                g_ui_failed.store(true, std::memory_order_relaxed);
+                return;
+            }
+            system_interface_ = std::make_unique<SystemInterface_SDL>(g_sdl_window);
             Rml::SetSystemInterface(system_interface_.get());
             Rml::SetRenderInterface(GetAdaptedInterface());
             g_rml_initialised = Rml::Initialise();
@@ -1494,7 +1500,7 @@ private:
                 continue;
             }
 
-            RmlSDL::InputEventHandler(context_, event);
+            RmlSDL::InputEventHandler(context_, g_sdl_window, event);
         }
     }
 
@@ -1934,6 +1940,10 @@ void overlay_hook_deinit() {
 
 void lod::ui::set_render_hooks() {
     RT64::SetRenderHooks(overlay_hook_init, overlay_hook_draw, overlay_hook_deinit);
+}
+
+void lod::ui::set_sdl_window(SDL_Window* window) {
+    g_sdl_window = window;
 }
 
 void lod::ui::set_graphics_apply_callback(GraphicsApplyCallback callback) {
