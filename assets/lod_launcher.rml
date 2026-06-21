@@ -5,20 +5,6 @@
     <link type="text/rcss" href="recomp.rcss"/>
     <style>
         body { width: 100%; height: 100%; }
-        .lod-launcher-status {
-            align-self: flex-end;
-            max-width: 720dp;
-            margin: 4dp 0;
-            opacity: 0.86;
-            text-align: right;
-        }
-        .lod-launcher-meta {
-            align-self: flex-end;
-            max-width: 720dp;
-            margin-top: 16dp;
-            opacity: 0.72;
-            text-align: right;
-        }
     </style>
 </head>
 <body>
@@ -45,33 +31,26 @@
                     </button>
                 </div>
                 <div class="launcher__content-quadrant">
-                    <label class="lod-launcher-status">{{rom_status}}</label>
-                    <label class="lod-launcher-status">ROM: {{rom_file}}</label>
-                    <button data-if="rom_valid" onclick="start_game" class="menu-list-item menu-list-item--right" autofocus>
-                        <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Start game</div>
-                    </button>
                     <button data-if="!rom_valid" onclick="select_rom" class="menu-list-item menu-list-item--right" autofocus>
                         <div class="menu-list-item__bullet">•</div>
                         <div class="menu-list-item__label">Select ROM</div>
                     </button>
-                    <button onclick="open_settings" class="menu-list-item menu-list-item--right">
+                    <button data-if="rom_valid" onclick="start_game" class="menu-list-item menu-list-item--right" autofocus>
                         <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Settings</div>
+                        <div class="menu-list-item__label">Start game</div>
                     </button>
                     <button onclick="open_controls" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
                         <div class="menu-list-item__label">Setup controls</div>
                     </button>
-                    <button onclick="select_rom" class="menu-list-item menu-list-item--right">
+                    <button onclick="open_settings" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Change ROM</div>
+                        <div class="menu-list-item__label">Settings</div>
                     </button>
                     <button onclick="exit_game" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
                         <div class="menu-list-item__label">Exit</div>
                     </button>
-                    <label class="lod-launcher-meta">Config: {{config_path}}</label>
                 </div>
             </div>
             <div class="bottom-left">

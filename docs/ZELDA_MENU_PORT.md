@@ -1,6 +1,6 @@
 # ZeldaRecomp menu port
 
-Experimental branch: `experiment/zelda-menu`.
+Primary UI path: Zelda64Recomp menu framework.
 
 ## Intent
 
@@ -32,8 +32,8 @@ license change explicitly.
 ## Porting status
 
 - Imported ZeldaRecomp menu framework/assets.
-- Added `LOD_USE_ZELDA_MENU` (default OFF) so the existing LoD overlay remains
-  the default runtime path.
+- Added `LOD_USE_ZELDA_MENU`; it now defaults to ON so the ZeldaRecomp menu is
+  the primary runtime path. Use `-DLOD_USE_ZELDA_MENU=OFF` for the legacy LoD overlay fallback.
 - Added a minimal LoD adapter/launcher/config slice for the Zelda menu framework.
 - Added the first real settings slice: Zelda-styled General/Graphics/Controls/Audio shell, with Graphics backed by LoD's active `graphics.json` path and apply/save logic.
 - Validation on macOS (2026-06-18):
@@ -130,7 +130,7 @@ license change explicitly.
 - `assets/lod_launcher.rml` now follows the imported Zelda launcher presentation more closely:
   - Adds the animated/faded right-side background wrapper using the LoD app icon.
   - Uses Zelda-style launcher labels: `Start game`, `Setup controls`, and `Exit`.
-  - Keeps LoD-specific truthful ROM status, selected ROM filename, Change ROM, and config path readouts.
+  - Follow-up release polish removed the LoD-specific ROM status, selected ROM filename, Change ROM, and config path readouts so the launcher matches ZeldaRecomp's minimal presentation more closely.
 - `make_app.sh` now bundles PNG assets into `Contents/Resources/assets` so the launcher background is available in `.app` launches.
 - `make_app.sh` strips extended attributes before signing, preventing copied PNG metadata from breaking ad-hoc codesign.
 - Validation:
@@ -155,3 +155,29 @@ license change explicitly.
   - Bounded config smoke with `RECOMP_UI_OPEN_ON_START=1 LOD_ZELDA_WAIT_FOR_START=1 timeout 10 build-zelda-menu/LodRecomp` exits with timeout status 124, loads Zelda menu assets and PromptFont, and leaves no stale `LodRecomp` process.
   - `cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build --target LodRecomp --parallel` passes.
 - 2026-06-21 follow-up: the Graphics footer was tightened to a single Apply button because the extra Discard and Reset Defaults buttons stacked vertically at runtime instead of matching ZeldaRecomp's footer layout.
+
+## 2026-06-21 release polish pass
+
+- Removed release-facing ROM/status clutter from the Zelda-mode LoD shell while keeping internal ROM discovery, validation, and persistence intact:
+  - Launcher now follows the ZeldaRecomp list shape: Select ROM only when no valid ROM is cached, Start game when valid, Setup controls, Settings, Exit.
+  - General settings no longer shows ROM status, ROM filename, Change ROM, config folder, or ROM-specific descriptions.
+- Cleaned release-facing settings copy:
+  - Controls no longer says `Not wired yet`; it now presents controller, keyboard, and automatic prompt status without exposing unfinished rebinding internals.
+  - Sound no longer shows audio config path, backend, queue, or save-status diagnostics.
+  - Debug remains hidden unless `RECOMP_UI_SHOW_DEBUG=1` is set.
+- Added `tools/smoke_zelda_release.sh` for repeatable local release validation. It configures the primary default build, builds `LodRecomp`, regenerates `build/LodRecomp.app`, verifies codesign, runs bounded bundle and config-open smokes, and checks for stale `LodRecomp` processes.
+- Validation:
+  - `git diff --check` passes.
+  - `tools/smoke_zelda_release.sh` passes: primary default build succeeds, app bundle signs and verifies, bundle smoke exits with timeout status 124, config-open smoke exits with timeout status 124, and no stale `LodRecomp` process remains.
+
+## 2026-06-21 primary-build default flip
+
+- `LOD_USE_ZELDA_MENU` now defaults to `ON` in `CMakeLists.txt`, making the ZeldaRecomp-style menu the primary build path for release packaging.
+- The legacy LoD overlay remains available for fallback/debug builds with `-DLOD_USE_ZELDA_MENU=OFF`.
+- README and the definitive menu plan were updated to describe the ZeldaRecomp menu as primary instead of experimental.
+- `tools/smoke_zelda_release.sh` now validates the primary default `build/` path and clears stale `LOD_USE_ZELDA_MENU` cache entries before configuring so local old OFF caches do not mask the new default.
+- Keep release notes explicit about known gaps: controls rebinding is still not the full ZeldaRecomp binding editor.
+- Validation:
+  - `git diff --check` passes.
+  - `tools/smoke_zelda_release.sh` passes against the default `build/` path; `cmake -LAH build` reports `LOD_USE_ZELDA_MENU:BOOL=ON`; bundled app and config-open smokes both exit with timeout status 124 and leave no stale process.
+  - Legacy fallback build passes with `cmake -S . -B build-legacy-overlay -DLOD_USE_ZELDA_MENU=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build-legacy-overlay --target LodRecomp --parallel`.

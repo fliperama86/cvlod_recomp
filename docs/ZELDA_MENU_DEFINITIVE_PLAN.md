@@ -6,11 +6,11 @@ Date: 2026-06-21
 
 Build a definitive LoD settings and launcher UI using the polished Zelda64Recomp menu framework, while keeping all visible options truthful, LoD-specific, and backed by real runtime behavior.
 
-The current normal build uses the legacy LoD overlay. The experimental `LOD_USE_ZELDA_MENU=ON` path uses the Zelda UI framework, but currently loads a small custom LoD page instead of the full Zelda-style tabbed settings menu. This plan defines how to replace that minimal page with a complete, polished, maintainable LoD menu.
+The current primary build uses the Zelda UI framework. The legacy LoD overlay remains available as a fallback with `LOD_USE_ZELDA_MENU=OFF`. This plan tracks the remaining path from the earlier minimal LoD page to a complete, polished, maintainable LoD menu.
 
 ## Current Findings
 
-- `LOD_USE_ZELDA_MENU` defaults to `OFF`.
+- `LOD_USE_ZELDA_MENU` defaults to `ON`.
 - The full Zelda64Recomp menu assets are already present:
   - `assets/config_menu.rml`
   - `assets/config_menu/general.rml`
@@ -71,7 +71,7 @@ Create LoD-specific modules:
 - `include/lod/lod_input_config.hpp`
 - `include/lod/lod_audio_config.hpp`
 
-Keep the new path behind `LOD_USE_ZELDA_MENU=ON` until it reaches parity, then flip it to default in a dedicated commit.
+Use the Zelda-style path as the primary UI while keeping the legacy overlay available with `LOD_USE_ZELDA_MENU=OFF` for one release as a fallback.
 
 ## Target Menu Map
 
@@ -307,11 +307,11 @@ Build and capture the current state before changing behavior.
 Commands:
 
 ```sh
-cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF
+cmake -S . -B build
 cmake --build build --target LodRecomp --parallel
 
-cmake -S . -B build-zelda-menu -DLOD_USE_ZELDA_MENU=ON
-cmake --build build-zelda-menu --target LodRecomp --parallel
+cmake -S . -B build-legacy-overlay -DLOD_USE_ZELDA_MENU=OFF
+cmake --build build-legacy-overlay --target LodRecomp --parallel
 ```
 
 Capture screenshots for:
@@ -505,12 +505,12 @@ Acceptance:
 
 ### Phase 10: Flip Default
 
-Only after parity and validation:
+Status: implemented for the primary release build.
 
-- Flip `LOD_USE_ZELDA_MENU` default to `ON`.
-- Keep legacy overlay as fallback for one release.
-- Update README and UI docs.
-- Release with explicit notes.
+- `LOD_USE_ZELDA_MENU` default is `ON`.
+- Legacy overlay remains available with `-DLOD_USE_ZELDA_MENU=OFF`.
+- README and UI docs identify the ZeldaRecomp menu as the primary build.
+- Release notes should still call out known gaps, especially full controls rebinding.
 
 Acceptance:
 
@@ -524,9 +524,10 @@ Run for each major phase:
 
 ```sh
 git diff --check
+cmake -S . -B build -U LOD_USE_ZELDA_MENU
 cmake --build build --target LodRecomp --parallel
-cmake -S . -B build-zelda-menu -DLOD_USE_ZELDA_MENU=ON
-cmake --build build-zelda-menu --target LodRecomp --parallel
+cmake -S . -B build-legacy-overlay -DLOD_USE_ZELDA_MENU=OFF
+cmake --build build-legacy-overlay --target LodRecomp --parallel
 ```
 
 Runtime validation:

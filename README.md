@@ -35,12 +35,13 @@ git submodule update --remote
 
 `--remote` advances submodules to newer upstream commits and can move testers away from the known baseline.
 
-## Experimental ZeldaRecomp menu branch
+## ZeldaRecomp menu primary build
 
-This branch imports Zelda64Recomp menu code/assets behind `-DLOD_USE_ZELDA_MENU=ON`.
-The flag defaults to OFF, so normal builds still use the existing LoD overlay.
-Because the imported menu framework/assets are GPL-3.0, this branch is licensed
-under GPL-3.0; see `LICENSE`, `COPYING`, and `docs/ZELDA_MENU_PORT.md`.
+Primary builds use the imported Zelda64Recomp menu framework/assets by default.
+The legacy LoD overlay remains available for fallback/debug builds with
+`-DLOD_USE_ZELDA_MENU=OFF`. Because the imported menu framework/assets are
+GPL-3.0, this branch is licensed under GPL-3.0; see `LICENSE`, `COPYING`, and
+`docs/ZELDA_MENU_PORT.md`.
 
 ## Current important submodules
 

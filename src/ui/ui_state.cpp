@@ -8,7 +8,9 @@
 #include <cstdlib>
 #include <chrono>
 #include <fstream>
+#include <functional>
 #include <sstream>
+#include <utility>
 
 #include "rt64_render_hooks.h"
 
@@ -500,6 +502,7 @@ void init_hook(RenderInterface* interface, RenderDevice* device) {
 }
 
 moodycamel::ConcurrentQueue<SDL_Event> ui_event_queue{};
+moodycamel::ConcurrentQueue<std::function<void()>> ui_thread_callback_queue{};
 
 void recompui::queue_event(const SDL_Event& event) {
     ui_event_queue.enqueue(event);
@@ -507,6 +510,19 @@ void recompui::queue_event(const SDL_Event& event) {
 
 bool recompui::try_deque_event(SDL_Event& out) {
     return ui_event_queue.try_dequeue(out);
+}
+
+void recompui::queue_ui_thread_callback(std::function<void()> callback) {
+    if (callback) {
+        ui_thread_callback_queue.enqueue(std::move(callback));
+    }
+}
+
+static void flush_ui_thread_callbacks() {
+    std::function<void()> callback;
+    while (ui_thread_callback_queue.try_dequeue(callback)) {
+        callback();
+    }
 }
 
 int cont_button_to_key(SDL_ControllerButtonEvent& button) {
@@ -608,6 +624,8 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
     }
 
     std::lock_guard lock{ ui_state_mutex };
+
+    flush_ui_thread_callbacks();
 
     SDL_Event cur_event{};
 

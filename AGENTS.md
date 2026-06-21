@@ -79,6 +79,7 @@
 - Use bounded runs: `timeout 20 build/LodRecomp` — never background with `&`.
 - Monitor RSS: past incident caused 100GB memory leak from forced patches.
 - After each run, verify no stale processes: `pgrep -la LodRecomp`
+- If the operator manually closes the app during a bounded test run, do not label a nonzero exit or shutdown signal as a crash without confirming it was not user-initiated.
 - Windows: no codesigning step is needed. Run `.\build-win\RelWithDebInfo\LodRecomp.exe` from the repo root; verify/stop stale processes with `Get-Process LodRecomp` / `Stop-Process -Name LodRecomp`. Do not pipe the exe's output through head-style truncation (`Select-Object -First N`) — closing the pipe kills the game mid-run.
 
 ### CV64 cross-reference

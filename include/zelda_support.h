@@ -10,6 +10,7 @@ namespace zelda64 {
     std::filesystem::path get_asset_path(const char* asset);
     void open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback);
     void open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback);
+    void process_pending_file_dialogs();
     void show_error_message_box(const char* title, const char* message);
 
 #ifdef __APPLE__

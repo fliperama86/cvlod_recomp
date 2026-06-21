@@ -63,6 +63,7 @@
 #include "lod_ui_overlay.h"
 #ifdef LOD_USE_ZELDA_MENU
 #include "recomp_ui.h"
+#include "zelda_support.h"
 #endif
 #include "librecomp/game.hpp"
 #include "librecomp/overlays.hpp"
@@ -1137,6 +1138,10 @@ void update_gfx(void*) {
         }
     }
 
+#ifdef LOD_USE_ZELDA_MENU
+    zelda64::process_pending_file_dialogs();
+#endif
+
     handle_rom_setup_requests(g_argc_for_rom_discovery, g_argv_for_rom_discovery, g_config_path);
 }
 
@@ -1238,7 +1243,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     const float master_gain = g_audio_muted.load(std::memory_order_relaxed)
         ? 0.0f
         : std::clamp(g_audio_master_volume_percent.load(std::memory_order_relaxed), 0, 100) / 100.0f;
-    const float sample_scale = master_gain * (0.5f / 32768.0f);
+    const float sample_scale = master_gain * (1.0f / 32768.0f);
 
     for (size_t i = 0; i < sample_count; i += input_channels) {
         swap_buffer[i + 0 + duplicated_input_frames * input_channels] = audio_data[i + 1] * sample_scale;

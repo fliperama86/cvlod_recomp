@@ -8,9 +8,11 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <filesystem>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -73,6 +75,139 @@ std::string g_config_path_display;
 
 std::u8string lod_game_id() {
     return u8"castlevania2.n64.us";
+}
+
+enum class FileDialogMode {
+    SingleRom,
+    MultipleFiles,
+};
+
+struct FileDialogRequest {
+    FileDialogMode mode = FileDialogMode::SingleRom;
+    std::function<void(bool success, const std::filesystem::path& path)> single_callback;
+    std::function<void(bool success, const std::list<std::filesystem::path>& paths)> multiple_callback;
+};
+
+struct FileDialogResult {
+    bool success = false;
+    std::filesystem::path path;
+    std::list<std::filesystem::path> paths;
+};
+
+std::mutex g_file_dialog_mutex;
+std::deque<FileDialogRequest> g_file_dialog_requests;
+bool g_file_dialog_active = false;
+
+std::string default_file_dialog_path() {
+#ifdef _WIN32
+    const char* home = std::getenv("USERPROFILE");
+#else
+    const char* home = std::getenv("HOME");
+#endif
+    if (home == nullptr) {
+        return {};
+    }
+
+    std::filesystem::path downloads = std::filesystem::path(home) / "Downloads";
+    if (std::filesystem::exists(downloads)) {
+        return downloads.string();
+    }
+
+    return {};
+}
+
+bool enqueue_file_dialog_request(FileDialogRequest&& request) {
+    std::lock_guard lock{g_file_dialog_mutex};
+    if (g_file_dialog_active || !g_file_dialog_requests.empty()) {
+        return false;
+    }
+
+    g_file_dialog_requests.emplace_back(std::move(request));
+    return true;
+}
+
+FileDialogResult run_single_rom_file_dialog() {
+    FileDialogResult dialog_result;
+
+    if (NFD_Init() != NFD_OKAY) {
+        std::fprintf(stderr, "[UI] NFD_Init failed: %s\n", NFD_GetError());
+        return dialog_result;
+    }
+
+    nfdchar_t* out_path = nullptr;
+    nfdfilteritem_t filters[] = {{"Nintendo 64 ROM", "z64,n64,v64"}};
+    std::string default_path = default_file_dialog_path();
+    nfdresult_t result = NFD_OpenDialog(&out_path, filters, 1,
+        default_path.empty() ? nullptr : default_path.c_str());
+
+    if (result == NFD_OKAY && out_path != nullptr) {
+        dialog_result.path = std::filesystem::path(out_path);
+        dialog_result.success = true;
+        NFD_FreePath(out_path);
+    } else if (result == NFD_ERROR) {
+        std::fprintf(stderr, "[UI] Native file dialog failed: %s\n", NFD_GetError());
+    }
+
+    NFD_Quit();
+    return dialog_result;
+}
+
+FileDialogResult run_multiple_file_dialog() {
+    FileDialogResult dialog_result;
+
+    if (NFD_Init() != NFD_OKAY) {
+        std::fprintf(stderr, "[UI] NFD_Init failed: %s\n", NFD_GetError());
+        return dialog_result;
+    }
+
+    const nfdpathset_t* out_paths = nullptr;
+    nfdfilteritem_t filters[] = {{"Mod files", "nrm,zip"}};
+    std::string default_path = default_file_dialog_path();
+    nfdresult_t result = NFD_OpenDialogMultiple(&out_paths, filters, 1,
+        default_path.empty() ? nullptr : default_path.c_str());
+
+    if (result == NFD_OKAY && out_paths != nullptr) {
+        nfdpathsetsize_t count = 0;
+        if (NFD_PathSet_GetCount(out_paths, &count) == NFD_OKAY) {
+            for (nfdpathsetsize_t i = 0; i < count; i++) {
+                nfdchar_t* path = nullptr;
+                if (NFD_PathSet_GetPath(out_paths, i, &path) == NFD_OKAY && path != nullptr) {
+                    dialog_result.paths.emplace_back(path);
+                    NFD_PathSet_FreePath(path);
+                }
+            }
+        }
+        NFD_PathSet_Free(out_paths);
+        dialog_result.success = !dialog_result.paths.empty();
+    } else if (result == NFD_ERROR) {
+        std::fprintf(stderr, "[UI] Native file dialog failed: %s\n", NFD_GetError());
+    }
+
+    NFD_Quit();
+    return dialog_result;
+}
+
+void queue_file_dialog_completion(FileDialogRequest request, FileDialogResult result) {
+    if (request.mode == FileDialogMode::SingleRom && request.single_callback) {
+        auto callback = std::move(request.single_callback);
+        bool success = result.success;
+        std::filesystem::path path = std::move(result.path);
+        recompui::queue_ui_thread_callback(
+            [callback = std::move(callback), success, path = std::move(path)]() mutable {
+                callback(success, path);
+            });
+        return;
+    }
+
+    if (request.mode == FileDialogMode::MultipleFiles && request.multiple_callback) {
+        auto callback = std::move(request.multiple_callback);
+        bool success = result.success;
+        std::list<std::filesystem::path> paths = std::move(result.paths);
+        recompui::queue_ui_thread_callback(
+            [callback = std::move(callback), success, paths = std::move(paths)]() mutable {
+                callback(success, paths);
+            });
+    }
 }
 
 void dirty_launcher() {
@@ -504,6 +639,9 @@ std::string graphics_summary(const ultramodern::renderer::GraphicsConfig& config
 }
 
 void select_rom() {
+    g_rom_status = "Opening ROM picker...";
+    dirty_launcher();
+
     zelda64::open_file_dialog([](bool success, const std::filesystem::path& path) {
         if (!success) {
             g_rom_status = "ROM selection cancelled.";
@@ -933,31 +1071,58 @@ std::filesystem::path zelda64::get_asset_path(const char* asset) {
 }
 
 void zelda64::open_file_dialog(std::function<void(bool success, const std::filesystem::path& path)> callback) {
-    if (NFD_Init() != NFD_OKAY) {
-        std::fprintf(stderr, "[UI] NFD_Init failed: %s\n", NFD_GetError());
-        callback(false, {});
-        return;
-    }
+    FileDialogRequest request;
+    request.mode = FileDialogMode::SingleRom;
+    request.single_callback = std::move(callback);
 
-    nfdchar_t* out_path = nullptr;
-    nfdfilteritem_t filters[] = {{"Nintendo 64 ROM", "z64,n64,v64"}};
-    nfdresult_t result = NFD_OpenDialog(&out_path, filters, 1, nullptr);
-    if (result == NFD_OKAY) {
-        std::filesystem::path selected(out_path);
-        NFD_FreePath(out_path);
-        NFD_Quit();
-        callback(true, selected);
-    } else {
-        if (result == NFD_ERROR) {
-            std::fprintf(stderr, "[UI] Native file dialog failed: %s\n", NFD_GetError());
-        }
-        NFD_Quit();
-        callback(false, {});
+    if (!enqueue_file_dialog_request(std::move(request))) {
+        recompui::queue_ui_thread_callback(
+            [callback = std::move(request.single_callback)]() mutable {
+                if (callback) {
+                    callback(false, {});
+                }
+            });
     }
 }
 
 void zelda64::open_file_dialog_multiple(std::function<void(bool success, const std::list<std::filesystem::path>& paths)> callback) {
-    callback(false, {});
+    FileDialogRequest request;
+    request.mode = FileDialogMode::MultipleFiles;
+    request.multiple_callback = std::move(callback);
+
+    if (!enqueue_file_dialog_request(std::move(request))) {
+        recompui::queue_ui_thread_callback(
+            [callback = std::move(request.multiple_callback)]() mutable {
+                if (callback) {
+                    callback(false, {});
+                }
+            });
+    }
+}
+
+void zelda64::process_pending_file_dialogs() {
+    FileDialogRequest request;
+    {
+        std::lock_guard lock{g_file_dialog_mutex};
+        if (g_file_dialog_active || g_file_dialog_requests.empty()) {
+            return;
+        }
+
+        request = std::move(g_file_dialog_requests.front());
+        g_file_dialog_requests.pop_front();
+        g_file_dialog_active = true;
+    }
+
+    FileDialogResult result = request.mode == FileDialogMode::MultipleFiles
+        ? run_multiple_file_dialog()
+        : run_single_rom_file_dialog();
+
+    {
+        std::lock_guard lock{g_file_dialog_mutex};
+        g_file_dialog_active = false;
+    }
+
+    queue_file_dialog_completion(std::move(request), std::move(result));
 }
 
 void zelda64::show_error_message_box(const char* title, const char* message) {

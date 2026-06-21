@@ -5,6 +5,7 @@
 #include <string>
 #include <string_view>
 #include <list>
+#include <functional>
 
 // TODO move this file into src/ui
 
@@ -42,6 +43,7 @@ namespace recompui {
 
     void queue_event(const SDL_Event& event);
     bool try_deque_event(SDL_Event& out);
+    void queue_ui_thread_callback(std::function<void()> callback);
 
     std::unique_ptr<UiEventListenerInstancer> make_event_listener_instancer();
     void register_event(UiEventListenerInstancer& listener, const std::string& name, event_handler_t* handler);
