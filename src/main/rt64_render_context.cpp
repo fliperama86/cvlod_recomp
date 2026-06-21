@@ -260,15 +260,10 @@ lod::renderer::RT64Context::RT64Context(uint8_t* rdram, ultramodern::renderer::W
             app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Metal;
             break;
         case ultramodern::renderer::GraphicsApi::Auto:
-#ifdef _WIN32
-            // Default Windows "Auto" to Vulkan. The settings overlay only ships
-            // SPIRV shaders, so it can only initialize under Vulkan; RT64's
-            // "Automatic" otherwise resolves to D3D12 on Windows and the overlay
-            // never shows. D3D12 remains available by selecting it explicitly.
-            app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Vulkan;
-#else
+            // Let RT64 choose the platform default. On Windows this resolves to
+            // D3D12, which avoids requiring users to have a Vulkan runtime
+            // installed. Explicit Vulkan/Metal/D3D12 choices still override it.
             app->userConfig.graphicsAPI = RT64::UserConfiguration::GraphicsAPI::Automatic;
-#endif
             break;
     }
 
