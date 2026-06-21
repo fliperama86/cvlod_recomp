@@ -275,6 +275,83 @@ def patch_intro_6c_model38_tlb():
         f.write(content)
     return True
 
+
+# =============================================================================
+# Current patch: skip invalid heap/data object callback targets
+# Target: func_80058B84 (VRAM 0x80058B84), before object +0x44 dispatch
+# =============================================================================
+@active_patch("Skip invalid object callback")
+def patch_invalid_object_callback():
+    path, content = find_file_with_function("80058B84")
+    if not path:
+        return False
+
+    if "PATCH: skip invalid object callback" in content:
+        return False
+
+    ensure_include(path, '#include <stdio.h>')
+    with open(path) as f:
+        content = f.read()
+
+    support_code = """
+#ifndef LOD_FIX_BAD_OBJECT_CALLBACK
+#define LOD_FIX_BAD_OBJECT_CALLBACK 0
+#endif
+
+#if LOD_FIX_BAD_OBJECT_CALLBACK
+extern int recomp_is_function_loaded(int32_t addr);
+#endif
+
+#if LOD_FIX_BAD_OBJECT_CALLBACK || LOD_ENABLE_BAD_OBJECT_CALLBACK_TRACE
+extern uint32_t lod_current_map_overlay_rom(void);
+#endif
+"""
+    if "#ifndef LOD_FIX_BAD_OBJECT_CALLBACK" not in content:
+        lines = content.split('\n')
+        last_include = 0
+        for i, line in enumerate(lines):
+            if line.startswith('#include'):
+                last_include = i
+        lines.insert(last_include + 1, support_code.strip('\n'))
+        content = '\n'.join(lines)
+
+    marker = """    // 0x80058C70: jalr        $v0
+    // 0x80058C74: or          $a0, $s0, $zero
+    ctx->r4 = ctx->r16 | 0;
+"""
+    if marker not in content:
+        print("    WARNING: Cannot find 0x80058C70 insertion point for object callback guard")
+        return False
+
+    patch_code = """#if LOD_FIX_BAD_OBJECT_CALLBACK
+    // --- PATCH: skip invalid object callback ---
+    {
+        uint32_t cb = (uint32_t)ctx->r2;
+        if (!recomp_is_function_loaded((int32_t)cb)) {
+            MEM_W(ctx->r16, 0x04) = MEM_W(ctx->r16, 0x04) | 0x4;
+            static int bad_object_callback_log_count = 0;
+            if (bad_object_callback_log_count++ < 16) {
+                fprintf(stderr,
+                        "[OBJECT_CB_GUARD] disabled invalid object callback cb=0x%08X obj=0x%08X map_rom=0x%08X w00=0x%08X w04=0x%08X w44=0x%08X\\n",
+                        cb,
+                        (uint32_t)ctx->r16,
+                        lod_current_map_overlay_rom(),
+                        MEM_W(ctx->r16, 0x00),
+                        MEM_W(ctx->r16, 0x04),
+                        MEM_W(ctx->r16, 0x44));
+            }
+            goto L_80058C78;
+        }
+    }
+    // --- END PATCH ---
+#endif
+"""
+
+    content = content.replace(marker, marker + patch_code, 1)
+    with open(path, 'w', newline='\n') as f:
+        f.write(content)
+    return True
+
 # =============================================================================
 # Main
 # =============================================================================

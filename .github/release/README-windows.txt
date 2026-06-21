@@ -1,4 +1,4 @@
-Castlevania: Legacy of Darkness Recompiled — Windows x64
+Castlevania: Legacy of Darkness Recompiled - Windows x64
 =========================================================
 
 Setup
@@ -18,7 +18,7 @@ in the GitHub release notes.
 
 Hotkeys
 -------
-F1   Show/hide the settings overlay
+F1   Show/hide the settings menu
 F11  Toggle windowed/fullscreen
 F5   Cycle internal resolution (Original, Original2x, Auto)
 F6   Cycle aspect ratio (Original, Expand, Manual)
@@ -27,7 +27,8 @@ F8   Cycle refresh-rate mode (Original, Display, Manual)
 
 Keyboard: Enter = A, Right Shift = B, Z = Z, Space = Start,
 arrows = D-pad, WASD = analog stick. SDL game controllers are
-supported; see the repository README for bindings and controls.json.
+supported. Controller Back/Select shows or hides the settings menu;
+Start/Options remains mapped to N64 Start.
 
 Config files are stored in %APPDATA%\LodRecomp.
 For portable mode, create an empty portable.txt next to LodRecomp.exe;

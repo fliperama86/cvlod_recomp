@@ -525,6 +525,10 @@ static void flush_ui_thread_callbacks() {
     }
 }
 
+static bool zelda_controller_button_toggles_menu(uint8_t button) {
+    return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
+}
+
 int cont_button_to_key(SDL_ControllerButtonEvent& button) {
     // Configurable accept button in menu
     auto menuAcceptBinding0 = recomp::get_input_binding(recomp::GameInput::ACCEPT_MENU, 0, recomp::InputDevice::Controller);
@@ -545,11 +549,7 @@ int cont_button_to_key(SDL_ControllerButtonEvent& button) {
     }
 
     // Allows closing the menu
-    auto menuToggleBinding0 = recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
-    auto menuToggleBinding1 = recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
-    // note - magic number: 0 is InputType::None
-    if ((menuToggleBinding0.input_type != 0 && button.button == menuToggleBinding0.input_id) ||
-        (menuToggleBinding1.input_type != 0 && button.button == menuToggleBinding1.input_id)) {
+    if (zelda_controller_button_toggles_menu(button.button)) {
         return SDLK_ESCAPE;
     }
 
@@ -796,11 +796,7 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
                 }
                 break;
             case SDL_EventType::SDL_CONTROLLERBUTTONDOWN:
-                auto menuToggleBinding0 = recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
-                auto menuToggleBinding1 = recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
-                // note - magic number: 0 is InputType::None
-                if ((menuToggleBinding0.input_type != 0 && cur_event.cbutton.button == menuToggleBinding0.input_id) ||
-                    (menuToggleBinding1.input_type != 0 && cur_event.cbutton.button == menuToggleBinding1.input_id)) {
+                if (zelda_controller_button_toggles_menu(cur_event.cbutton.button)) {
                     open_config = true;
                 }
                 break;

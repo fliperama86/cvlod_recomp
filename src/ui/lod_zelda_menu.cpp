@@ -248,8 +248,8 @@ void initialise_default_menu_bindings() {
         SDL_CONTROLLER_BUTTON_BACK,
     };
     g_controller_bindings[static_cast<size_t>(recomp::GameInput::TOGGLE_MENU)][1] = {
-        kInputControllerDigital,
-        SDL_CONTROLLER_BUTTON_START,
+        kInputNone,
+        0,
     };
 }
 

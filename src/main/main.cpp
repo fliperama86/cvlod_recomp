@@ -61,6 +61,7 @@
 #include "lod/lod_settings.hpp"
 #include "lod/target_rom.hpp"
 #include "lod_ui_overlay.h"
+#include "lod_version.h"
 #ifdef LOD_USE_ZELDA_MENU
 #include "recomp_ui.h"
 #include "zelda_support.h"
@@ -2124,7 +2125,7 @@ int main(int argc, char** argv) {
     sigaction(SIGBUS, &sa, nullptr);
 #endif
     recomp::Version project_version{};
-    recomp::Version::from_string("0.2.11", project_version);
+    recomp::Version::from_string(LOD_RECOMP_VERSION, project_version);
 
     // Set up config path for ROM storage. If portable.txt exists beside the
     // executable/app (or in the launch directory), keep config and saves there.

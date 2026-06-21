@@ -4,12 +4,33 @@ if (APPLE)
     set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum OS X deployment version")
 endif()
 
-project(LodRecomp LANGUAGES C CXX)
+file(READ "${CMAKE_SOURCE_DIR}/VERSION" LOD_RECOMP_VERSION)
+string(STRIP "${LOD_RECOMP_VERSION}" LOD_RECOMP_VERSION)
+if (NOT LOD_RECOMP_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+$")
+    message(FATAL_ERROR "VERSION must contain MAJOR.MINOR.PATCH, got '${LOD_RECOMP_VERSION}'")
+endif()
+string(REPLACE "." ";" LOD_RECOMP_VERSION_PARTS "${LOD_RECOMP_VERSION}")
+list(GET LOD_RECOMP_VERSION_PARTS 0 LOD_RECOMP_VERSION_MAJOR)
+list(GET LOD_RECOMP_VERSION_PARTS 1 LOD_RECOMP_VERSION_MINOR)
+list(GET LOD_RECOMP_VERSION_PARTS 2 LOD_RECOMP_VERSION_PATCH)
+
+project(LodRecomp VERSION ${LOD_RECOMP_VERSION} LANGUAGES C CXX)
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/src/main/lod_version.h.in
+    ${CMAKE_CURRENT_BINARY_DIR}/lod_version.h
+    @ONLY
+)
+configure_file(
+    ${CMAKE_SOURCE_DIR}/src/main/lod_recomp.rc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/lod_recomp.rc
+    @ONLY
+)
 
 if (APPLE)
     enable_language(OBJC OBJCXX)
@@ -105,6 +126,10 @@ option(LOD_FIX_NI_RSP_EXTENDED_ADDRS "Preserve LoD NI 0x8E/0x8F addresses in RSP
 if (LOD_FIX_NI_RSP_EXTENDED_ADDRS)
     target_compile_definitions(rt64 PRIVATE LOD_FIX_NI_RSP_EXTENDED_ADDRS=1)
 endif()
+option(LOD_FIX_RDP_INVALID_LOAD_OP_BOUNDS "Skip invalid RT64 RDP texture/TLUT load operations whose coordinates would underflow into huge CPU loops" ON)
+if (LOD_FIX_RDP_INVALID_LOAD_OP_BOUNDS)
+    target_compile_definitions(rt64 PRIVATE LOD_FIX_RDP_INVALID_LOAD_OP_BOUNDS=1)
+endif()
 
 # ── RecompiledFuncs ─────────────────────────────────────────────────
 add_library(RecompiledFuncs STATIC)
@@ -118,6 +143,10 @@ target_compile_options(RecompiledFuncs PRIVATE
 option(LOD_ENABLE_FIGURE_SEG_TRACE "Enable generated-code diagnostics for figure/model links that still contain segmented addresses" OFF)
 if (LOD_ENABLE_FIGURE_SEG_TRACE)
     target_compile_definitions(RecompiledFuncs PRIVATE LOD_ENABLE_FIGURE_SEG_TRACE=1)
+endif()
+option(LOD_FIX_BAD_OBJECT_CALLBACK "Skip object callbacks whose +0x44 target is not a currently loaded recompiled function" ON)
+if (LOD_FIX_BAD_OBJECT_CALLBACK)
+    target_compile_definitions(RecompiledFuncs PRIVATE LOD_FIX_BAD_OBJECT_CALLBACK=1)
 endif()
 option(LOD_FIX_INTRO_6C_MODEL38_TLB "Translate intro asset 0x6C model display-list returns through the active TLB" ON)
 if (LOD_FIX_INTRO_6C_MODEL38_TLB)
@@ -502,7 +531,7 @@ if (WIN32)
     # Embed version metadata and an explicit asInvoker manifest. Bare exes with
     # no VERSIONINFO/manifest score worse with SmartScreen and AV heuristics.
     target_sources(LodRecomp PRIVATE
-        ${CMAKE_SOURCE_DIR}/src/main/lod_recomp.rc
+        ${CMAKE_CURRENT_BINARY_DIR}/lod_recomp.rc
         ${CMAKE_SOURCE_DIR}/src/main/lod_recomp.manifest
     )
 

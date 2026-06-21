@@ -1,16 +1,15 @@
 // Version metadata embedded in LodRecomp.exe.
 //
-// An exe with no VERSIONINFO at all looks far more suspicious to SmartScreen
-// and antivirus heuristics, and shows an empty Details tab in file Properties.
-// Keep the version in sync with the project_version in src/main/main.cpp.
+// This file is generated from the root VERSION file by CMake. Do not hard-code
+// release numbers here.
 
-#define LOD_VER_MAJOR 0
-#define LOD_VER_MINOR 2
-#define LOD_VER_PATCH 11
-#define LOD_VER_STRING "0.2.11"
+#define LOD_VER_MAJOR @LOD_RECOMP_VERSION_MAJOR@
+#define LOD_VER_MINOR @LOD_RECOMP_VERSION_MINOR@
+#define LOD_VER_PATCH @LOD_RECOMP_VERSION_PATCH@
+#define LOD_VER_STRING "@LOD_RECOMP_VERSION@"
 #define IDI_LOD_RECOMP 101
 
-IDI_LOD_RECOMP ICON "lod_recomp.ico"
+IDI_LOD_RECOMP ICON "@CMAKE_SOURCE_DIR@/src/main/lod_recomp.ico"
 
 1 VERSIONINFO
 FILEVERSION     LOD_VER_MAJOR,LOD_VER_MINOR,LOD_VER_PATCH,0

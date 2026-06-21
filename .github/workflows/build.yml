@@ -16,7 +16,17 @@ permissions:
   contents: write
 
 jobs:
+  validate-version:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate version metadata
+        run: python3 tools/check_version.py
+
   build-windows:
+    needs: validate-version
     runs-on: windows-2022
     timeout-minutes: 120
     steps:
@@ -147,6 +157,7 @@ jobs:
             ${{ steps.pkg.outputs.asset }}.sha256
 
   build-linux:
+    needs: validate-version
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -252,6 +263,7 @@ jobs:
             ${{ steps.pkg.outputs.asset }}.sha256
 
   build-macos:
+    needs: validate-version
     runs-on: macos-14
     timeout-minutes: 120
     steps:
