@@ -68,7 +68,7 @@
                         </div>
 
                         <div class="config-option">
-                            <label class="config-option__title">Aspect Ratio !</label>
+                            <label class="config-option__title">Aspect Ratio</label>
                             <div class="config-option__list">
                                 <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" />
                                 <label class="config-option__tab-label" for="lod_ar_original">Original</label>
@@ -77,7 +77,7 @@
                                 <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" />
                                 <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
                             </div>
-                            <label class="lod-config-readonly">! LoD currently forces Original on apply; widescreen modes cause camera-dependent flicker.</label>
+                            <label class="lod-config-readonly">Original is the default; widescreen modes are optional.</label>
                         </div>
 
                         <div class="config-option">
@@ -95,7 +95,7 @@
                         </div>
 
                         <div class="config-option">
-                            <label class="config-option__title">Refresh Rate !</label>
+                            <label class="config-option__title">Refresh Rate</label>
                             <div class="config-option__list">
                                 <input type="radio" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" />
                                 <label class="config-option__tab-label" for="lod_rr_original">Original</label>
@@ -108,7 +108,7 @@
                                 <label class="config-option__range-label">{{rr_manual_value}}Hz</label>
                                 <input type="range" min="20" max="360" data-value="rr_manual_value" style="flex:1; margin: 0dp;" />
                             </div>
-                            <label class="lod-config-readonly">! LoD currently forces Original on apply; Display/Manual RT64 frame matching is unstable.</label>
+                            <label class="lod-config-readonly">Original is the default; Display and Manual modes are optional.</label>
                         </div>
 
                         <label class="lod-config-status" data-if="options_changed">Pending changes</label>
