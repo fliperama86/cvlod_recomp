@@ -8,6 +8,8 @@ BINARY="${1:?usage: make_app.sh <binary> <version> [outdir]}"
 VERSION="${2:?usage: make_app.sh <binary> <version> [outdir]}"
 OUTDIR="${3:-.}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+ICON_PNG="$ROOT_DIR/assets/lod_icon-iOS-Default-1024x1024@1x.png"
 
 APP="$OUTDIR/LodRecomp.app"
 rm -rf "$APP"
@@ -15,6 +17,29 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BINARY" "$APP/Contents/MacOS/LodRecomp"
 chmod +x "$APP/Contents/MacOS/LodRecomp"
+
+ICONSET="$(mktemp -d "${TMPDIR:-/tmp}/lodrecomp-iconset.XXXXXX")/LodRecomp.iconset"
+trap 'rm -rf "$(dirname "$ICONSET")"' EXIT
+mkdir -p "$ICONSET"
+
+make_icon_png() {
+    local size="$1"
+    local output="$2"
+
+    sips -s format png -z "$size" "$size" "$ICON_PNG" --out "$ICONSET/$output" >/dev/null
+}
+
+make_icon_png 16 "icon_16x16.png"
+make_icon_png 32 "icon_16x16@2x.png"
+make_icon_png 32 "icon_32x32.png"
+make_icon_png 64 "icon_32x32@2x.png"
+make_icon_png 128 "icon_128x128.png"
+make_icon_png 256 "icon_128x128@2x.png"
+make_icon_png 256 "icon_256x256.png"
+make_icon_png 512 "icon_256x256@2x.png"
+make_icon_png 512 "icon_512x512.png"
+make_icon_png 1024 "icon_512x512@2x.png"
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/LodRecomp.icns"
 
 cat > "$APP/Contents/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -29,6 +54,8 @@ cat > "$APP/Contents/Info.plist" <<EOF
     <string>LodRecomp</string>
     <key>CFBundleDisplayName</key>
     <string>Castlevania: Legacy of Darkness Recompiled</string>
+    <key>CFBundleIconFile</key>
+    <string>LodRecomp.icns</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
