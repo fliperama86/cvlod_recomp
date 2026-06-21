@@ -5,20 +5,24 @@
     <link type="text/rcss" href="recomp.rcss"/>
     <style>
         body { width: 100%; height: 100%; }
-        .lod-config-copy { margin: 10dp 0 18dp 0; opacity: 0.84; }
-        .lod-config-tabs { display: flex; flex-direction: row; gap: 8dp; margin-bottom: 14dp; }
+        .lod-config-copy { margin: 8dp 0 14dp 0; opacity: 0.84; }
+        .lod-config-tabs { display: flex; flex-direction: row; gap: 8dp; margin-bottom: 14dp; flex-wrap: wrap; }
         .lod-config-tab { padding: 8dp 14dp; }
-        .lod-config-status { margin-top: 14dp; opacity: 0.84; }
-        .lod-config-actions { display: flex; flex-direction: row; gap: 10dp; margin-top: 18dp; }
+        .lod-config-status { margin-top: 12dp; opacity: 0.84; }
+        .lod-config-actions { display: flex; flex-direction: row; gap: 10dp; margin-top: 18dp; flex-wrap: wrap; }
         .lod-config-readonly { opacity: 0.82; margin: 8dp 0; }
+        .lod-config-row { margin: 10dp 0 16dp 0; }
+        .lod-config-row-title { display: block; font-weight: bold; margin-bottom: 4dp; }
+        .lod-config-row-desc { display: block; opacity: 0.78; margin-top: 4dp; }
+        .lod-config-scroll { max-height: 78vh; overflow-y: auto; padding-right: 10dp; }
     </style>
 </head>
 <body class="window">
     <div id="window" class="rmlui-window" data-model="config_model" onkeydown="config_keydown">
         <div class="centered-page">
             <div class="centered-page__modal">
-                <div class="config">
-                    <h1>Settings</h1>
+                <div class="config lod-config-scroll">
+                    <h1>Legacy of Darkness Settings</h1>
                     <div class="lod-config-tabs">
                         <button onclick="show_general_tab" class="button lod-config-tab" autofocus>
                             <div class="button__label">General</div>
@@ -32,21 +36,47 @@
                         <button onclick="show_audio_tab" class="button lod-config-tab">
                             <div class="button__label">Audio</div>
                         </button>
+                        <button data-if="debug_visible" onclick="show_debug_tab" class="button lod-config-tab">
+                            <div class="button__label">Debug</div>
+                        </button>
                     </div>
 
                     <div data-if="active_tab == 'General'">
                         <h2>General</h2>
-                        <label class="lod-config-copy">Shared Zelda-style settings shell for LoD. Graphics are functional in this slice.</label>
+                        <label class="lod-config-copy">LoD-specific runtime status and safe launcher actions.</label>
+                        <p class="lod-config-readonly">Version: v{{version_number}}</p>
+                        <p class="lod-config-readonly">ROM status: {{rom_status}}</p>
+                        <p class="lod-config-readonly">ROM file: {{rom_file}}</p>
                         <p class="lod-config-readonly">Config folder: {{config_path}}</p>
-                        <p class="lod-config-readonly">Background input currently follows the runtime default.</p>
+                        <p class="lod-config-readonly">Portable mode: {{portable_mode}}</p>
+                        <p class="lod-config-readonly">Background input: {{background_input_status}}</p>
+                        <p class="lod-config-readonly">Rumble: SDL rumble pulse when the game requests rumble.</p>
+                        <p class="lod-config-readonly">Controller Pak: virtual Controller Pak is reported to the runtime.</p>
+                        <p class="lod-config-readonly">Expansion Pak / high-res: default builds use the validated low-resolution path.</p>
+                        <p class="lod-config-readonly">Debug tab: {{debug_visibility_status}}</p>
+                        <div class="lod-config-actions">
+                            <button onclick="select_rom" class="button">
+                                <div class="button__label">Change ROM</div>
+                            </button>
+                        </div>
                     </div>
 
                     <div data-if="active_tab == 'Graphics'">
                         <h2>Graphics</h2>
-                        <label class="lod-config-copy">Changes are staged first. Apply writes graphics.json and updates the renderer.</label>
+                        <label class="lod-config-copy">Changes are staged first. Apply writes graphics.json and updates the renderer. F5/F6/F7/F8/F11 stage changes while this menu is open.</label>
 
-                        <div class="config-option">
-                            <label class="config-option__title">Resolution</label>
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">Window Mode</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" />
+                                <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
+                                <input type="radio" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" />
+                                <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
+                            </div>
+                        </div>
+
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">Internal Resolution</label>
                             <div class="config-option__list">
                                 <input type="radio" name="resolution" data-checked="res_option" value="Original" id="lod_res_original" />
                                 <label class="config-option__tab-label" for="lod_res_original">Original</label>
@@ -57,17 +87,15 @@
                             </div>
                         </div>
 
-                        <div class="config-option">
-                            <label class="config-option__title">Window Mode</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" />
-                                <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
-                                <input type="radio" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" />
-                                <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">Downsample Factor: {{ds_option}}</label>
+                            <div class="config-option__range-wrapper config-option__list">
+                                <input type="range" min="1" max="8" step="1" data-value="ds_option" style="flex:1; margin: 0dp;" />
                             </div>
+                            <label class="lod-config-row-desc">Used by supported high-resolution modes. Original resolution may make this visually irrelevant.</label>
                         </div>
 
-                        <div class="config-option">
+                        <div class="config-option lod-config-row">
                             <label class="config-option__title">Aspect Ratio</label>
                             <div class="config-option__list">
                                 <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" />
@@ -77,10 +105,22 @@
                                 <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" />
                                 <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
                             </div>
-                            <label class="lod-config-readonly">Original is the default; widescreen modes are optional.</label>
+                            <label class="lod-config-row-desc">Original is the conservative default.</label>
                         </div>
 
-                        <div class="config-option">
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">HUD Placement</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Original" id="lod_hr_original" />
+                                <label class="config-option__tab-label" for="lod_hr_original">Original</label>
+                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Clamp16x9" id="lod_hr_16x9" />
+                                <label class="config-option__tab-label" for="lod_hr_16x9">Clamp 16:9</label>
+                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Full" id="lod_hr_full" />
+                                <label class="config-option__tab-label" for="lod_hr_full">Full</label>
+                            </div>
+                        </div>
+
+                        <div class="config-option lod-config-row">
                             <label class="config-option__title">MS Anti-Aliasing</label>
                             <div class="config-option__list">
                                 <input type="radio" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" />
@@ -92,9 +132,10 @@
                                 <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" />
                                 <label class="config-option__tab-label" for="lod_msaa_8x">8x</label>
                             </div>
+                            <label class="lod-config-row-desc">Supported indicators: None, 2x, 4x, 8x are selectable; the renderer may clamp unsupported requests.</label>
                         </div>
 
-                        <div class="config-option">
+                        <div class="config-option lod-config-row">
                             <label class="config-option__title">Refresh Rate</label>
                             <div class="config-option__list">
                                 <input type="radio" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" />
@@ -104,15 +145,30 @@
                                 <input type="radio" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" />
                                 <label class="config-option__tab-label" for="lod_rr_manual">Manual</label>
                             </div>
-                            <div data-if="rr_option == 'Manual'" class="config-option__range-wrapper config-option__list">
+                            <div data-if="manual_refresh_enabled" class="config-option__range-wrapper config-option__list">
                                 <label class="config-option__range-label">{{rr_manual_value}}Hz</label>
-                                <input type="range" min="20" max="360" data-value="rr_manual_value" style="flex:1; margin: 0dp;" />
+                                <input type="range" min="20" max="360" step="1" data-value="rr_manual_value" style="flex:1; margin: 0dp;" />
                             </div>
-                            <label class="lod-config-readonly">Original is the default; Display and Manual modes are optional.</label>
+                            <label data-if="!manual_refresh_enabled" class="lod-config-row-desc">Manual refresh slider is enabled only when Refresh Rate is Manual.</label>
                         </div>
 
-                        <label class="lod-config-status" data-if="options_changed">Pending changes</label>
-                        <label class="lod-config-status" data-if="!options_changed">No pending changes</label>
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">High Precision Framebuffer</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="Auto" id="lod_hpfb_auto" />
+                                <label class="config-option__tab-label" for="lod_hpfb_auto">Auto</label>
+                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="On" id="lod_hpfb_on" />
+                                <label class="config-option__tab-label" for="lod_hpfb_on">On</label>
+                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="Off" id="lod_hpfb_off" />
+                                <label class="config-option__tab-label" for="lod_hpfb_off">Off</label>
+                            </div>
+                        </div>
+
+                        <p class="lod-config-readonly">Graphics API: {{graphics_api}} (startup-sensitive, read-only here)</p>
+                        <p class="lod-config-readonly">Display refresh rate: {{display_refresh_rate}}Hz</p>
+
+                        <label class="lod-config-status" data-if="options_changed">Pending graphics changes</label>
+                        <label class="lod-config-status" data-if="!options_changed">No pending graphics changes</label>
                         <label class="lod-config-status">{{config_status}}</label>
 
                         <div class="lod-config-actions">
@@ -122,17 +178,59 @@
                             <button onclick="discard_graphics" class="button button--warning">
                                 <div class="button__label">Discard</div>
                             </button>
+                            <button onclick="reset_graphics" class="button">
+                                <div class="button__label">Reset Defaults</div>
+                            </button>
                         </div>
                     </div>
 
                     <div data-if="active_tab == 'Controls'">
                         <h2>Controls</h2>
-                        <label class="lod-config-copy">The Zelda controls layout is imported, but LoD's control persistence is different. This page will be wired next.</label>
+                        <label class="lod-config-copy">Truthful first pass: current gameplay control bindings are loaded from controls.json, but full interactive rebinding is not wired in the Zelda shell yet.</label>
+                        <p class="lod-config-readonly">Current defaults are preserved. Keyboard mappings are still the runtime hardcoded path.</p>
+                        <p class="lod-config-readonly">Next backend work: versioned binding arrays, keyboard persistence, controller persistence, scanning, clear binding, reset one, and reset all.</p>
                     </div>
 
                     <div data-if="active_tab == 'Audio'">
                         <h2>Audio</h2>
-                        <label class="lod-config-copy">LoD currently exposes audio status rather than separate BGM/SFX sliders. Real volume controls will be added after the mixer path is defined.</label>
+                        <label class="lod-config-copy">Only real audio controls are shown. Changes apply immediately and persist to audio.json.</label>
+
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">Master Volume: {{audio_master_volume}}%</label>
+                            <div class="config-option__range-wrapper config-option__list">
+                                <input type="range" min="0" max="100" step="1" data-value="audio_master_volume" style="flex:1; margin: 0dp;" />
+                            </div>
+                        </div>
+
+                        <div class="config-option lod-config-row">
+                            <label class="config-option__title">Mute</label>
+                            <div class="config-option__list">
+                                <input type="radio" name="audio_mute" data-checked="audio_mute_mode" value="Off" id="lod_audio_mute_off" />
+                                <label class="config-option__tab-label" for="lod_audio_mute_off">Off</label>
+                                <input type="radio" name="audio_mute" data-checked="audio_mute_mode" value="On" id="lod_audio_mute_on" />
+                                <label class="config-option__tab-label" for="lod_audio_mute_on">On</label>
+                            </div>
+                        </div>
+
+                        <p class="lod-config-readonly">Audio config: {{audio_config_path}}</p>
+                        <p class="lod-config-readonly">Backend: {{audio_backend_status}}</p>
+                        <p class="lod-config-readonly">Queue: {{audio_queue_status}}</p>
+                        <p class="lod-config-readonly">Audio RSP path: generated audio RSP enabled by default.</p>
+                        <label class="lod-config-status">{{audio_status}}</label>
+                    </div>
+
+                    <div data-if="active_tab == 'Debug'">
+                        <h2>Debug</h2>
+                        <label class="lod-config-copy">Developer-only read-only diagnostics. Set RECOMP_UI_SHOW_DEBUG=1 to show this tab.</label>
+                        <p class="lod-config-readonly">Gamestate: {{debug_gamestate}}</p>
+                        <p class="lod-config-readonly">Exec flags: {{debug_exec_flags}}</p>
+                        <p class="lod-config-readonly">Map overlay ROM: {{debug_map_rom}}</p>
+                        <p class="lod-config-readonly">Map overlay size: {{debug_map_size}}</p>
+                        <p class="lod-config-readonly">Map overlay loads: {{debug_map_loads}}</p>
+                        <p class="lod-config-readonly">NI 0F pair: {{debug_ni_0f}}</p>
+                        <p class="lod-config-readonly">NI 0E pair: {{debug_ni_0e}}</p>
+                        <p class="lod-config-readonly">Graphics: {{graphics_summary}}</p>
+                        <p class="lod-config-readonly">Config path: {{config_path}}</p>
                     </div>
 
                     <div class="lod-config-actions">

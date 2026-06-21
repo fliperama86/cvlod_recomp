@@ -5,10 +5,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <list>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -31,6 +34,13 @@
 #include "ultramodern/ultramodern.hpp"
 #include "nfd.h"
 
+extern uint8_t* rdram_ptr_for_debug;
+extern "C" uint32_t lod_current_map_overlay_rom();
+extern "C" uint32_t lod_current_map_overlay_size();
+extern "C" int lod_current_map_overlay_load_count();
+extern "C" int lod_ni_overlay_loaded_0f_pair();
+extern "C" int lod_ni_overlay_loaded_0e_pair();
+
 namespace {
 constexpr uint32_t kInputNone = 0;
 constexpr uint32_t kInputControllerDigital = 3;
@@ -48,9 +58,12 @@ Rml::DataModelHandle g_launcher_model;
 Rml::DataModelHandle g_config_model;
 bool g_rom_valid = false;
 std::string g_rom_status = "Select your Legacy of Darkness (USA) ROM.";
+std::string g_rom_file_name = "None selected";
 std::string g_version_string;
 ultramodern::renderer::GraphicsConfig g_pending_graphics{};
+lod::settings::AudioConfig g_audio_config{};
 std::string g_config_status = "Graphics changes are staged until Apply.";
+std::string g_audio_status = "Audio changes apply immediately and save to audio.json.";
 std::string g_config_path_display;
 
 std::u8string lod_game_id() {
@@ -63,6 +76,7 @@ void dirty_launcher() {
     }
     g_launcher_model.DirtyVariable("rom_valid");
     g_launcher_model.DirtyVariable("rom_status");
+    g_launcher_model.DirtyVariable("rom_file");
 }
 
 void initialise_default_menu_bindings() {
@@ -103,6 +117,51 @@ const char* rom_validation_message(recomp::RomValidationError error) {
     return "ROM validation failed.";
 }
 
+std::string hex_u32(uint32_t value) {
+    char buf[16];
+    std::snprintf(buf, sizeof(buf), "0x%08X", value);
+    return buf;
+}
+
+bool show_debug_tab() {
+    const char* value = std::getenv("RECOMP_UI_SHOW_DEBUG");
+    return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+int32_t current_gamestate() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return 0;
+    }
+
+    uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
+    if (gsm_addr == 0) {
+        return 0;
+    }
+
+    uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+    if (gsm_phys + 0x2C > 0x800000) {
+        return 0;
+    }
+
+    return *(int32_t*)(rdram + gsm_phys + 0x24);
+}
+
+uint32_t current_exec_flags() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    return rdram != nullptr ? *(uint32_t*)(rdram + 0x001CABC8) : 0;
+}
+
+template <typename Enum>
+Enum next_enum_option(Enum value) {
+    int raw = static_cast<int>(value) + 1;
+    int count = static_cast<int>(Enum::OptionCount);
+    if (raw >= count) {
+        raw = 0;
+    }
+    return static_cast<Enum>(raw);
+}
+
 
 const char* config_tab_name(recompui::ConfigTab tab) {
     switch (tab) {
@@ -129,10 +188,12 @@ void dirty_config() {
 
 void reset_pending_graphics_from_active() {
     g_pending_graphics = ultramodern::renderer::get_graphics_config();
+    g_audio_config = lod::settings::get_audio_config();
     g_config_path_display = lod::settings::config_path().empty()
         ? std::string{"Registered at startup"}
         : lod::settings::config_path().string();
     g_config_status = "Graphics changes are staged until Apply.";
+    g_audio_status = "Audio changes apply immediately and save to audio.json.";
     dirty_config();
 }
 
@@ -145,6 +206,20 @@ void apply_pending_graphics(const char* reason) {
 void discard_pending_graphics() {
     reset_pending_graphics_from_active();
     g_config_status = "Graphics changes discarded.";
+    dirty_config();
+}
+
+void reset_pending_graphics_defaults() {
+    g_pending_graphics = lod::settings::default_graphics_config();
+    g_config_status = "Graphics defaults staged. Choose Apply to save them.";
+    dirty_config();
+}
+
+void apply_audio_config_from_ui(const char* reason) {
+    g_audio_config.master_volume = std::clamp(g_audio_config.master_volume, 0, 100);
+    lod::settings::apply_and_save_audio_config(g_audio_config, reason);
+    g_audio_config = lod::settings::get_audio_config();
+    g_audio_status = "Audio settings applied and saved.";
     dirty_config();
 }
 
@@ -261,6 +336,57 @@ void set_refresh_rate_from_string(const std::string& value) {
     else if (value == "Manual") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Manual;
 }
 
+const char* hud_ratio_to_string(ultramodern::renderer::HUDRatioMode value) {
+    switch (value) {
+        case ultramodern::renderer::HUDRatioMode::Original: return "Original";
+        case ultramodern::renderer::HUDRatioMode::Clamp16x9: return "Clamp16x9";
+        case ultramodern::renderer::HUDRatioMode::Full: return "Full";
+        case ultramodern::renderer::HUDRatioMode::OptionCount: break;
+    }
+    return "Original";
+}
+
+void set_hud_ratio_from_string(const std::string& value) {
+    if (value == "Original") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Original;
+    else if (value == "Clamp16x9") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Clamp16x9;
+    else if (value == "Full") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Full;
+}
+
+const char* hpfb_to_string(ultramodern::renderer::HighPrecisionFramebuffer value) {
+    switch (value) {
+        case ultramodern::renderer::HighPrecisionFramebuffer::Auto: return "Auto";
+        case ultramodern::renderer::HighPrecisionFramebuffer::On: return "On";
+        case ultramodern::renderer::HighPrecisionFramebuffer::Off: return "Off";
+        case ultramodern::renderer::HighPrecisionFramebuffer::OptionCount: break;
+    }
+    return "Auto";
+}
+
+void set_hpfb_from_string(const std::string& value) {
+    if (value == "Auto") g_pending_graphics.hpfb_option = ultramodern::renderer::HighPrecisionFramebuffer::Auto;
+    else if (value == "On") g_pending_graphics.hpfb_option = ultramodern::renderer::HighPrecisionFramebuffer::On;
+    else if (value == "Off") g_pending_graphics.hpfb_option = ultramodern::renderer::HighPrecisionFramebuffer::Off;
+}
+
+const char* graphics_api_to_string(ultramodern::renderer::GraphicsApi value) {
+    switch (value) {
+        case ultramodern::renderer::GraphicsApi::Auto: return "Auto";
+        case ultramodern::renderer::GraphicsApi::D3D12: return "D3D12";
+        case ultramodern::renderer::GraphicsApi::Vulkan: return "Vulkan";
+        case ultramodern::renderer::GraphicsApi::Metal: return "Metal";
+        case ultramodern::renderer::GraphicsApi::OptionCount: break;
+    }
+    return "Auto";
+}
+
+const char* mute_to_string(bool value) {
+    return value ? "On" : "Off";
+}
+
+void set_mute_from_string(const std::string& value) {
+    g_audio_config.mute = (value == "On");
+}
+
 void bind_option_string(Rml::DataModelConstructor& constructor,
                         const char* name,
                         const std::function<const char*()>& getter,
@@ -276,6 +402,62 @@ void bind_option_string(Rml::DataModelConstructor& constructor,
         });
 }
 
+bool stage_graphics_function_key(Rml::Input::KeyIdentifier key) {
+    switch (key) {
+        case Rml::Input::KeyIdentifier::KI_F11:
+            g_pending_graphics.wm_option =
+                g_pending_graphics.wm_option == ultramodern::renderer::WindowMode::Fullscreen
+                    ? ultramodern::renderer::WindowMode::Windowed
+                    : ultramodern::renderer::WindowMode::Fullscreen;
+            break;
+        case Rml::Input::KeyIdentifier::KI_F5:
+            g_pending_graphics.res_option = next_enum_option(g_pending_graphics.res_option);
+            break;
+        case Rml::Input::KeyIdentifier::KI_F6:
+            g_pending_graphics.ar_option = next_enum_option(g_pending_graphics.ar_option);
+            break;
+        case Rml::Input::KeyIdentifier::KI_F7:
+            g_pending_graphics.msaa_option = next_enum_option(g_pending_graphics.msaa_option);
+            break;
+        case Rml::Input::KeyIdentifier::KI_F8:
+            g_pending_graphics.rr_option = next_enum_option(g_pending_graphics.rr_option);
+            break;
+        default:
+            return false;
+    }
+
+    g_config_status = "Graphics hotkey staged. Choose Apply to save.";
+    dirty_config();
+    return true;
+}
+
+std::string audio_config_path_display() {
+    const std::filesystem::path path = lod::settings::audio_config_path();
+    return path.empty() ? "audio.json" : path.string();
+}
+
+std::string audio_backend_status() {
+    const lod::settings::AudioStatus status = lod::settings::audio_status();
+    std::ostringstream out;
+    out << status.sdl_driver
+        << "; input " << status.input_sample_rate << " Hz"
+        << "; output " << status.output_sample_rate << " Hz"
+        << "; channels " << status.output_channels
+        << "; device " << (status.device_open ? "open" : "closed");
+    return out.str();
+}
+
+std::string graphics_summary(const ultramodern::renderer::GraphicsConfig& config) {
+    std::ostringstream out;
+    out << "res " << resolution_to_string(config.res_option)
+        << ", window " << window_mode_to_string(config.wm_option)
+        << ", aspect " << aspect_ratio_to_string(config.ar_option)
+        << ", MSAA " << msaa_to_string(config.msaa_option)
+        << ", refresh " << refresh_rate_to_string(config.rr_option)
+        << ", HPFB " << hpfb_to_string(config.hpfb_option);
+    return out.str();
+}
+
 void select_rom() {
     zelda64::open_file_dialog([](bool success, const std::filesystem::path& path) {
         if (!success) {
@@ -284,14 +466,16 @@ void select_rom() {
             return;
         }
 
-        g_rom_status = "Validating " + path.filename().string() + "...";
+        g_rom_file_name = path.filename().string();
+        g_rom_status = "Validating " + g_rom_file_name + "...";
         dirty_launcher();
 
         std::u8string game_id = lod_game_id();
         recomp::RomValidationError result = recomp::select_rom(path, game_id);
         g_rom_valid = (result == recomp::RomValidationError::Good);
         if (g_rom_valid) {
-            g_rom_status = "ROM ready: " + path.filename().string();
+            lod::settings::persist_rom_path(path);
+            g_rom_status = "ROM ready: " + g_rom_file_name;
         } else {
             g_rom_status = rom_validation_message(result);
         }
@@ -348,11 +532,19 @@ public:
         g_rom_valid = recomp::is_rom_valid(game_id);
         if (g_rom_valid) {
             g_rom_status = "ROM ready.";
+            if (g_rom_file_name == "None selected") {
+                g_rom_file_name = "Validated cached ROM";
+            }
         }
+        g_config_path_display = lod::settings::config_path().empty()
+            ? std::string{"Registered at startup"}
+            : lod::settings::config_path().string();
 
         Rml::DataModelConstructor constructor = context->CreateDataModel("launcher_model");
         constructor.Bind("rom_valid", &g_rom_valid);
         constructor.Bind("rom_status", &g_rom_status);
+        constructor.Bind("rom_file", &g_rom_file_name);
+        constructor.Bind("config_path", &g_config_path_display);
         g_version_string = recomp::get_project_version().to_string();
         constructor.Bind("version_number", &g_version_string);
         g_launcher_model = constructor.GetModelHandle();
@@ -377,6 +569,12 @@ public:
         recompui::register_event(listener, "discard_graphics", [](const std::string&, Rml::Event&) {
             discard_pending_graphics();
         });
+        recompui::register_event(listener, "reset_graphics", [](const std::string&, Rml::Event&) {
+            reset_pending_graphics_defaults();
+        });
+        recompui::register_event(listener, "select_rom", [](const std::string&, Rml::Event&) {
+            select_rom();
+        });
         recompui::register_event(listener, "show_general_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::General);
         });
@@ -389,6 +587,11 @@ public:
         recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::Sound);
         });
+        recompui::register_event(listener, "show_debug_tab", [](const std::string&, Rml::Event&) {
+            if (show_debug_tab()) {
+                recompui::set_config_tab(recompui::ConfigTab::Debug);
+            }
+        });
         recompui::register_event(listener, "config_keydown", [](const std::string&, Rml::Event& event) {
             if (recompui::is_prompt_open() || event.GetId() != Rml::EventId::Keydown) {
                 return;
@@ -398,6 +601,8 @@ public:
                 Rml::Input::KeyIdentifier::KI_UNKNOWN);
             if (key == Rml::Input::KeyIdentifier::KI_ESCAPE) {
                 close_config_menu();
+            } else if (stage_graphics_function_key(key)) {
+                return;
             } else if (key == Rml::Input::KeyIdentifier::KI_F) {
                 apply_pending_graphics("Zelda menu key apply");
             }
@@ -413,8 +618,27 @@ public:
         constructor.BindFunc("options_changed", [](Rml::Variant& out) {
             out = graphics_changed();
         });
+        if (g_version_string.empty()) {
+            g_version_string = recomp::get_project_version().to_string();
+        }
+        constructor.Bind("version_number", &g_version_string);
+        constructor.Bind("rom_status", &g_rom_status);
+        constructor.Bind("rom_file", &g_rom_file_name);
         constructor.Bind("config_status", &g_config_status);
         constructor.Bind("config_path", &g_config_path_display);
+        constructor.Bind("audio_status", &g_audio_status);
+        constructor.BindFunc("debug_visible", [](Rml::Variant& out) {
+            out = show_debug_tab();
+        });
+        constructor.BindFunc("portable_mode", [](Rml::Variant& out) {
+            out = lod::settings::portable_mode_enabled() ? "On" : "Off";
+        });
+        constructor.BindFunc("background_input_status", [](Rml::Variant& out) {
+            out = recomp::get_background_input_mode() == recomp::BackgroundInputMode::On ? "On" : "Off";
+        });
+        constructor.BindFunc("debug_visibility_status", [](Rml::Variant& out) {
+            out = show_debug_tab() ? "Visible via RECOMP_UI_SHOW_DEBUG" : "Hidden";
+        });
         constructor.BindFunc("display_refresh_rate", [](Rml::Variant& out) {
             out = ultramodern::get_display_refresh_rate();
         });
@@ -433,6 +657,21 @@ public:
         bind_option_string(constructor, "rr_option",
             []() { return refresh_rate_to_string(g_pending_graphics.rr_option); },
             [](const std::string& value) { set_refresh_rate_from_string(value); });
+        bind_option_string(constructor, "hr_option",
+            []() { return hud_ratio_to_string(g_pending_graphics.hr_option); },
+            [](const std::string& value) { set_hud_ratio_from_string(value); });
+        bind_option_string(constructor, "hpfb_option",
+            []() { return hpfb_to_string(g_pending_graphics.hpfb_option); },
+            [](const std::string& value) { set_hpfb_from_string(value); });
+        constructor.BindFunc("ds_option",
+            [](Rml::Variant& out) {
+                out = g_pending_graphics.ds_option;
+            },
+            [](const Rml::Variant& in) {
+                g_pending_graphics.ds_option = std::clamp(in.Get<int>(), 1, 8);
+                g_config_status = "Graphics changes pending.";
+                dirty_config();
+            });
         constructor.BindFunc("rr_manual_value",
             [](Rml::Variant& out) {
                 out = g_pending_graphics.rr_manual_value;
@@ -442,6 +681,71 @@ public:
                 g_config_status = "Graphics changes pending.";
                 dirty_config();
             });
+        constructor.BindFunc("manual_refresh_enabled", [](Rml::Variant& out) {
+            out = g_pending_graphics.rr_option == ultramodern::renderer::RefreshRate::Manual;
+        });
+        constructor.BindFunc("graphics_api", [](Rml::Variant& out) {
+            out = graphics_api_to_string(g_pending_graphics.api_option);
+        });
+        constructor.BindFunc("graphics_summary", [](Rml::Variant& out) {
+            out = graphics_summary(ultramodern::renderer::get_graphics_config());
+        });
+        constructor.BindFunc("audio_master_volume",
+            [](Rml::Variant& out) {
+                out = g_audio_config.master_volume;
+            },
+            [](const Rml::Variant& in) {
+                const int new_volume = std::clamp(in.Get<int>(), 0, 100);
+                if (new_volume == g_audio_config.master_volume) {
+                    return;
+                }
+                g_audio_config.master_volume = new_volume;
+                apply_audio_config_from_ui("Zelda menu audio volume");
+            });
+        constructor.BindFunc("audio_mute_mode",
+            [](Rml::Variant& out) {
+                out = mute_to_string(g_audio_config.mute);
+            },
+            [](const Rml::Variant& in) {
+                const std::string value = in.Get<std::string>();
+                const bool old_mute = g_audio_config.mute;
+                set_mute_from_string(value);
+                if (old_mute == g_audio_config.mute) {
+                    return;
+                }
+                apply_audio_config_from_ui("Zelda menu audio mute");
+            });
+        constructor.BindFunc("audio_backend_status", [](Rml::Variant& out) {
+            out = audio_backend_status();
+        });
+        constructor.BindFunc("audio_config_path", [](Rml::Variant& out) {
+            out = audio_config_path_display();
+        });
+        constructor.BindFunc("audio_queue_status", [](Rml::Variant& out) {
+            const lod::settings::AudioStatus status = lod::settings::audio_status();
+            out = std::to_string(status.queued_bytes) + " bytes queued";
+        });
+        constructor.BindFunc("debug_gamestate", [](Rml::Variant& out) {
+            out = std::to_string(current_gamestate());
+        });
+        constructor.BindFunc("debug_exec_flags", [](Rml::Variant& out) {
+            out = hex_u32(current_exec_flags());
+        });
+        constructor.BindFunc("debug_map_rom", [](Rml::Variant& out) {
+            out = hex_u32(lod_current_map_overlay_rom());
+        });
+        constructor.BindFunc("debug_map_size", [](Rml::Variant& out) {
+            out = hex_u32(lod_current_map_overlay_size());
+        });
+        constructor.BindFunc("debug_map_loads", [](Rml::Variant& out) {
+            out = std::to_string(lod_current_map_overlay_load_count());
+        });
+        constructor.BindFunc("debug_ni_0f", [](Rml::Variant& out) {
+            out = std::to_string(lod_ni_overlay_loaded_0f_pair());
+        });
+        constructor.BindFunc("debug_ni_0e", [](Rml::Variant& out) {
+            out = std::to_string(lod_ni_overlay_loaded_0e_pair());
+        });
         g_config_model = constructor.GetModelHandle();
     }
 };

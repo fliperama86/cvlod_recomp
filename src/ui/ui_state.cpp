@@ -210,6 +210,7 @@ public:
     std::unique_ptr<SystemInterface_SDL> system_interface;
     recompui::RmlRenderInterface_RT64 render_interface;
     Rml::Context* context;
+    SDL_Window* window = nullptr;
     recompui::UiEventListenerInstancer event_listener_instancer;
 
     UIState(const UIState& rhs) = delete;
@@ -217,12 +218,11 @@ public:
     UIState(UIState&& rhs) = delete;
     UIState& operator=(UIState&& rhs) = delete;
 
-    UIState(SDL_Window* window, RenderInterface* interface, RenderDevice* device) {
+    UIState(SDL_Window* window, RenderInterface* interface, RenderDevice* device) : window(window) {
         launcher_menu_controller = recompui::create_launcher_menu();
         config_menu_controller = recompui::create_config_menu();
 
-        system_interface = std::make_unique<SystemInterface_SDL>();
-        system_interface->SetWindow(window);
+        system_interface = std::make_unique<SystemInterface_SDL>(window);
         render_interface.init(interface, device);
 
         launcher_menu_controller->register_events(event_listener_instancer);
@@ -750,7 +750,7 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
                     if (zelda_ui_trace_enabled()) {
                         fprintf(stderr, "[UI_TRACE] dispatch SDL %s to Rml mouse\n", zelda_sdl_event_name(cur_event.type));
                     }
-                    RmlSDL::InputEventHandler(ui_state->context, cur_event);
+                    RmlSDL::InputEventHandler(ui_state->context, ui_state->window, cur_event);
                 } else if (zelda_ui_trace_enabled()) {
                     fprintf(stderr, "[UI_TRACE] skip SDL %s for Rml mouse: mouse not captured\n", zelda_sdl_event_name(cur_event.type));
                 }
@@ -760,7 +760,7 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
                     if (zelda_ui_trace_enabled()) {
                         fprintf(stderr, "[UI_TRACE] dispatch SDL %s to Rml input\n", zelda_sdl_event_name(cur_event.type));
                     }
-                    RmlSDL::InputEventHandler(ui_state->context, cur_event);
+                    RmlSDL::InputEventHandler(ui_state->context, ui_state->window, cur_event);
                 } else if (zelda_ui_trace_enabled()) {
                     fprintf(stderr, "[UI_TRACE] skip SDL %s for Rml input: input not captured\n", zelda_sdl_event_name(cur_event.type));
                 }

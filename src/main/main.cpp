@@ -24,6 +24,7 @@
 #include <chrono>
 #include <filesystem>
 #include <optional>
+#include <algorithm>
 #include <cmath>
 #include <string>
 #include <atomic>
@@ -119,6 +120,11 @@ static SDL_Window* window = nullptr;
 static SDL_GameController* game_controller = nullptr;
 static SDL_JoystickID game_controller_instance = -1;
 static std::filesystem::path g_config_path;
+static bool g_portable_mode = false;
+static std::mutex g_audio_config_mutex;
+static lod::settings::AudioConfig g_audio_config{};
+static std::atomic<int> g_audio_master_volume_percent{100};
+static std::atomic_bool g_audio_muted{false};
 static std::atomic_bool g_rom_validation_busy{false};
 static std::atomic_bool g_rom_game_started{false};
 static int g_argc_for_rom_discovery = 0;
@@ -126,6 +132,10 @@ static char** g_argv_for_rom_discovery = nullptr;
 
 static std::filesystem::path graphics_config_path() {
     return g_config_path / "graphics.json";
+}
+
+static std::filesystem::path audio_config_path() {
+    return g_config_path / "audio.json";
 }
 
 static std::filesystem::path controls_config_path() {
@@ -708,6 +718,138 @@ void lod::settings::apply_and_save_graphics_config(const ultramodern::renderer::
     ::apply_and_save_graphics_config(config, reason);
 }
 
+bool lod::settings::portable_mode_enabled() {
+    return g_portable_mode;
+}
+
+ultramodern::renderer::GraphicsConfig lod::settings::default_graphics_config() {
+    return ::default_graphics_config();
+}
+
+void lod::settings::persist_rom_path(const std::filesystem::path& rom_path) {
+    if (g_config_path.empty() || rom_path.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(g_config_path, ec);
+
+    std::ofstream f(g_config_path / "rom_path.txt");
+    if (!f) {
+        fprintf(stderr, "[LodRecomp] Failed to save ROM path in %s\n",
+                g_config_path.string().c_str());
+        return;
+    }
+    f << rom_path.string() << "\n";
+}
+
+static lod::settings::AudioConfig default_audio_config() {
+    return {};
+}
+
+static nlohmann::json audio_config_to_json(const lod::settings::AudioConfig& config) {
+    return nlohmann::json{
+        {"version", 1},
+        {"master_volume", std::clamp(config.master_volume, 0, 100)},
+        {"mute", config.mute},
+    };
+}
+
+static lod::settings::AudioConfig audio_config_from_json(const nlohmann::json& json) {
+    auto config = default_audio_config();
+
+    if (auto it = json.find("master_volume"); it != json.end() && it->is_number_integer()) {
+        config.master_volume = std::clamp(it->get<int>(), 0, 100);
+    }
+    if (auto it = json.find("mute"); it != json.end() && it->is_boolean()) {
+        config.mute = it->get<bool>();
+    }
+
+    return config;
+}
+
+static void set_audio_runtime_config(const lod::settings::AudioConfig& raw_config) {
+    lod::settings::AudioConfig config = raw_config;
+    config.master_volume = std::clamp(config.master_volume, 0, 100);
+
+    {
+        std::lock_guard<std::mutex> lock(g_audio_config_mutex);
+        g_audio_config = config;
+    }
+
+    g_audio_master_volume_percent.store(config.master_volume, std::memory_order_relaxed);
+    g_audio_muted.store(config.mute, std::memory_order_relaxed);
+}
+
+static void save_audio_config(const lod::settings::AudioConfig& config) {
+    if (g_config_path.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(g_config_path, ec);
+
+    std::ofstream f(audio_config_path());
+    if (!f) {
+        fprintf(stderr, "[CONFIG] Failed to write %s\n", audio_config_path().string().c_str());
+        return;
+    }
+    f << audio_config_to_json(config).dump(2) << "\n";
+}
+
+static lod::settings::AudioConfig load_audio_config() {
+    auto config = default_audio_config();
+
+    std::ifstream f(audio_config_path());
+    if (!f) {
+        set_audio_runtime_config(config);
+        save_audio_config(config);
+        return config;
+    }
+
+    try {
+        nlohmann::json json;
+        f >> json;
+        config = audio_config_from_json(json);
+    } catch (const std::exception& e) {
+        fprintf(stderr, "[CONFIG] Failed to parse %s: %s; using audio defaults\n",
+                audio_config_path().string().c_str(), e.what());
+        config = default_audio_config();
+    }
+
+    set_audio_runtime_config(config);
+    save_audio_config(config);
+    return config;
+}
+
+static void apply_and_save_audio_config(const lod::settings::AudioConfig& config,
+                                        const char* reason) {
+    set_audio_runtime_config(config);
+    lod::settings::AudioConfig saved = lod::settings::get_audio_config();
+    save_audio_config(saved);
+    fprintf(stderr, "[CONFIG] %s: audio master=%d mute=%s\n",
+            reason,
+            saved.master_volume,
+            saved.mute ? "on" : "off");
+}
+
+std::filesystem::path lod::settings::audio_config_path() {
+    return ::audio_config_path();
+}
+
+lod::settings::AudioConfig lod::settings::default_audio_config() {
+    return ::default_audio_config();
+}
+
+lod::settings::AudioConfig lod::settings::get_audio_config() {
+    std::lock_guard<std::mutex> lock(g_audio_config_mutex);
+    return g_audio_config;
+}
+
+void lod::settings::apply_and_save_audio_config(const lod::settings::AudioConfig& config, const char* reason) {
+    ::apply_and_save_audio_config(config, reason);
+}
+
 static bool handle_graphics_hotkey(SDL_Keycode key) {
     switch (key) {
         case SDLK_F1:
@@ -1093,9 +1235,14 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         swap_buffer[i] = duplicated_sample_buffer[i];
     }
 
+    const float master_gain = g_audio_muted.load(std::memory_order_relaxed)
+        ? 0.0f
+        : std::clamp(g_audio_master_volume_percent.load(std::memory_order_relaxed), 0, 100) / 100.0f;
+    const float sample_scale = master_gain * (0.5f / 32768.0f);
+
     for (size_t i = 0; i < sample_count; i += input_channels) {
-        swap_buffer[i + 0 + duplicated_input_frames * input_channels] = audio_data[i + 1] * (0.5f / 32768.0f);
-        swap_buffer[i + 1 + duplicated_input_frames * input_channels] = audio_data[i + 0] * (0.5f / 32768.0f);
+        swap_buffer[i + 0 + duplicated_input_frames * input_channels] = audio_data[i + 1] * sample_scale;
+        swap_buffer[i + 1 + duplicated_input_frames * input_channels] = audio_data[i + 0] * sample_scale;
     }
 
     assert(sample_count > duplicated_input_frames * input_channels);
@@ -1224,6 +1371,18 @@ void reset_audio(uint32_t output_freq) {
     fprintf(stderr,
             "[AUDIO] reset_audio output=%u len_mult=%d discarded=%u device=%u\n",
             output_sample_rate, audio_convert.len_mult, discarded_output_frames, audio_device);
+}
+
+lod::settings::AudioStatus lod::settings::audio_status() {
+    lod::settings::AudioStatus status{};
+    const char* driver = SDL_GetCurrentAudioDriver();
+    status.sdl_driver = driver != nullptr ? driver : "(none)";
+    status.input_sample_rate = sample_rate;
+    status.output_sample_rate = output_sample_rate;
+    status.output_channels = output_channels;
+    status.device_open = audio_device != 0;
+    status.queued_bytes = status.device_open ? SDL_GetQueuedAudioSize(audio_device) : 0;
+    return status;
 }
 
 // ── RSP ─────────────────────────────────────────────────────────────
@@ -1940,9 +2099,11 @@ int main(int argc, char** argv) {
     std::filesystem::path config_path;
     if (auto portable_path = find_portable_config_path(argc, argv)) {
         config_path = *portable_path;
+        g_portable_mode = true;
         fprintf(stderr, "[CONFIG] Portable mode enabled: %s\n",
                 config_path.string().c_str());
     } else {
+        g_portable_mode = false;
 #ifdef __APPLE__
         auto app_support = lod::get_application_support_directory();
         if (app_support) {
@@ -1981,6 +2142,12 @@ int main(int argc, char** argv) {
     update_ui_controls_config_summary(g_controls_config);
     fprintf(stderr, "[CONFIG] Loaded controls config: %s\n",
             controls_config_path().string().c_str());
+
+    auto audio_config = load_audio_config();
+    fprintf(stderr, "[CONFIG] Loaded audio config: master=%d mute=%s path=%s\n",
+            audio_config.master_volume,
+            audio_config.mute ? "on" : "off",
+            audio_config_path().string().c_str());
 
 #ifdef _WIN32
     // Prefer WASAPI on Windows; SDL queued audio can crackle with DirectSound.

@@ -59,3 +59,33 @@ license change explicitly.
   - `cmake --build build-zelda-default -j 8` passes with `LOD_USE_ZELDA_MENU=OFF`.
 - Next step: visually inspect/menu-drive the Zelda settings UI, then wire LoD
   controls and any real audio options.
+
+## 2026-06-21 implementation slice
+
+- Baseline capture:
+  - `cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF` and default build passed.
+  - Initial `LOD_USE_ZELDA_MENU=ON` build failed before feature work because the RmlUi SDL backend API changed: `SystemInterface_SDL` now requires an `SDL_Window*`, and `RmlSDL::InputEventHandler` now takes `(context, window, event)`.
+- Fixed the Zelda-mode build break in `src/ui/ui_state.cpp` by storing the SDL window in `UIState`, constructing `SystemInterface_SDL(window)`, and passing the window to `RmlSDL::InputEventHandler`.
+- Expanded the Zelda-mode LoD launcher/status shell:
+  - Shows ROM status and filename-only ROM display.
+  - Shows config path.
+  - Adds Controls launcher entry.
+  - Persists a valid ROM chosen through the Zelda-mode picker to `rom_path.txt`.
+  - Keeps Mods absent rather than shipping a placeholder.
+- Expanded `assets/lod_config.rml` into a fuller LoD-specific settings shell:
+  - General: version, ROM status, config folder, portable mode, background input, rumble/Controller Pak/high-res status, debug visibility, Change ROM.
+  - Graphics: window mode, internal resolution, downsample factor, aspect ratio, HUD placement, MSAA, refresh rate/manual refresh, high precision framebuffer, read-only API/display refresh, Apply, Discard, Reset Defaults.
+  - Controls: intentionally truthful read-only status until the real rebinding backend is implemented.
+  - Audio: real Master Volume and Mute controls only, plus read-only SDL/backend/queue/audio RSP status.
+  - Debug: developer-gated with `RECOMP_UI_SHOW_DEBUG=1`, read-only gamestate, exec flags, map overlay, NI pair, graphics, and config path diagnostics.
+- Added `include/lod/lod_audio_config.hpp` and audio settings APIs in `lod::settings`.
+- Added `audio.json` with safe default recovery:
+  - `master_volume` 0-100.
+  - `mute` boolean.
+  - Runtime gain is applied in `queue_samples` through atomics, preserving the old 100% output scale.
+- Validation:
+  - `cmake --build build-zelda-menu --target LodRecomp --parallel` passes.
+  - `cmake -S . -B build -DLOD_USE_ZELDA_MENU=OFF && cmake --build build --target LodRecomp --parallel` passes.
+  - Bounded Zelda-mode smoke: `RECOMP_UI_OPEN_ON_START=1 LOD_ZELDA_WAIT_FOR_START=1 timeout 10 build-zelda-menu/LodRecomp`, exited by timeout as expected, loaded Zelda UI assets, no stale `LodRecomp` process, no startup audio-control save spam after setter guards.
+  - Bounded default smoke: `RECOMP_UI_OPEN_ON_START=1 timeout 10 build/LodRecomp`, exited by timeout as expected, auto-started ROM, initialized runtime/audio/UI, no stale `LodRecomp` process.
+- Remaining major gap: full Controls rebinding backend. Do not present it as complete until keyboard/controller binding arrays, scanning, clear/reset, migration, and `get_n64_input()` integration are implemented and validated.
