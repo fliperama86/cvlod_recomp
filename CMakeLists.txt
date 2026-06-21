@@ -570,3 +570,10 @@ else()
         set(DXC "LD_LIBRARY_PATH=${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/lib/arm64" "${PROJECT_SOURCE_DIR}/lib/rt64/src/contrib/dxc/bin/arm64/dxc-linux")
     endif()
 endif()
+
+if (LOD_USE_ZELDA_MENU AND WIN32)
+    # The Zelda UI renderer needs DXIL blobs for the D3D12 backend. SPIR-V and
+    # Metal blobs are checked in for other backends; generate only DXIL here.
+    build_shader_dxil(LodRecomp src/ui/shaders/InterfaceVS.hlsl "${DXC_VS_OPTS}" shaders/InterfaceVS.hlsl)
+    build_shader_dxil(LodRecomp src/ui/shaders/InterfacePS.hlsl "${DXC_PS_OPTS}" shaders/InterfacePS.hlsl)
+endif()
