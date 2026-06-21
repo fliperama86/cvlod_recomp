@@ -11,6 +11,20 @@ Setup
       chmod +x LodRecomp
       ./LodRecomp
 
+Desktop launcher/icon
+---------------------
+The archive includes LodRecomp.desktop, lodrecomp.png, and installable
+desktop assets under share/. To install the launcher for the current user
+after extracting the archive, run these commands from the extracted folder:
+
+  install -Dm755 LodRecomp "$HOME/.local/bin/LodRecomp"
+  install -Dm644 share/applications/lodrecomp.desktop \
+    "$HOME/.local/share/applications/lodrecomp.desktop"
+  install -Dm644 share/icons/hicolor/1024x1024/apps/lodrecomp.png \
+    "$HOME/.local/share/icons/hicolor/1024x1024/apps/lodrecomp.png"
+
+Make sure $HOME/.local/bin is in your PATH before using the desktop launcher.
+
 Runtime dependencies
 --------------------
 This build links against your system libraries and a Vulkan driver.

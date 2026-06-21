@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Castlevania: Legacy of Darkness Recompiled
+GenericName=Nintendo 64 recompilation runtime
+Comment=Fan recompilation runtime for Castlevania: Legacy of Darkness
+Exec=LodRecomp
+Icon=lodrecomp
+Terminal=false
+Categories=Game;Emulator;
+StartupWMClass=LodRecomp
