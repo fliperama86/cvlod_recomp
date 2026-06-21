@@ -12,6 +12,7 @@
 #include <list>
 #include <memory>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -30,6 +31,7 @@
 
 #include "librecomp/game.hpp"
 #include "lod/lod_settings.hpp"
+#include "promptfont.h"
 #include "ultramodern/config.hpp"
 #include "ultramodern/ultramodern.hpp"
 #include "nfd.h"
@@ -56,6 +58,7 @@ recompui::ContextId g_config_context = recompui::ContextId::null();
 recompui::ConfigTab g_active_tab = recompui::ConfigTab::General;
 Rml::DataModelHandle g_launcher_model;
 Rml::DataModelHandle g_config_model;
+Rml::DataModelHandle g_nav_help_model;
 bool g_rom_valid = false;
 std::string g_rom_status = "Select your Legacy of Darkness (USA) ROM.";
 std::string g_rom_file_name = "None selected";
@@ -77,6 +80,15 @@ void dirty_launcher() {
     g_launcher_model.DirtyVariable("rom_valid");
     g_launcher_model.DirtyVariable("rom_status");
     g_launcher_model.DirtyVariable("rom_file");
+}
+
+void dirty_nav_help() {
+    if (!g_nav_help_model) {
+        return;
+    }
+    g_nav_help_model.DirtyVariable("nav_help__navigate");
+    g_nav_help_model.DirtyVariable("nav_help__accept");
+    g_nav_help_model.DirtyVariable("nav_help__exit");
 }
 
 void initialise_default_menu_bindings() {
@@ -102,6 +114,37 @@ void initialise_default_menu_bindings() {
         kInputControllerDigital,
         SDL_CONTROLLER_BUTTON_START,
     };
+}
+
+std::string controller_button_prompt(uint32_t input_id) {
+    switch (input_id) {
+        case SDL_CONTROLLER_BUTTON_A: return PF_XBOX_A;
+        case SDL_CONTROLLER_BUTTON_B: return PF_XBOX_B;
+        case SDL_CONTROLLER_BUTTON_X: return PF_XBOX_X;
+        case SDL_CONTROLLER_BUTTON_Y: return PF_XBOX_Y;
+        case SDL_CONTROLLER_BUTTON_BACK: return PF_XBOX_VIEW;
+        case SDL_CONTROLLER_BUTTON_START: return PF_XBOX_MENU;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+            return PF_DPAD;
+        default:
+            return "Button " + std::to_string(input_id);
+    }
+}
+
+std::string controller_binding_prompt(recomp::GameInput input) {
+    initialise_default_menu_bindings();
+    std::string result;
+    for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+        const recomp::InputField& binding =
+            recomp::get_input_binding(input, binding_index, recomp::InputDevice::Controller);
+        if (binding.input_type == kInputControllerDigital) {
+            result += controller_button_prompt(binding.input_id);
+        }
+    }
+    return result;
 }
 
 const char* rom_validation_message(recomp::RomValidationError error) {
@@ -522,7 +565,7 @@ public:
             recompui::show_context(recompui::get_config_context_id(), "");
         });
         recompui::register_event(listener, "exit_game", [](const std::string&, Rml::Event&) {
-            ultramodern::quit();
+            zelda64::open_quit_game_prompt();
         });
     }
 
@@ -560,8 +603,16 @@ public:
     }
 
     void register_events(recompui::UiEventListenerInstancer& listener) override {
+        recompui::register_event(listener, "close_config_menu_backdrop", [](const std::string&, Rml::Event& event) {
+            if (event.GetPhase() == Rml::EventPhase::Target) {
+                close_config_menu();
+            }
+        });
         recompui::register_event(listener, "close_config_menu", [](const std::string&, Rml::Event&) {
             close_config_menu();
+        });
+        recompui::register_event(listener, "open_quit_game_prompt", [](const std::string&, Rml::Event&) {
+            zelda64::open_quit_game_prompt();
         });
         recompui::register_event(listener, "apply_graphics", [](const std::string&, Rml::Event&) {
             apply_pending_graphics("Zelda menu apply");
@@ -747,6 +798,37 @@ public:
             out = std::to_string(lod_ni_overlay_loaded_0e_pair());
         });
         g_config_model = constructor.GetModelHandle();
+
+        Rml::DataModelConstructor nav_constructor = context->CreateDataModel("nav_help_model");
+        if (!nav_constructor) {
+            throw std::runtime_error("Failed to make RmlUi data model for LoD nav help");
+        }
+
+        nav_constructor.BindFunc("nav_help__navigate", [](Rml::Variant& out) {
+            out = recompui::get_cont_active()
+                ? PF_DPAD
+                : PF_KEYBOARD_ARROWS PF_KEYBOARD_TAB;
+        });
+
+        nav_constructor.BindFunc("nav_help__accept", [](Rml::Variant& out) {
+            if (recompui::get_cont_active()) {
+                const std::string prompt = controller_binding_prompt(recomp::GameInput::ACCEPT_MENU);
+                out = prompt.empty() ? std::string{PF_XBOX_A} : prompt;
+            } else {
+                out = PF_KEYBOARD_ENTER;
+            }
+        });
+
+        nav_constructor.BindFunc("nav_help__exit", [](Rml::Variant& out) {
+            if (recompui::get_cont_active()) {
+                const std::string prompt = controller_binding_prompt(recomp::GameInput::TOGGLE_MENU);
+                out = prompt.empty() ? std::string{PF_XBOX_B} : prompt;
+            } else {
+                out = PF_KEYBOARD_ESCAPE;
+            }
+        });
+
+        g_nav_help_model = nav_constructor.GetModelHandle();
     }
 };
 } // namespace
@@ -791,7 +873,7 @@ void recomp::start_scanning_input(InputDevice) {}
 void recomp::stop_scanning_input() {}
 void recomp::finish_scanning_input(InputField) {}
 void recomp::cancel_scanning_input() {}
-void recomp::config_menu_set_cont_or_kb(bool) {}
+void recomp::config_menu_set_cont_or_kb(bool) { dirty_nav_help(); }
 recomp::InputField recomp::get_scanned_input() { return {}; }
 int recomp::get_scanned_input_index() { return -1; }
 recomp::BackgroundInputMode recomp::get_background_input_mode() { return g_background_input_mode; }
@@ -842,7 +924,22 @@ void zelda64::show_error_message_box(const char* title, const char* message) {
 void zelda64::save_config() {}
 bool zelda64::get_debug_mode_enabled() { return g_debug_enabled; }
 void zelda64::set_debug_mode_enabled(bool enabled) { g_debug_enabled = enabled; }
-void zelda64::open_quit_game_prompt() { ultramodern::quit(); }
+void zelda64::open_quit_game_prompt() {
+    recompui::open_choice_prompt(
+        "Quit game?",
+        "Are you sure you want to quit?",
+        "Quit",
+        "Cancel",
+        []() {
+            ultramodern::quit();
+        },
+        []() {},
+        recompui::ButtonVariant::Error,
+        recompui::ButtonVariant::Secondary,
+        true,
+        "config__quit-game-button"
+    );
+}
 
 std::unique_ptr<recompui::MenuController> recompui::create_launcher_menu() {
     return std::make_unique<LodLauncherMenu>();
@@ -870,14 +967,44 @@ void recompui::set_config_tab(ConfigTab tab) {
     }
     g_active_tab = tab;
     dirty_config();
+
+    Rml::ElementTabSet* tabset = recompui::get_config_tabset();
+    if (tabset != nullptr) {
+        tabset->SetActiveTab(config_tab_to_index(tab));
+    }
 }
 
 int recompui::config_tab_to_index(ConfigTab tab) {
-    return static_cast<int>(tab);
+    switch (tab) {
+        case ConfigTab::General: return 0;
+        case ConfigTab::Controls: return 1;
+        case ConfigTab::Graphics: return 2;
+        case ConfigTab::Sound: return 3;
+        case ConfigTab::Mods: return 0;
+        case ConfigTab::Debug: return 4;
+    }
+    return 0;
 }
 
 Rml::ElementTabSet* recompui::get_config_tabset() {
-    return nullptr;
+    if (g_config_context == recompui::ContextId::null()) {
+        return nullptr;
+    }
+
+    ContextId old_context = recompui::try_close_current_context();
+    Rml::ElementDocument* doc = g_config_context.get_document();
+    Rml::ElementTabSet* tabset = nullptr;
+
+    if (doc != nullptr) {
+        Rml::Element* tabset_el = doc->GetElementById("config_tabset");
+        tabset = rmlui_dynamic_cast<Rml::ElementTabSet*>(tabset_el);
+    }
+
+    if (old_context != ContextId::null()) {
+        old_context.open();
+    }
+
+    return tabset;
 }
 
 Rml::Element* recompui::get_mod_tab() {

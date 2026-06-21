@@ -6,42 +6,26 @@
     <style>
         body { width: 100%; height: 100%; }
         .lod-config-copy { margin: 8dp 0 14dp 0; opacity: 0.84; }
-        .lod-config-tabs { display: flex; flex-direction: row; gap: 8dp; margin-bottom: 14dp; flex-wrap: wrap; }
-        .lod-config-tab { padding: 8dp 14dp; }
         .lod-config-status { margin-top: 12dp; opacity: 0.84; }
         .lod-config-actions { display: flex; flex-direction: row; gap: 10dp; margin-top: 18dp; flex-wrap: wrap; }
         .lod-config-readonly { opacity: 0.82; margin: 8dp 0; }
         .lod-config-row { margin: 10dp 0 16dp 0; }
         .lod-config-row-title { display: block; font-weight: bold; margin-bottom: 4dp; }
         .lod-config-row-desc { display: block; opacity: 0.78; margin-top: 4dp; }
-        .lod-config-scroll { max-height: 78vh; overflow-y: auto; padding-right: 10dp; }
+        .lod-config-scroll { overflow-y: auto; padding-right: 14dp; }
     </style>
 </head>
 <body class="window">
-    <div id="window" class="rmlui-window" data-model="config_model" onkeydown="config_keydown">
-        <div class="centered-page">
+    <div id="window" class="rmlui-window" data-model="config_model" style="display:flex; flex-flow: column; background-color:rgba(0,0,0,0)" onkeydown="config_keydown">
+        <div class="centered-page" onclick="close_config_menu_backdrop">
             <div class="centered-page__modal">
-                <div class="config lod-config-scroll">
-                    <h1>Legacy of Darkness Settings</h1>
-                    <div class="lod-config-tabs">
-                        <button onclick="show_general_tab" class="button lod-config-tab" autofocus>
-                            <div class="button__label">General</div>
-                        </button>
-                        <button onclick="show_graphics_tab" class="button lod-config-tab">
-                            <div class="button__label">Graphics</div>
-                        </button>
-                        <button onclick="show_controls_tab" class="button lod-config-tab">
-                            <div class="button__label">Controls</div>
-                        </button>
-                        <button onclick="show_audio_tab" class="button lod-config-tab">
-                            <div class="button__label">Audio</div>
-                        </button>
-                        <button data-if="debug_visible" onclick="show_debug_tab" class="button lod-config-tab">
-                            <div class="button__label">Debug</div>
-                        </button>
-                    </div>
-
-                    <div data-if="active_tab == 'General'">
+                <tabset class="tabs" id="config_tabset">
+                    <tab class="tab" autofocus id="tab_general" onclick="show_general_tab">
+                        <div>General</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config lod-config-scroll" data-model="config_model">
+                        <h1>Legacy of Darkness Settings</h1>
                         <h2>General</h2>
                         <label class="lod-config-copy">LoD-specific runtime status and safe launcher actions.</label>
                         <p class="lod-config-readonly">Version: v{{version_number}}</p>
@@ -59,9 +43,26 @@
                                 <div class="button__label">Change ROM</div>
                             </button>
                         </div>
-                    </div>
+                    </panel>
 
-                    <div data-if="active_tab == 'Graphics'">
+                    <tab class="tab" id="tab_controls" onclick="show_controls_tab">
+                        <div>Controls</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config lod-config-scroll" data-model="config_model">
+                        <h1>Legacy of Darkness Settings</h1>
+                        <h2>Controls</h2>
+                        <label class="lod-config-copy">Truthful first pass: current gameplay control bindings are loaded from controls.json, but full interactive rebinding is not wired in the Zelda shell yet.</label>
+                        <p class="lod-config-readonly">Current defaults are preserved. Keyboard mappings are still the runtime hardcoded path.</p>
+                        <p class="lod-config-readonly">Next backend work: versioned binding arrays, keyboard persistence, controller persistence, scanning, clear binding, reset one, and reset all.</p>
+                    </panel>
+
+                    <tab class="tab" id="tab_graphics" onclick="show_graphics_tab">
+                        <div>Graphics</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config lod-config-scroll" data-model="config_model">
+                        <h1>Legacy of Darkness Settings</h1>
                         <h2>Graphics</h2>
                         <label class="lod-config-copy">Changes are staged first. Apply writes graphics.json and updates the renderer. F5/F6/F7/F8/F11 stage changes while this menu is open.</label>
 
@@ -182,16 +183,14 @@
                                 <div class="button__label">Reset Defaults</div>
                             </button>
                         </div>
-                    </div>
+                    </panel>
 
-                    <div data-if="active_tab == 'Controls'">
-                        <h2>Controls</h2>
-                        <label class="lod-config-copy">Truthful first pass: current gameplay control bindings are loaded from controls.json, but full interactive rebinding is not wired in the Zelda shell yet.</label>
-                        <p class="lod-config-readonly">Current defaults are preserved. Keyboard mappings are still the runtime hardcoded path.</p>
-                        <p class="lod-config-readonly">Next backend work: versioned binding arrays, keyboard persistence, controller persistence, scanning, clear binding, reset one, and reset all.</p>
-                    </div>
-
-                    <div data-if="active_tab == 'Audio'">
+                    <tab class="tab" id="tab_sound" onclick="show_audio_tab">
+                        <div>Audio</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config lod-config-scroll" data-model="config_model">
+                        <h1>Legacy of Darkness Settings</h1>
                         <h2>Audio</h2>
                         <label class="lod-config-copy">Only real audio controls are shown. Changes apply immediately and persist to audio.json.</label>
 
@@ -217,9 +216,14 @@
                         <p class="lod-config-readonly">Queue: {{audio_queue_status}}</p>
                         <p class="lod-config-readonly">Audio RSP path: generated audio RSP enabled by default.</p>
                         <label class="lod-config-status">{{audio_status}}</label>
-                    </div>
+                    </panel>
 
-                    <div data-if="active_tab == 'Debug'">
+                    <tab class="tab" data-if="debug_visible" id="tab_debug" onclick="show_debug_tab">
+                        <div>Debug</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config lod-config-scroll" data-model="config_model" data-if="debug_visible">
+                        <h1>Legacy of Darkness Settings</h1>
                         <h2>Debug</h2>
                         <label class="lod-config-copy">Developer-only read-only diagnostics. Set RECOMP_UI_SHOW_DEBUG=1 to show this tab.</label>
                         <p class="lod-config-readonly">Gamestate: {{debug_gamestate}}</p>
@@ -231,14 +235,30 @@
                         <p class="lod-config-readonly">NI 0E pair: {{debug_ni_0e}}</p>
                         <p class="lod-config-readonly">Graphics: {{graphics_summary}}</p>
                         <p class="lod-config-readonly">Config path: {{config_path}}</p>
-                    </div>
-
-                    <div class="lod-config-actions">
-                        <button onclick="close_config_menu" class="button" id="config__close-menu-button">
-                            <div class="button__label">Back</div>
-                        </button>
-                    </div>
+                    </panel>
+                </tabset>
+                <div class="config__icon-buttons">
+                    <button class="icon-button" onclick="open_quit_game_prompt" id="config__quit-game-button">
+                        <svg src="icons/Quit.svg" />
+                    </button>
+                    <button class="icon-button" onclick="close_config_menu" id="config__close-menu-button">
+                        <svg src="icons/X.svg" />
+                    </button>
                 </div>
+            </div>
+            <div class="centered-page__controls" data-model="nav_help_model">
+                <label>
+                    <span>Navigate</span>
+                    <span class="prompt-font-sm">{{nav_help__navigate}}</span>
+                </label>
+                <label>
+                    <span>Accept</span>
+                    <span class="prompt-font-sm">{{nav_help__accept}}</span>
+                </label>
+                <label>
+                    <span>Exit</span>
+                    <span class="prompt-font-sm">{{nav_help__exit}}</span>
+                </label>
             </div>
         </div>
     </div>
