@@ -5,8 +5,20 @@
     <link type="text/rcss" href="recomp.rcss"/>
     <style>
         body { width: 100%; height: 100%; }
-        .lod-launcher-status { margin: 8dp 0; opacity: 0.86; }
-        .lod-launcher-meta { margin-top: 12dp; opacity: 0.72; }
+        .lod-launcher-status {
+            align-self: flex-end;
+            max-width: 720dp;
+            margin: 4dp 0;
+            opacity: 0.86;
+            text-align: right;
+        }
+        .lod-launcher-meta {
+            align-self: flex-end;
+            max-width: 720dp;
+            margin-top: 16dp;
+            opacity: 0.72;
+            text-align: right;
+        }
     </style>
 </head>
 <body>
@@ -23,6 +35,9 @@
                 <div class="launcher__content-quadrant"></div>
             </div>
             <div class="launcher__vertical-split launcher__vertical-split--right">
+                <div class="launcher__background-wrapper">
+                    <img src="lod_icon-iOS-Default-1024x1024@1x.png" class="launcher__background-mm" />
+                </div>
                 <div class="launcher__title-quadrant launcher__title-quadrant--right">
                     <button class="subtitle-title subtitle-title--right" selected>
                         <div><h3>LoD Recomp</h3></div>
@@ -34,7 +49,7 @@
                     <label class="lod-launcher-status">ROM: {{rom_file}}</label>
                     <button data-if="rom_valid" onclick="start_game" class="menu-list-item menu-list-item--right" autofocus>
                         <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Start Game</div>
+                        <div class="menu-list-item__label">Start game</div>
                     </button>
                     <button data-if="!rom_valid" onclick="select_rom" class="menu-list-item menu-list-item--right" autofocus>
                         <div class="menu-list-item__bullet">•</div>
@@ -46,7 +61,7 @@
                     </button>
                     <button onclick="open_controls" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Controls</div>
+                        <div class="menu-list-item__label">Setup controls</div>
                     </button>
                     <button onclick="select_rom" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
@@ -54,7 +69,7 @@
                     </button>
                     <button onclick="exit_game" class="menu-list-item menu-list-item--right">
                         <div class="menu-list-item__bullet">•</div>
-                        <div class="menu-list-item__label">Quit</div>
+                        <div class="menu-list-item__label">Exit</div>
                     </button>
                     <label class="lod-launcher-meta">Config: {{config_path}}</label>
                 </div>

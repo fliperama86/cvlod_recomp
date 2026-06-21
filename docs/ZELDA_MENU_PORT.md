@@ -124,3 +124,16 @@ license change explicitly.
   - Rebuilt `build-zelda-menu/LodRecomp`.
   - Packaged `build/LodRecomp.app` from the Zelda binary.
   - Bounded bundle smoke from `/tmp` without env vars found portable config at `build/`, found `build/castlevania2.n64.us.z64`, loaded fonts from `build/LodRecomp.app/Contents/Resources/assets`, waited at the Zelda launcher, and exited with timeout status 124 with no stale process.
+
+## 2026-06-21 launcher polish slice
+
+- `assets/lod_launcher.rml` now follows the imported Zelda launcher presentation more closely:
+  - Adds the animated/faded right-side background wrapper using the LoD app icon.
+  - Uses Zelda-style launcher labels: `Start game`, `Setup controls`, and `Exit`.
+  - Keeps LoD-specific truthful ROM status, selected ROM filename, Change ROM, and config path readouts.
+- `make_app.sh` now bundles PNG assets into `Contents/Resources/assets` so the launcher background is available in `.app` launches.
+- `make_app.sh` strips extended attributes before signing, preventing copied PNG metadata from breaking ad-hoc codesign.
+- Validation:
+  - Regenerated `build/LodRecomp.app` from `build-zelda-menu/LodRecomp`.
+  - `codesign --verify --verbose=2 build/LodRecomp.app` passes.
+  - Bounded bundle smoke from `/tmp` exits with timeout status 124, finds the build portable ROM, loads bundled Zelda assets, and leaves no stale process.

@@ -22,6 +22,7 @@ ASSET_DEST="$APP/Contents/Resources/assets"
 mkdir -p "$ASSET_DEST"
 cp "$ROOT_DIR"/assets/*.rml "$ASSET_DEST/"
 cp "$ROOT_DIR"/assets/*.rcss "$ASSET_DEST/"
+cp "$ROOT_DIR"/assets/*.png "$ASSET_DEST/"
 cp "$ROOT_DIR"/assets/*.ttf "$ASSET_DEST/"
 cp "$ROOT_DIR"/assets/*.otf "$ASSET_DEST/"
 cp -R "$ROOT_DIR/assets/icons" "$ASSET_DEST/"
@@ -81,6 +82,7 @@ cat > "$APP/Contents/Info.plist" <<EOF
 EOF
 
 # Ad-hoc sign with the LoD entitlements (RWX memory for the recomp runtime).
+xattr -cr "$APP"
 codesign --force --sign - --entitlements "$SCRIPT_DIR/entitlements.plist" "$APP"
 
 echo "Bundled and signed: $APP"
