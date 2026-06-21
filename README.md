@@ -115,7 +115,7 @@ To use portable mode, create an empty `portable.txt` beside `LodRecomp`/`LodReco
 
 The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The current overlay includes General, Graphics, Controls, and Audio tabs. Graphics options are clickable and staged until **Apply** writes `graphics.json`; **Discard** restores the active renderer values. Esc / controller B closes the overlay, prompting first if graphics changes are pending.
 
-Release packages include the RmlUi assets required by the Zelda-style launcher and settings UI. CI runs a short packaged-app smoke test so missing UI assets or immediate startup exits fail the build.
+Release packages include the RmlUi assets required by the Zelda-style launcher and settings UI. CI runs short packaged-app smoke tests where the hosted runner graphics stack supports it, plus packaged asset checks for the macOS app bundle.
 
 Existing graphics hotkeys are still supported:
 
