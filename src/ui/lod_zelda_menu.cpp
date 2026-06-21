@@ -53,6 +53,7 @@ std::array<input_mapping, static_cast<size_t>(recomp::GameInput::COUNT)> g_contr
 std::array<input_mapping, static_cast<size_t>(recomp::GameInput::COUNT)> g_keyboard_bindings{};
 recomp::BackgroundInputMode g_background_input_mode = recomp::BackgroundInputMode::On;
 bool g_debug_enabled = false;
+int g_cur_config_index = -1;
 
 recompui::ContextId g_launcher_context = recompui::ContextId::null();
 recompui::ContextId g_config_context = recompui::ContextId::null();
@@ -664,11 +665,36 @@ public:
     void make_bindings(Rml::Context* context) override {
         reset_pending_graphics_from_active();
         Rml::DataModelConstructor constructor = context->CreateDataModel("config_model");
+        constructor.BindEventCallback("set_cur_config_index",
+            [](Rml::DataModelHandle model_handle, Rml::Event& event, const Rml::VariantList& inputs) {
+                if (inputs.empty()) {
+                    return;
+                }
+
+                int option_index = inputs.at(0).Get<int>();
+                if (option_index == -1 &&
+                    event.GetType() == "mouseout" &&
+                    event.GetCurrentElement() != event.GetTargetElement()) {
+                    return;
+                }
+
+                g_cur_config_index = option_index;
+                model_handle.DirtyVariable("cur_config_index");
+            });
+        constructor.Bind("cur_config_index", &g_cur_config_index);
         constructor.BindFunc("active_tab", [](Rml::Variant& out) {
             out = config_tab_name(g_active_tab);
         });
         constructor.BindFunc("options_changed", [](Rml::Variant& out) {
             out = graphics_changed();
+        });
+        constructor.BindFunc("gfx_help__apply", [](Rml::Variant& out) {
+            if (recompui::get_cont_active()) {
+                const std::string prompt = controller_binding_prompt(recomp::GameInput::APPLY_MENU);
+                out = prompt.empty() ? std::string{PF_XBOX_X} : prompt;
+            } else {
+                out = " " PF_KEYBOARD_F;
+            }
         });
         if (g_version_string.empty()) {
             g_version_string = recomp::get_project_version().to_string();
@@ -874,7 +900,12 @@ void recomp::start_scanning_input(InputDevice) {}
 void recomp::stop_scanning_input() {}
 void recomp::finish_scanning_input(InputField) {}
 void recomp::cancel_scanning_input() {}
-void recomp::config_menu_set_cont_or_kb(bool) { dirty_nav_help(); }
+void recomp::config_menu_set_cont_or_kb(bool) {
+    dirty_nav_help();
+    if (g_config_model) {
+        g_config_model.DirtyVariable("gfx_help__apply");
+    }
+}
 recomp::InputField recomp::get_scanned_input() { return {}; }
 int recomp::get_scanned_input_index() { return -1; }
 recomp::BackgroundInputMode recomp::get_background_input_mode() { return g_background_input_mode; }
@@ -978,6 +1009,7 @@ void recompui::set_config_tab(ConfigTab tab) {
         reset_pending_graphics_from_active();
     }
     g_active_tab = tab;
+    g_cur_config_index = -1;
     dirty_config();
 
     Rml::ElementTabSet* tabset = recompui::get_config_tabset();

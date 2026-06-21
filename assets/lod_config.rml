@@ -5,14 +5,7 @@
     <link type="text/rcss" href="recomp.rcss"/>
     <style>
         body { width: 100%; height: 100%; }
-        .lod-config-copy { margin: 8dp 0 14dp 0; opacity: 0.84; }
-        .lod-config-status { margin-top: 12dp; opacity: 0.84; }
-        .lod-config-actions { display: flex; flex-direction: row; gap: 10dp; margin-top: 18dp; flex-wrap: wrap; }
-        .lod-config-readonly { opacity: 0.82; margin: 8dp 0; }
-        .lod-config-row { margin: 10dp 0 16dp 0; }
-        .lod-config-row-title { display: block; font-weight: bold; margin-bottom: 4dp; }
-        .lod-config-row-desc { display: block; opacity: 0.78; margin-top: 4dp; }
-        .lod-config-scroll { overflow-y: auto; padding-right: 14dp; }
+        .lod-config-path { word-break: break-all; }
     </style>
 </head>
 <body class="window">
@@ -24,217 +17,308 @@
                         <div>General</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config lod-config-scroll" data-model="config_model">
-                        <h1>Legacy of Darkness Settings</h1>
-                        <h2>General</h2>
-                        <label class="lod-config-copy">LoD-specific runtime status and safe launcher actions.</label>
-                        <p class="lod-config-readonly">Version: v{{version_number}}</p>
-                        <p class="lod-config-readonly">ROM status: {{rom_status}}</p>
-                        <p class="lod-config-readonly">ROM file: {{rom_file}}</p>
-                        <p class="lod-config-readonly">Config folder: {{config_path}}</p>
-                        <p class="lod-config-readonly">Portable mode: {{portable_mode}}</p>
-                        <p class="lod-config-readonly">Background input: {{background_input_status}}</p>
-                        <p class="lod-config-readonly">Rumble: SDL rumble pulse when the game requests rumble.</p>
-                        <p class="lod-config-readonly">Controller Pak: virtual Controller Pak is reported to the runtime.</p>
-                        <p class="lod-config-readonly">Expansion Pak / high-res: default builds use the validated low-resolution path.</p>
-                        <p class="lod-config-readonly">Debug tab: {{debug_visibility_status}}</p>
-                        <div class="lod-config-actions">
-                            <button onclick="select_rom" class="button">
-                                <div class="button__label">Change ROM</div>
-                            </button>
-                        </div>
+                    <panel class="config" data-model="config_model">
+                        <form class="config__form">
+                            <div class="config__hz-wrapper">
+                                <div class="config__wrapper" data-event-mouseout="set_cur_config_index(-1)">
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(0)">
+                                        <label class="config-option__title">Version</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">v{{version_number}}</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
+                                        <label class="config-option__title">ROM Status</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">{{rom_status}}</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
+                                        <label class="config-option__title">ROM File</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">{{rom_file}}</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(3)">
+                                        <label class="config-option__title">Change ROM</label>
+                                        <div class="config-option__list">
+                                            <button onclick="select_rom" class="button" id="general_change_rom">
+                                                <div class="button__label">Select ROM</div>
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(4)">
+                                        <label class="config-option__title">Portable Mode</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">{{portable_mode}}</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(5)">
+                                        <label class="config-option__title">Background Input</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">{{background_input_status}}</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(6)">
+                                        <label class="config-option__title">Debug Tab</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">{{debug_visibility_status}}</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="config__wrapper">
+                                    <p data-if="cur_config_index == -1"><b>General</b> shows the current LoD runtime state and safe launcher actions.</p>
+                                    <p data-if="cur_config_index == 0">The running LodRecomp version.</p>
+                                    <p data-if="cur_config_index == 1">Current ROM validation state. The launcher only starts after a supported Legacy of Darkness ROM is ready.</p>
+                                    <p data-if="cur_config_index == 2">The ROM filename currently selected or discovered.</p>
+                                    <p data-if="cur_config_index == 3">Choose another legally dumped stock Legacy of Darkness ROM. A valid selection is remembered in rom_path.txt.</p>
+                                    <p data-if="cur_config_index == 4">When portable mode is on, config files and saves stay next to the executable or app bundle.</p>
+                                    <p data-if="cur_config_index == 5">Background input follows the runtime config and controls whether SDL accepts controller input while unfocused.</p>
+                                    <p data-if="cur_config_index == 6">The Debug tab is hidden unless RECOMP_UI_SHOW_DEBUG=1 is set.</p>
+                                    <p class="lod-config-path">Config folder: {{config_path}}</p>
+                                </div>
+                            </div>
+                        </form>
                     </panel>
 
                     <tab class="tab" id="tab_controls" onclick="show_controls_tab">
                         <div>Controls</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config lod-config-scroll" data-model="config_model">
-                        <h1>Legacy of Darkness Settings</h1>
-                        <h2>Controls</h2>
-                        <label class="lod-config-copy">Truthful first pass: current gameplay control bindings are loaded from controls.json, but full interactive rebinding is not wired in the Zelda shell yet.</label>
-                        <p class="lod-config-readonly">Current defaults are preserved. Keyboard mappings are still the runtime hardcoded path.</p>
-                        <p class="lod-config-readonly">Next backend work: versioned binding arrays, keyboard persistence, controller persistence, scanning, clear binding, reset one, and reset all.</p>
+                    <panel class="config" data-model="config_model">
+                        <form class="config__form">
+                            <div class="config__hz-wrapper">
+                                <div class="config__wrapper" data-event-mouseout="set_cur_config_index(-1)">
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(0)">
+                                        <label class="config-option__title">Controller Bindings</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">Loaded from controls.json</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
+                                        <label class="config-option__title">Keyboard Bindings</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">Runtime defaults active</div>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
+                                        <label class="config-option__title">Rebinding</label>
+                                        <div class="config-option__list">
+                                            <div class="config-option__details">Not wired yet</div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="config__wrapper">
+                                    <p data-if="cur_config_index == -1"><b>Controls</b> is intentionally truthful until the full rebinding backend is ported.</p>
+                                    <p data-if="cur_config_index == 0">Controller mappings are loaded from controls.json and preserved by the current runtime.</p>
+                                    <p data-if="cur_config_index == 1">Keyboard mappings still use the current hardcoded runtime path.</p>
+                                    <p data-if="cur_config_index == 2">Next backend work is versioned binding arrays, scanning, clear binding, reset one, reset all, and get_n64_input integration.</p>
+                                </div>
+                            </div>
+                        </form>
                     </panel>
 
                     <tab class="tab" id="tab_graphics" onclick="show_graphics_tab">
                         <div>Graphics</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config lod-config-scroll" data-model="config_model">
-                        <h1>Legacy of Darkness Settings</h1>
-                        <h2>Graphics</h2>
-                        <label class="lod-config-copy">Changes are staged first. Apply writes graphics.json and updates the renderer. F5/F6/F7/F8/F11 stage changes while this menu is open.</label>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Window Mode</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" />
-                                <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
-                                <input type="radio" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" />
-                                <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
+                    <panel class="config" data-model="config_model">
+                        <form class="config__form">
+                            <div class="config__hz-wrapper">
+                                <div class="config__wrapper" data-event-mouseout="set_cur_config_index(-1)">
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(0)">
+                                        <label class="config-option__title">Resolution</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(0)" name="resolution" data-checked="res_option" value="Original" id="lod_res_original" style="nav-up:#tab_graphics; nav-down:#lod_wm_windowed" />
+                                            <label class="config-option__tab-label" for="lod_res_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(0)" name="resolution" data-checked="res_option" value="Original2x" id="lod_res_2x" style="nav-up:#tab_graphics; nav-down:#lod_wm_fullscreen" />
+                                            <label class="config-option__tab-label" for="lod_res_2x">Original 2x</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(0)" name="resolution" data-checked="res_option" value="Auto" id="lod_res_auto" style="nav-up:#tab_graphics; nav-down:#lod_wm_fullscreen" />
+                                            <label class="config-option__tab-label" for="lod_res_auto">Auto</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
+                                        <label class="config-option__title">Window Mode</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" style="nav-up:#lod_res_original; nav-down:#lod_ds" />
+                                            <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" style="nav-up:#lod_res_2x; nav-down:#lod_ds" />
+                                            <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
+                                        <label class="config-option__title">Downsampling: {{ds_option}}</label>
+                                        <div class="config-option__range-wrapper config-option__list">
+                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" class="nav-vert" id="lod_ds" type="range" min="1" max="8" step="1" data-value="ds_option" style="flex:1; margin:0dp; nav-up:#lod_wm_windowed; nav-down:#lod_ar_original" />
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(3)">
+                                        <label class="config-option__title">Aspect Ratio</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" style="nav-up:#lod_ds; nav-down:#lod_hr_original" />
+                                            <label class="config-option__tab-label" for="lod_ar_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Expand" id="lod_ar_expand" style="nav-up:#lod_ds; nav-down:#lod_hr_16x9" />
+                                            <label class="config-option__tab-label" for="lod_ar_expand">Expand</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" style="nav-up:#lod_ds; nav-down:#lod_hr_full" />
+                                            <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(4)">
+                                        <label class="config-option__title">HUD Placement</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Original" id="lod_hr_original" style="nav-up:#lod_ar_original; nav-down:#lod_msaa_none" />
+                                            <label class="config-option__tab-label" for="lod_hr_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Clamp16x9" id="lod_hr_16x9" style="nav-up:#lod_ar_expand; nav-down:#lod_msaa_2x" />
+                                            <label class="config-option__tab-label" for="lod_hr_16x9">Clamp 16:9</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Full" id="lod_hr_full" style="nav-up:#lod_ar_manual; nav-down:#lod_msaa_4x" />
+                                            <label class="config-option__tab-label" for="lod_hr_full">Full</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(5)">
+                                        <label class="config-option__title">MS Anti-Aliasing</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" style="nav-up:#lod_hr_original; nav-down:#lod_rr_original" />
+                                            <label class="config-option__tab-label" for="lod_msaa_none">None</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA2X" id="lod_msaa_2x" style="nav-up:#lod_hr_16x9; nav-down:#lod_rr_display" />
+                                            <label class="config-option__tab-label" for="lod_msaa_2x">2x</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA4X" id="lod_msaa_4x" style="nav-up:#lod_hr_full; nav-down:#lod_rr_manual" />
+                                            <label class="config-option__tab-label" for="lod_msaa_4x">4x</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" style="nav-up:#lod_hr_full; nav-down:#lod_rr_manual" />
+                                            <label class="config-option__tab-label" for="lod_msaa_8x">8x</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(6)">
+                                        <label class="config-option__title">Refresh Rate</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" style="nav-up:#lod_msaa_none; nav-down:#lod_hpfb_auto" />
+                                            <label class="config-option__tab-label" for="lod_rr_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Display" id="lod_rr_display" style="nav-up:#lod_msaa_2x; nav-down:#lod_hpfb_on" />
+                                            <label class="config-option__tab-label" for="lod_rr_display">Display</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" style="nav-up:#lod_msaa_4x; nav-down:#lod_rr_manual_value" />
+                                            <label class="config-option__tab-label" for="lod_rr_manual">Manual</label>
+                                        </div>
+                                    </div>
+                                    <div data-if="manual_refresh_enabled" class="config-option" data-event-mouseover="set_cur_config_index(7)">
+                                        <label class="config-option__title">Manual Refresh: {{rr_manual_value}}Hz</label>
+                                        <div class="config-option__range-wrapper config-option__list">
+                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(7)" class="nav-vert" id="lod_rr_manual_value" type="range" min="20" max="360" step="1" data-value="rr_manual_value" style="flex:1; margin:0dp; nav-up:#lod_rr_manual; nav-down:#lod_hpfb_auto" />
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(8)">
+                                        <label class="config-option__title">High Precision Framebuffer</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="Auto" id="lod_hpfb_auto" />
+                                            <label class="config-option__tab-label" for="lod_hpfb_auto">Auto</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="On" id="lod_hpfb_on" />
+                                            <label class="config-option__tab-label" for="lod_hpfb_on">On</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="Off" id="lod_hpfb_off" />
+                                            <label class="config-option__tab-label" for="lod_hpfb_off">Off</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="config__wrapper">
+                                    <p data-if="cur_config_index == -1"><b>Graphics</b> changes are staged. Apply writes graphics.json and updates the renderer.</p>
+                                    <p data-if="cur_config_index == 0">Controls the internal rendering resolution.</p>
+                                    <p data-if="cur_config_index == 1">Switches between windowed and fullscreen modes. F11 also stages this setting.</p>
+                                    <p data-if="cur_config_index == 2">Downsampling quality for supported high-resolution modes.</p>
+                                    <p data-if="cur_config_index == 3">Controls how the rendered image fits the display.</p>
+                                    <p data-if="cur_config_index == 4">Controls HUD placement relative to widescreen output.</p>
+                                    <p data-if="cur_config_index == 5">Sets multisample antialiasing. The renderer may clamp unsupported levels.</p>
+                                    <p data-if="cur_config_index == 6">Original preserves game timing. Display and Manual are experimental options.</p>
+                                    <p data-if="cur_config_index == 7">Manual refresh target in Hz.</p>
+                                    <p data-if="cur_config_index == 8">Controls high precision framebuffer behavior.</p>
+                                    <p>Graphics API: {{graphics_api}}
+Display refresh: {{display_refresh_rate}}Hz
+{{config_status}}</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Internal Resolution</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="resolution" data-checked="res_option" value="Original" id="lod_res_original" />
-                                <label class="config-option__tab-label" for="lod_res_original">Original</label>
-                                <input type="radio" name="resolution" data-checked="res_option" value="Original2x" id="lod_res_2x" />
-                                <label class="config-option__tab-label" for="lod_res_2x">Original 2x</label>
-                                <input type="radio" name="resolution" data-checked="res_option" value="Auto" id="lod_res_auto" />
-                                <label class="config-option__tab-label" for="lod_res_auto">Auto</label>
+                            <div class="config__footer">
+                                <div>
+                                    <label data-if="options_changed">Pending changes</label>
+                                    <label data-if="!options_changed">No pending changes</label>
+                                </div>
+                                <div>
+                                    <button
+                                        onclick="discard_graphics"
+                                        class="button button--secondary"
+                                        data-attrif-disabled="!options_changed"
+                                    >
+                                        <div class="button__label">Discard</div>
+                                    </button>
+                                    <button
+                                        onclick="reset_graphics"
+                                        class="button button--secondary"
+                                    >
+                                        <div class="button__label">Reset Defaults</div>
+                                    </button>
+                                    <button
+                                        onclick="apply_graphics"
+                                        class="button button--secondary"
+                                        data-attrif-disabled="!options_changed"
+                                    >
+                                        <div class="button__label">Apply<span class="prompt-font-sm">{{gfx_help__apply}}</span></div>
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Downsample Factor: {{ds_option}}</label>
-                            <div class="config-option__range-wrapper config-option__list">
-                                <input type="range" min="1" max="8" step="1" data-value="ds_option" style="flex:1; margin: 0dp;" />
-                            </div>
-                            <label class="lod-config-row-desc">Used by supported high-resolution modes. Original resolution may make this visually irrelevant.</label>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Aspect Ratio</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" />
-                                <label class="config-option__tab-label" for="lod_ar_original">Original</label>
-                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Expand" id="lod_ar_expand" />
-                                <label class="config-option__tab-label" for="lod_ar_expand">Expand</label>
-                                <input type="radio" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" />
-                                <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
-                            </div>
-                            <label class="lod-config-row-desc">Original is the conservative default.</label>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">HUD Placement</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Original" id="lod_hr_original" />
-                                <label class="config-option__tab-label" for="lod_hr_original">Original</label>
-                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Clamp16x9" id="lod_hr_16x9" />
-                                <label class="config-option__tab-label" for="lod_hr_16x9">Clamp 16:9</label>
-                                <input type="radio" name="hud_ratio" data-checked="hr_option" value="Full" id="lod_hr_full" />
-                                <label class="config-option__tab-label" for="lod_hr_full">Full</label>
-                            </div>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">MS Anti-Aliasing</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" />
-                                <label class="config-option__tab-label" for="lod_msaa_none">None</label>
-                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA2X" id="lod_msaa_2x" />
-                                <label class="config-option__tab-label" for="lod_msaa_2x">2x</label>
-                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA4X" id="lod_msaa_4x" />
-                                <label class="config-option__tab-label" for="lod_msaa_4x">4x</label>
-                                <input type="radio" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" />
-                                <label class="config-option__tab-label" for="lod_msaa_8x">8x</label>
-                            </div>
-                            <label class="lod-config-row-desc">Supported indicators: None, 2x, 4x, 8x are selectable; the renderer may clamp unsupported requests.</label>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Refresh Rate</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" />
-                                <label class="config-option__tab-label" for="lod_rr_original">Original</label>
-                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Display" id="lod_rr_display" />
-                                <label class="config-option__tab-label" for="lod_rr_display">Display ({{display_refresh_rate}}Hz)</label>
-                                <input type="radio" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" />
-                                <label class="config-option__tab-label" for="lod_rr_manual">Manual</label>
-                            </div>
-                            <div data-if="manual_refresh_enabled" class="config-option__range-wrapper config-option__list">
-                                <label class="config-option__range-label">{{rr_manual_value}}Hz</label>
-                                <input type="range" min="20" max="360" step="1" data-value="rr_manual_value" style="flex:1; margin: 0dp;" />
-                            </div>
-                            <label data-if="!manual_refresh_enabled" class="lod-config-row-desc">Manual refresh slider is enabled only when Refresh Rate is Manual.</label>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">High Precision Framebuffer</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="Auto" id="lod_hpfb_auto" />
-                                <label class="config-option__tab-label" for="lod_hpfb_auto">Auto</label>
-                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="On" id="lod_hpfb_on" />
-                                <label class="config-option__tab-label" for="lod_hpfb_on">On</label>
-                                <input type="radio" name="hpfb" data-checked="hpfb_option" value="Off" id="lod_hpfb_off" />
-                                <label class="config-option__tab-label" for="lod_hpfb_off">Off</label>
-                            </div>
-                        </div>
-
-                        <p class="lod-config-readonly">Graphics API: {{graphics_api}} (startup-sensitive, read-only here)</p>
-                        <p class="lod-config-readonly">Display refresh rate: {{display_refresh_rate}}Hz</p>
-
-                        <label class="lod-config-status" data-if="options_changed">Pending graphics changes</label>
-                        <label class="lod-config-status" data-if="!options_changed">No pending graphics changes</label>
-                        <label class="lod-config-status">{{config_status}}</label>
-
-                        <div class="lod-config-actions">
-                            <button onclick="apply_graphics" class="button button--success">
-                                <div class="button__label">Apply</div>
-                            </button>
-                            <button onclick="discard_graphics" class="button button--warning">
-                                <div class="button__label">Discard</div>
-                            </button>
-                            <button onclick="reset_graphics" class="button">
-                                <div class="button__label">Reset Defaults</div>
-                            </button>
-                        </div>
+                        </form>
                     </panel>
 
                     <tab class="tab" id="tab_sound" onclick="show_audio_tab">
-                        <div>Audio</div>
+                        <div>Sound</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config lod-config-scroll" data-model="config_model">
-                        <h1>Legacy of Darkness Settings</h1>
-                        <h2>Audio</h2>
-                        <label class="lod-config-copy">Only real audio controls are shown. Changes apply immediately and persist to audio.json.</label>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Master Volume: {{audio_master_volume}}%</label>
-                            <div class="config-option__range-wrapper config-option__list">
-                                <input type="range" min="0" max="100" step="1" data-value="audio_master_volume" style="flex:1; margin: 0dp;" />
+                    <panel class="config" data-model="config_model">
+                        <form class="config__form">
+                            <div class="config__hz-wrapper">
+                                <div class="config__wrapper" data-event-mouseout="set_cur_config_index(-1)">
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(0)">
+                                        <label class="config-option__title">Main Volume</label>
+                                        <div class="config-option__range-wrapper config-option__list">
+                                            <label class="config-option__range-label">{{audio_master_volume}}%</label>
+                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(0)" class="nav-vert" id="audio_main_volume" type="range" min="0" max="100" step="1" data-value="audio_master_volume" style="flex:1; margin:0dp; nav-up:#tab_sound; nav-down:#lod_audio_mute_off" />
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
+                                        <label class="config-option__title">Mute</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="Off" id="lod_audio_mute_off" style="nav-up:#audio_main_volume" />
+                                            <label class="config-option__tab-label" for="lod_audio_mute_off">Off</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="On" id="lod_audio_mute_on" style="nav-up:#audio_main_volume" />
+                                            <label class="config-option__tab-label" for="lod_audio_mute_on">On</label>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="config__wrapper">
+                                    <p data-if="cur_config_index == -1"><b>Sound</b> exposes only real LoD audio controls. Changes apply immediately and save to audio.json.</p>
+                                    <p data-if="cur_config_index == 0">Controls the main output volume.</p>
+                                    <p data-if="cur_config_index == 1">Toggles all audio output.</p>
+                                    <p>Audio config: {{audio_config_path}}
+Backend: {{audio_backend_status}}
+Queue: {{audio_queue_status}}
+{{audio_status}}</p>
+                                </div>
                             </div>
-                        </div>
-
-                        <div class="config-option lod-config-row">
-                            <label class="config-option__title">Mute</label>
-                            <div class="config-option__list">
-                                <input type="radio" name="audio_mute" data-checked="audio_mute_mode" value="Off" id="lod_audio_mute_off" />
-                                <label class="config-option__tab-label" for="lod_audio_mute_off">Off</label>
-                                <input type="radio" name="audio_mute" data-checked="audio_mute_mode" value="On" id="lod_audio_mute_on" />
-                                <label class="config-option__tab-label" for="lod_audio_mute_on">On</label>
-                            </div>
-                        </div>
-
-                        <p class="lod-config-readonly">Audio config: {{audio_config_path}}</p>
-                        <p class="lod-config-readonly">Backend: {{audio_backend_status}}</p>
-                        <p class="lod-config-readonly">Queue: {{audio_queue_status}}</p>
-                        <p class="lod-config-readonly">Audio RSP path: generated audio RSP enabled by default.</p>
-                        <label class="lod-config-status">{{audio_status}}</label>
+                        </form>
                     </panel>
 
                     <tab class="tab" data-if="debug_visible" id="tab_debug" onclick="show_debug_tab">
                         <div>Debug</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config lod-config-scroll" data-model="config_model" data-if="debug_visible">
-                        <h1>Legacy of Darkness Settings</h1>
-                        <h2>Debug</h2>
-                        <label class="lod-config-copy">Developer-only read-only diagnostics. Set RECOMP_UI_SHOW_DEBUG=1 to show this tab.</label>
-                        <p class="lod-config-readonly">Gamestate: {{debug_gamestate}}</p>
-                        <p class="lod-config-readonly">Exec flags: {{debug_exec_flags}}</p>
-                        <p class="lod-config-readonly">Map overlay ROM: {{debug_map_rom}}</p>
-                        <p class="lod-config-readonly">Map overlay size: {{debug_map_size}}</p>
-                        <p class="lod-config-readonly">Map overlay loads: {{debug_map_loads}}</p>
-                        <p class="lod-config-readonly">NI 0F pair: {{debug_ni_0f}}</p>
-                        <p class="lod-config-readonly">NI 0E pair: {{debug_ni_0e}}</p>
-                        <p class="lod-config-readonly">Graphics: {{graphics_summary}}</p>
-                        <p class="lod-config-readonly">Config path: {{config_path}}</p>
+                    <panel class="config" data-model="config_model" data-if="debug_visible">
+                        <form class="config__form">
+                            <div class="config__wrapper">
+                                <div class="config-debug">
+                                    <div class="config-debug__scroll">
+                                        <div class="config-debug-option"><label class="config-debug-option__label"><div>Gamestate</div></label><div class="config-debug__option-split"><div class="config-debug__option-controls"><div class="config-debug__select-wrapper"><div class="config-debug__select-label"><div>{{debug_gamestate}}</div></div></div></div></div></div>
+                                        <div class="config-debug-option"><label class="config-debug-option__label"><div>Exec Flags</div></label><div class="config-debug__option-split"><div class="config-debug__option-controls"><div class="config-debug__select-wrapper"><div class="config-debug__select-label"><div>{{debug_exec_flags}}</div></div></div></div></div></div>
+                                        <div class="config-debug-option"><label class="config-debug-option__label"><div>Map Overlay</div></label><div class="config-debug__option-split"><div class="config-debug__option-controls"><div class="config-debug__select-wrapper"><div class="config-debug__select-label"><div>ROM {{debug_map_rom}}, size {{debug_map_size}}, loads {{debug_map_loads}}</div></div></div></div></div></div>
+                                        <div class="config-debug-option"><label class="config-debug-option__label"><div>NI Pairs</div></label><div class="config-debug__option-split"><div class="config-debug__option-controls"><div class="config-debug__select-wrapper"><div class="config-debug__select-label"><div>0F {{debug_ni_0f}}, 0E {{debug_ni_0e}}</div></div></div></div></div></div>
+                                        <div class="config-debug-option"><label class="config-debug-option__label"><div>Graphics</div></label><div class="config-debug__option-split"><div class="config-debug__option-controls"><div class="config-debug__select-wrapper"><div class="config-debug__select-label"><div>{{graphics_summary}}</div></div></div></div></div></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
                     </panel>
                 </tabset>
                 <div class="config__icon-buttons">
@@ -247,18 +331,9 @@
                 </div>
             </div>
             <div class="centered-page__controls" data-model="nav_help_model">
-                <label>
-                    <span>Navigate</span>
-                    <span class="prompt-font-sm">{{nav_help__navigate}}</span>
-                </label>
-                <label>
-                    <span>Accept</span>
-                    <span class="prompt-font-sm">{{nav_help__accept}}</span>
-                </label>
-                <label>
-                    <span>Exit</span>
-                    <span class="prompt-font-sm">{{nav_help__exit}}</span>
-                </label>
+                <label><span>Navigate</span><span class="prompt-font-sm">{{nav_help__navigate}}</span></label>
+                <label><span>Accept</span><span class="prompt-font-sm">{{nav_help__accept}}</span></label>
+                <label><span>Exit</span><span class="prompt-font-sm">{{nav_help__exit}}</span></label>
             </div>
         </div>
     </div>
