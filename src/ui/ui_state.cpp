@@ -4,6 +4,7 @@
 #else
 #include <SDL2/SDL_video.h>
 #endif
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
@@ -529,6 +530,107 @@ static bool zelda_controller_button_toggles_menu(uint8_t button) {
     return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
 }
 
+static bool scanned_input_is_menu_action() {
+    const int scanned_input_index = recomp::get_scanned_input_index();
+    return scanned_input_index == static_cast<int>(recomp::GameInput::TOGGLE_MENU) ||
+        scanned_input_index == static_cast<int>(recomp::GameInput::ACCEPT_MENU) ||
+        scanned_input_index == static_cast<int>(recomp::GameInput::APPLY_MENU);
+}
+
+static bool controller_button_is_dpad(uint8_t button) {
+    return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_UP ||
+        button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_DOWN ||
+        button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_LEFT ||
+        button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_RIGHT;
+}
+
+static bool controller_button_matches_binding(uint8_t button, const recomp::InputField& field) {
+    return field.input_type == static_cast<uint32_t>(recomp::InputType::ControllerDigital) &&
+        button == field.input_id;
+}
+
+static bool handle_scanning_event(
+    const SDL_Event& cur_event,
+    bool& non_mouse_interacted,
+    bool& cont_interacted,
+    bool& kb_interacted) {
+    const recomp::InputDevice scanning_device = recomp::get_scanning_input_device();
+    if (scanning_device == recomp::InputDevice::COUNT) {
+        return false;
+    }
+
+    switch (cur_event.type) {
+        case SDL_EventType::SDL_KEYDOWN: {
+            non_mouse_interacted = true;
+            kb_interacted = true;
+            if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE) {
+                recomp::cancel_scanning_input();
+            } else if (scanning_device == recomp::InputDevice::Keyboard) {
+                recomp::finish_scanning_input({
+                    static_cast<uint32_t>(recomp::InputType::Keyboard),
+                    static_cast<int32_t>(cur_event.key.keysym.scancode),
+                });
+            }
+            return true;
+        }
+
+        case SDL_EventType::SDL_CONTROLLERBUTTONDOWN: {
+            non_mouse_interacted = true;
+            cont_interacted = true;
+            const recomp::InputField menu_toggle_0 =
+                recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
+            const recomp::InputField menu_toggle_1 =
+                recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
+            if (controller_button_matches_binding(cur_event.cbutton.button, menu_toggle_0) ||
+                controller_button_matches_binding(cur_event.cbutton.button, menu_toggle_1)) {
+                recomp::cancel_scanning_input();
+            } else if (scanning_device == recomp::InputDevice::Controller) {
+                if (scanned_input_is_menu_action() && controller_button_is_dpad(cur_event.cbutton.button)) {
+                    return true;
+                }
+                recomp::finish_scanning_input({
+                    static_cast<uint32_t>(recomp::InputType::ControllerDigital),
+                    static_cast<int32_t>(cur_event.cbutton.button),
+                });
+            }
+            return true;
+        }
+
+        case SDL_EventType::SDL_CONTROLLERAXISMOTION: {
+            if (scanning_device != recomp::InputDevice::Controller) {
+                return true;
+            }
+
+            const float axis_value = cur_event.caxis.value * (1 / 32768.0f);
+            if (std::fabs(axis_value) <= 0.5f) {
+                return true;
+            }
+
+            non_mouse_interacted = true;
+            cont_interacted = true;
+            if (scanned_input_is_menu_action()) {
+                return true;
+            }
+
+            SDL_Event set_stick_return_event{};
+            set_stick_return_event.type = SDL_USEREVENT;
+            set_stick_return_event.user.code = cur_event.caxis.axis;
+            recompui::queue_event(set_stick_return_event);
+
+            recomp::finish_scanning_input({
+                static_cast<uint32_t>(recomp::InputType::ControllerAnalog),
+                axis_value > 0.0f
+                    ? static_cast<int32_t>(cur_event.caxis.axis) + 1
+                    : -static_cast<int32_t>(cur_event.caxis.axis) - 1,
+            });
+            return true;
+        }
+
+        default:
+            return true;
+    }
+}
+
 int cont_button_to_key(SDL_ControllerButtonEvent& button) {
     // Configurable accept button in menu
     auto menuAcceptBinding0 = recomp::get_input_binding(recomp::GameInput::ACCEPT_MENU, 0, recomp::InputDevice::Controller);
@@ -664,6 +766,10 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
             if (sdl_key == latest_controller_key_pressed) {
                 latest_controller_key_pressed = SDLK_UNKNOWN;
             }
+        }
+
+        if (handle_scanning_event(cur_event, non_mouse_interacted, cont_interacted, kb_interacted)) {
+            continue;
         }
 
         if (!recomp::all_input_disabled()) {

@@ -10,12 +10,16 @@
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <functional>
+#include <initializer_list>
 #include <list>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <unordered_map>
 #include <utility>
 
 #if defined(_WIN32)
@@ -45,10 +49,13 @@ extern "C" uint32_t lod_current_map_overlay_size();
 extern "C" int lod_current_map_overlay_load_count();
 extern "C" int lod_ni_overlay_loaded_0f_pair();
 extern "C" int lod_ni_overlay_loaded_0e_pair();
+void lod_save_controls_bindings_from_ui();
 
 namespace {
-constexpr uint32_t kInputNone = 0;
-constexpr uint32_t kInputControllerDigital = 3;
+constexpr uint32_t kInputNone = static_cast<uint32_t>(recomp::InputType::None);
+constexpr uint32_t kInputKeyboard = static_cast<uint32_t>(recomp::InputType::Keyboard);
+constexpr uint32_t kInputControllerDigital = static_cast<uint32_t>(recomp::InputType::ControllerDigital);
+constexpr uint32_t kInputControllerAnalog = static_cast<uint32_t>(recomp::InputType::ControllerAnalog);
 
 using input_mapping = std::array<recomp::InputField, recomp::bindings_per_input>;
 std::array<input_mapping, static_cast<size_t>(recomp::GameInput::COUNT)> g_controller_bindings{};
@@ -56,12 +63,18 @@ std::array<input_mapping, static_cast<size_t>(recomp::GameInput::COUNT)> g_keybo
 recomp::BackgroundInputMode g_background_input_mode = recomp::BackgroundInputMode::On;
 bool g_debug_enabled = false;
 int g_cur_config_index = -1;
+int g_scanned_binding_index = -1;
+int g_scanned_input_index = -1;
+int g_focused_input_index = -1;
+recomp::InputDevice g_scanning_device = recomp::InputDevice::COUNT;
+recomp::InputDevice g_current_input_device = recomp::InputDevice::Controller;
 
 recompui::ContextId g_launcher_context = recompui::ContextId::null();
 recompui::ContextId g_config_context = recompui::ContextId::null();
 recompui::ConfigTab g_active_tab = recompui::ConfigTab::General;
 Rml::DataModelHandle g_launcher_model;
 Rml::DataModelHandle g_config_model;
+Rml::DataModelHandle g_controls_model;
 Rml::DataModelHandle g_nav_help_model;
 bool g_rom_valid = false;
 std::string g_rom_status = "Select your Legacy of Darkness (USA) ROM.";
@@ -93,6 +106,36 @@ struct FileDialogResult {
     std::filesystem::path path;
     std::list<std::filesystem::path> paths;
 };
+
+struct InputInfo {
+    recomp::GameInput input;
+    std::string_view enum_name;
+    std::string_view display_name;
+};
+
+const std::array<InputInfo, static_cast<size_t>(recomp::GameInput::COUNT)> k_input_info{{
+    {recomp::GameInput::A, "A", "A Button"},
+    {recomp::GameInput::B, "B", "B Button"},
+    {recomp::GameInput::L, "L", "L Button"},
+    {recomp::GameInput::R, "R", "R Button"},
+    {recomp::GameInput::Z, "Z", "Z Button"},
+    {recomp::GameInput::START, "START", "Start"},
+    {recomp::GameInput::C_LEFT, "C_LEFT", "C Left"},
+    {recomp::GameInput::C_RIGHT, "C_RIGHT", "C Right"},
+    {recomp::GameInput::C_UP, "C_UP", "C Up"},
+    {recomp::GameInput::C_DOWN, "C_DOWN", "C Down"},
+    {recomp::GameInput::DPAD_LEFT, "DPAD_LEFT", "D-Pad Left"},
+    {recomp::GameInput::DPAD_RIGHT, "DPAD_RIGHT", "D-Pad Right"},
+    {recomp::GameInput::DPAD_UP, "DPAD_UP", "D-Pad Up"},
+    {recomp::GameInput::DPAD_DOWN, "DPAD_DOWN", "D-Pad Down"},
+    {recomp::GameInput::X_AXIS_NEG, "X_AXIS_NEG", "Analog Left"},
+    {recomp::GameInput::X_AXIS_POS, "X_AXIS_POS", "Analog Right"},
+    {recomp::GameInput::Y_AXIS_POS, "Y_AXIS_POS", "Analog Up"},
+    {recomp::GameInput::Y_AXIS_NEG, "Y_AXIS_NEG", "Analog Down"},
+    {recomp::GameInput::TOGGLE_MENU, "TOGGLE_MENU", "Toggle Menu"},
+    {recomp::GameInput::ACCEPT_MENU, "ACCEPT_MENU", "Accept (Menu)"},
+    {recomp::GameInput::APPLY_MENU, "APPLY_MENU", "Apply (Menu)"},
+}};
 
 std::mutex g_file_dialog_mutex;
 std::deque<FileDialogRequest> g_file_dialog_requests;
@@ -228,6 +271,133 @@ void dirty_nav_help() {
     g_nav_help_model.DirtyVariable("nav_help__exit");
 }
 
+void dirty_controls() {
+    if (g_controls_model) {
+        g_controls_model.DirtyVariable("inputs");
+        g_controls_model.DirtyVariable("input_device_is_keyboard");
+        g_controls_model.DirtyVariable("active_binding_input");
+        g_controls_model.DirtyVariable("active_binding_slot");
+        g_controls_model.DirtyVariable("cur_input_row");
+    }
+    dirty_nav_help();
+    if (g_config_model) {
+        g_config_model.DirtyVariable("gfx_help__apply");
+    }
+}
+
+recomp::InputField keyboard_field(SDL_Scancode scancode) {
+    return {kInputKeyboard, static_cast<int32_t>(scancode)};
+}
+
+recomp::InputField controller_button_field(SDL_GameControllerButton button) {
+    return {kInputControllerDigital, static_cast<int32_t>(button)};
+}
+
+recomp::InputField controller_axis_field(SDL_GameControllerAxis axis, bool positive) {
+    const int32_t encoded_axis = static_cast<int32_t>(axis) + 1;
+    return {kInputControllerAnalog, positive ? encoded_axis : -encoded_axis};
+}
+
+input_mapping make_mapping(std::initializer_list<recomp::InputField> fields) {
+    input_mapping mapping{};
+    size_t index = 0;
+    for (const recomp::InputField& field : fields) {
+        if (index >= mapping.size()) {
+            break;
+        }
+        mapping[index++] = field;
+    }
+    return mapping;
+}
+
+input_mapping default_binding_for(recomp::InputDevice device, recomp::GameInput input) {
+    if (device == recomp::InputDevice::Keyboard) {
+        switch (input) {
+            case recomp::GameInput::A: return make_mapping({keyboard_field(SDL_SCANCODE_RETURN)});
+            case recomp::GameInput::B: return make_mapping({keyboard_field(SDL_SCANCODE_RSHIFT)});
+            case recomp::GameInput::L: return make_mapping({keyboard_field(SDL_SCANCODE_Q)});
+            case recomp::GameInput::R: return make_mapping({keyboard_field(SDL_SCANCODE_E)});
+            case recomp::GameInput::Z: return make_mapping({keyboard_field(SDL_SCANCODE_Z)});
+            case recomp::GameInput::START: return make_mapping({keyboard_field(SDL_SCANCODE_SPACE)});
+            case recomp::GameInput::C_LEFT: return make_mapping({keyboard_field(SDL_SCANCODE_J)});
+            case recomp::GameInput::C_RIGHT: return make_mapping({keyboard_field(SDL_SCANCODE_L)});
+            case recomp::GameInput::C_UP: return make_mapping({keyboard_field(SDL_SCANCODE_I)});
+            case recomp::GameInput::C_DOWN: return make_mapping({keyboard_field(SDL_SCANCODE_K)});
+            case recomp::GameInput::DPAD_LEFT: return make_mapping({keyboard_field(SDL_SCANCODE_LEFT)});
+            case recomp::GameInput::DPAD_RIGHT: return make_mapping({keyboard_field(SDL_SCANCODE_RIGHT)});
+            case recomp::GameInput::DPAD_UP: return make_mapping({keyboard_field(SDL_SCANCODE_UP)});
+            case recomp::GameInput::DPAD_DOWN: return make_mapping({keyboard_field(SDL_SCANCODE_DOWN)});
+            case recomp::GameInput::X_AXIS_NEG: return make_mapping({keyboard_field(SDL_SCANCODE_A)});
+            case recomp::GameInput::X_AXIS_POS: return make_mapping({keyboard_field(SDL_SCANCODE_D)});
+            case recomp::GameInput::Y_AXIS_POS: return make_mapping({keyboard_field(SDL_SCANCODE_W)});
+            case recomp::GameInput::Y_AXIS_NEG: return make_mapping({keyboard_field(SDL_SCANCODE_S)});
+            case recomp::GameInput::TOGGLE_MENU: return make_mapping({keyboard_field(SDL_SCANCODE_ESCAPE)});
+            case recomp::GameInput::ACCEPT_MENU: return make_mapping({keyboard_field(SDL_SCANCODE_RETURN)});
+            case recomp::GameInput::APPLY_MENU: return make_mapping({keyboard_field(SDL_SCANCODE_F)});
+            case recomp::GameInput::COUNT: break;
+        }
+        return {};
+    }
+
+    switch (input) {
+        case recomp::GameInput::A: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_A)});
+        case recomp::GameInput::B: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_X)});
+        case recomp::GameInput::L: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_LEFTSHOULDER)});
+        case recomp::GameInput::R: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER)});
+        case recomp::GameInput::Z:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, true),
+                controller_axis_field(SDL_CONTROLLER_AXIS_TRIGGERLEFT, true),
+            });
+        case recomp::GameInput::START: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_START)});
+        case recomp::GameInput::C_LEFT: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_Y)});
+        case recomp::GameInput::C_RIGHT: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_B)});
+        case recomp::GameInput::C_UP: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_Y)});
+        case recomp::GameInput::C_DOWN:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTY, true),
+                controller_button_field(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER),
+            });
+        case recomp::GameInput::DPAD_LEFT:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTX, true),
+                controller_button_field(SDL_CONTROLLER_BUTTON_DPAD_LEFT),
+            });
+        case recomp::GameInput::DPAD_RIGHT:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTX, false),
+                controller_button_field(SDL_CONTROLLER_BUTTON_DPAD_RIGHT),
+            });
+        case recomp::GameInput::DPAD_UP:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTY, false),
+                controller_button_field(SDL_CONTROLLER_BUTTON_DPAD_UP),
+            });
+        case recomp::GameInput::DPAD_DOWN:
+            return make_mapping({
+                controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTY, true),
+                controller_button_field(SDL_CONTROLLER_BUTTON_DPAD_DOWN),
+            });
+        case recomp::GameInput::X_AXIS_NEG: return make_mapping({controller_axis_field(SDL_CONTROLLER_AXIS_LEFTX, false)});
+        case recomp::GameInput::X_AXIS_POS: return make_mapping({controller_axis_field(SDL_CONTROLLER_AXIS_LEFTX, true)});
+        case recomp::GameInput::Y_AXIS_POS: return make_mapping({controller_axis_field(SDL_CONTROLLER_AXIS_LEFTY, false)});
+        case recomp::GameInput::Y_AXIS_NEG: return make_mapping({controller_axis_field(SDL_CONTROLLER_AXIS_LEFTY, true)});
+        case recomp::GameInput::TOGGLE_MENU: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_BACK)});
+        case recomp::GameInput::ACCEPT_MENU: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_A)});
+        case recomp::GameInput::APPLY_MENU: return make_mapping({controller_button_field(SDL_CONTROLLER_BUTTON_X)});
+        case recomp::GameInput::COUNT: break;
+    }
+
+    return {};
+}
+
+void reset_bindings_to_defaults(recomp::InputDevice device) {
+    auto& mappings = (device == recomp::InputDevice::Controller) ? g_controller_bindings : g_keyboard_bindings;
+    for (const InputInfo& info : k_input_info) {
+        mappings[static_cast<size_t>(info.input)] = default_binding_for(device, info.input);
+    }
+}
+
 void initialise_default_menu_bindings() {
     static bool initialised = false;
     if (initialised) {
@@ -235,40 +405,123 @@ void initialise_default_menu_bindings() {
     }
     initialised = true;
 
-    g_controller_bindings[static_cast<size_t>(recomp::GameInput::ACCEPT_MENU)][0] = {
-        kInputControllerDigital,
-        SDL_CONTROLLER_BUTTON_A,
-    };
-    g_controller_bindings[static_cast<size_t>(recomp::GameInput::APPLY_MENU)][0] = {
-        kInputControllerDigital,
-        SDL_CONTROLLER_BUTTON_X,
-    };
-    g_controller_bindings[static_cast<size_t>(recomp::GameInput::TOGGLE_MENU)][0] = {
-        kInputControllerDigital,
-        SDL_CONTROLLER_BUTTON_BACK,
-    };
-    g_controller_bindings[static_cast<size_t>(recomp::GameInput::TOGGLE_MENU)][1] = {
-        kInputNone,
-        0,
-    };
+    reset_bindings_to_defaults(recomp::InputDevice::Controller);
+    reset_bindings_to_defaults(recomp::InputDevice::Keyboard);
 }
 
-std::string controller_button_prompt(uint32_t input_id) {
-    switch (input_id) {
-        case SDL_CONTROLLER_BUTTON_A: return PF_XBOX_A;
-        case SDL_CONTROLLER_BUTTON_B: return PF_XBOX_B;
-        case SDL_CONTROLLER_BUTTON_X: return PF_XBOX_X;
-        case SDL_CONTROLLER_BUTTON_Y: return PF_XBOX_Y;
+std::string controller_button_prompt(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_A: return PF_GAMEPAD_A;
+        case SDL_CONTROLLER_BUTTON_B: return PF_GAMEPAD_B;
+        case SDL_CONTROLLER_BUTTON_X: return PF_GAMEPAD_X;
+        case SDL_CONTROLLER_BUTTON_Y: return PF_GAMEPAD_Y;
         case SDL_CONTROLLER_BUTTON_BACK: return PF_XBOX_VIEW;
+        case SDL_CONTROLLER_BUTTON_GUIDE: return PF_GAMEPAD_HOME;
         case SDL_CONTROLLER_BUTTON_START: return PF_XBOX_MENU;
-        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
-        case SDL_CONTROLLER_BUTTON_DPAD_UP:
-        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
-        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
-            return PF_DPAD;
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK: return PF_ANALOG_L_CLICK;
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK: return PF_ANALOG_R_CLICK;
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER: return PF_XBOX_LEFT_SHOULDER;
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return PF_XBOX_RIGHT_SHOULDER;
+        case SDL_CONTROLLER_BUTTON_DPAD_UP: return PF_DPAD_UP;
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN: return PF_DPAD_DOWN;
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT: return PF_DPAD_LEFT;
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT: return PF_DPAD_RIGHT;
+#ifdef SDL_CONTROLLER_BUTTON_TOUCHPAD
+        case SDL_CONTROLLER_BUTTON_TOUCHPAD: return PF_SONY_TOUCHPAD;
+#endif
         default:
-            return "Button " + std::to_string(input_id);
+            return "Button " + std::to_string(static_cast<int>(button));
     }
+}
+
+std::string controller_axis_prompt(int32_t encoded_axis) {
+    const bool positive = encoded_axis > 0;
+    const SDL_GameControllerAxis axis =
+        static_cast<SDL_GameControllerAxis>(std::abs(encoded_axis) - 1);
+    switch (axis) {
+        case SDL_CONTROLLER_AXIS_LEFTX: return positive ? PF_ANALOG_L_RIGHT : PF_ANALOG_L_LEFT;
+        case SDL_CONTROLLER_AXIS_LEFTY: return positive ? PF_ANALOG_L_DOWN : PF_ANALOG_L_UP;
+        case SDL_CONTROLLER_AXIS_RIGHTX: return positive ? PF_ANALOG_R_RIGHT : PF_ANALOG_R_LEFT;
+        case SDL_CONTROLLER_AXIS_RIGHTY: return positive ? PF_ANALOG_R_DOWN : PF_ANALOG_R_UP;
+        case SDL_CONTROLLER_AXIS_TRIGGERLEFT: return positive ? PF_XBOX_LEFT_TRIGGER : PF_XBOX_LEFT_TRIGGER_PULL;
+        case SDL_CONTROLLER_AXIS_TRIGGERRIGHT: return positive ? PF_XBOX_RIGHT_TRIGGER : PF_XBOX_RIGHT_TRIGGER_PULL;
+        default:
+            return "Axis " + std::to_string(static_cast<int>(axis)) + (positive ? "+" : "-");
+    }
+}
+
+std::string keyboard_prompt(SDL_Scancode scancode) {
+    static const std::unordered_map<SDL_Scancode, std::string> scancode_codepoints{
+        {SDL_SCANCODE_LEFT, PF_KEYBOARD_LEFT},
+        {SDL_SCANCODE_UP, PF_KEYBOARD_RIGHT},
+        {SDL_SCANCODE_RIGHT, PF_KEYBOARD_UP},
+        {SDL_SCANCODE_DOWN, PF_KEYBOARD_DOWN},
+        {SDL_SCANCODE_A, PF_KEYBOARD_A},
+        {SDL_SCANCODE_B, PF_KEYBOARD_B},
+        {SDL_SCANCODE_C, PF_KEYBOARD_C},
+        {SDL_SCANCODE_D, PF_KEYBOARD_D},
+        {SDL_SCANCODE_E, PF_KEYBOARD_E},
+        {SDL_SCANCODE_F, PF_KEYBOARD_F},
+        {SDL_SCANCODE_G, PF_KEYBOARD_G},
+        {SDL_SCANCODE_H, PF_KEYBOARD_H},
+        {SDL_SCANCODE_I, PF_KEYBOARD_I},
+        {SDL_SCANCODE_J, PF_KEYBOARD_J},
+        {SDL_SCANCODE_K, PF_KEYBOARD_K},
+        {SDL_SCANCODE_L, PF_KEYBOARD_L},
+        {SDL_SCANCODE_M, PF_KEYBOARD_M},
+        {SDL_SCANCODE_N, PF_KEYBOARD_N},
+        {SDL_SCANCODE_O, PF_KEYBOARD_O},
+        {SDL_SCANCODE_P, PF_KEYBOARD_P},
+        {SDL_SCANCODE_Q, PF_KEYBOARD_Q},
+        {SDL_SCANCODE_R, PF_KEYBOARD_R},
+        {SDL_SCANCODE_S, PF_KEYBOARD_S},
+        {SDL_SCANCODE_T, PF_KEYBOARD_T},
+        {SDL_SCANCODE_U, PF_KEYBOARD_U},
+        {SDL_SCANCODE_V, PF_KEYBOARD_V},
+        {SDL_SCANCODE_W, PF_KEYBOARD_W},
+        {SDL_SCANCODE_X, PF_KEYBOARD_X},
+        {SDL_SCANCODE_Y, PF_KEYBOARD_Y},
+        {SDL_SCANCODE_Z, PF_KEYBOARD_Z},
+        {SDL_SCANCODE_1, PF_KEYBOARD_1},
+        {SDL_SCANCODE_2, PF_KEYBOARD_2},
+        {SDL_SCANCODE_3, PF_KEYBOARD_3},
+        {SDL_SCANCODE_4, PF_KEYBOARD_4},
+        {SDL_SCANCODE_5, PF_KEYBOARD_5},
+        {SDL_SCANCODE_6, PF_KEYBOARD_6},
+        {SDL_SCANCODE_7, PF_KEYBOARD_7},
+        {SDL_SCANCODE_8, PF_KEYBOARD_8},
+        {SDL_SCANCODE_9, PF_KEYBOARD_9},
+        {SDL_SCANCODE_0, PF_KEYBOARD_0},
+        {SDL_SCANCODE_F1, PF_KEYBOARD_F1},
+        {SDL_SCANCODE_F2, PF_KEYBOARD_F2},
+        {SDL_SCANCODE_F3, PF_KEYBOARD_F3},
+        {SDL_SCANCODE_F4, PF_KEYBOARD_F4},
+        {SDL_SCANCODE_F5, PF_KEYBOARD_F5},
+        {SDL_SCANCODE_F6, PF_KEYBOARD_F6},
+        {SDL_SCANCODE_F7, PF_KEYBOARD_F7},
+        {SDL_SCANCODE_F8, PF_KEYBOARD_F8},
+        {SDL_SCANCODE_F9, PF_KEYBOARD_F9},
+        {SDL_SCANCODE_F10, PF_KEYBOARD_F10},
+        {SDL_SCANCODE_F11, PF_KEYBOARD_F11},
+        {SDL_SCANCODE_F12, PF_KEYBOARD_F12},
+        {SDL_SCANCODE_SPACE, PF_KEYBOARD_SPACE},
+        {SDL_SCANCODE_BACKSPACE, PF_KEYBOARD_BACKSPACE},
+        {SDL_SCANCODE_TAB, PF_KEYBOARD_TAB},
+        {SDL_SCANCODE_RETURN, PF_KEYBOARD_ENTER},
+        {SDL_SCANCODE_ESCAPE, PF_KEYBOARD_ESCAPE},
+        {SDL_SCANCODE_LSHIFT, "L" PF_KEYBOARD_SHIFT},
+        {SDL_SCANCODE_RSHIFT, "R" PF_KEYBOARD_SHIFT},
+    };
+
+    auto it = scancode_codepoints.find(scancode);
+    if (it != scancode_codepoints.end()) {
+        return it->second;
+    }
+    const char* name = SDL_GetScancodeName(scancode);
+    if (name != nullptr && name[0] != '\0') {
+        return name;
+    }
+    return std::to_string(static_cast<int>(scancode));
 }
 
 std::string controller_binding_prompt(recomp::GameInput input) {
@@ -278,7 +531,9 @@ std::string controller_binding_prompt(recomp::GameInput input) {
         const recomp::InputField& binding =
             recomp::get_input_binding(input, binding_index, recomp::InputDevice::Controller);
         if (binding.input_type == kInputControllerDigital) {
-            result += controller_button_prompt(binding.input_id);
+            result += controller_button_prompt(static_cast<SDL_GameControllerButton>(binding.input_id));
+        } else if (binding.input_type == kInputControllerAnalog) {
+            result += controller_axis_prompt(binding.input_id);
         }
     }
     return result;
@@ -754,6 +1009,12 @@ public:
         recompui::register_event(listener, "open_quit_game_prompt", [](const std::string&, Rml::Event&) {
             zelda64::open_quit_game_prompt();
         });
+        recompui::register_event(listener, "toggle_input_device", [](const std::string&, Rml::Event&) {
+            g_current_input_device = g_current_input_device == recomp::InputDevice::Controller
+                ? recomp::InputDevice::Keyboard
+                : recomp::InputDevice::Controller;
+            dirty_controls();
+        });
         recompui::register_event(listener, "apply_graphics", [](const std::string&, Rml::Event&) {
             apply_pending_graphics("Zelda menu apply");
         });
@@ -798,6 +1059,213 @@ public:
                 apply_pending_graphics("Zelda menu key apply");
             }
         });
+    }
+
+    void make_controls_bindings(Rml::Context* context) {
+        Rml::DataModelConstructor constructor = context->CreateDataModel("controls_model");
+        if (!constructor) {
+            throw std::runtime_error("Failed to make RmlUi data model for the controls config menu");
+        }
+
+        constructor.BindFunc("input_count", [](Rml::Variant& out) {
+            out = static_cast<uint64_t>(recomp::get_num_inputs());
+        });
+        constructor.BindFunc("input_device_is_keyboard", [](Rml::Variant& out) {
+            out = g_current_input_device == recomp::InputDevice::Keyboard;
+        });
+
+        constructor.RegisterTransformFunc("get_input_name", [](const Rml::VariantList& inputs) {
+            return Rml::Variant{
+                recomp::get_input_name(static_cast<recomp::GameInput>(inputs.at(0).Get<size_t>()))
+            };
+        });
+
+        constructor.RegisterTransformFunc("get_input_enum_name", [](const Rml::VariantList& inputs) {
+            return Rml::Variant{
+                recomp::get_input_enum_name(static_cast<recomp::GameInput>(inputs.at(0).Get<size_t>()))
+            };
+        });
+
+        constructor.BindEventCallback("set_input_binding",
+            [](Rml::DataModelHandle model_handle, Rml::Event&, const Rml::VariantList& inputs) {
+                if (inputs.size() < 2) {
+                    return;
+                }
+                g_scanned_input_index = static_cast<int>(inputs.at(0).Get<size_t>());
+                g_scanned_binding_index = static_cast<int>(inputs.at(1).Get<size_t>());
+                recomp::start_scanning_input(g_current_input_device);
+                model_handle.DirtyVariable("active_binding_input");
+                model_handle.DirtyVariable("active_binding_slot");
+            });
+
+        constructor.BindEventCallback("reset_input_bindings_to_defaults",
+            [](Rml::DataModelHandle model_handle, Rml::Event&, const Rml::VariantList&) {
+                if (g_current_input_device == recomp::InputDevice::Controller) {
+                    zelda64::reset_cont_input_bindings();
+                } else {
+                    zelda64::reset_kb_input_bindings();
+                }
+                zelda64::save_config();
+                model_handle.DirtyAllVariables();
+                dirty_controls();
+            });
+
+        constructor.BindEventCallback("clear_input_bindings",
+            [](Rml::DataModelHandle model_handle, Rml::Event&, const Rml::VariantList& inputs) {
+                if (inputs.empty()) {
+                    return;
+                }
+                const auto input = static_cast<recomp::GameInput>(inputs.at(0).Get<size_t>());
+                for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+                    recomp::set_input_binding(input, binding_index, g_current_input_device, recomp::InputField{});
+                }
+                zelda64::save_config();
+                model_handle.DirtyVariable("inputs");
+                dirty_controls();
+            });
+
+        constructor.BindEventCallback("reset_single_input_binding_to_default",
+            [](Rml::DataModelHandle model_handle, Rml::Event&, const Rml::VariantList& inputs) {
+                if (inputs.empty()) {
+                    return;
+                }
+                const auto input = static_cast<recomp::GameInput>(inputs.at(0).Get<size_t>());
+                zelda64::reset_single_input_binding(g_current_input_device, input);
+                zelda64::save_config();
+                model_handle.DirtyVariable("inputs");
+                dirty_controls();
+            });
+
+        constructor.BindEventCallback("set_input_row_focus",
+            [](Rml::DataModelHandle model_handle, Rml::Event& event, const Rml::VariantList& inputs) {
+                if (inputs.empty()) {
+                    return;
+                }
+                const int input_index = inputs.at(0).Get<int>();
+                if (input_index == -1 &&
+                    event.GetType() == "mouseout" &&
+                    event.GetCurrentElement() != event.GetTargetElement()) {
+                    return;
+                }
+                g_focused_input_index = input_index;
+                model_handle.DirtyVariable("cur_input_row");
+            });
+
+        struct InputFieldVariableDefinition : public Rml::VariableDefinition {
+            InputFieldVariableDefinition() : Rml::VariableDefinition(Rml::DataVariableType::Scalar) {}
+
+            bool Get(void* ptr, Rml::Variant& variant) override {
+                variant = reinterpret_cast<recomp::InputField*>(ptr)->to_string();
+                return true;
+            }
+            bool Set(void*, const Rml::Variant&) override {
+                return false;
+            }
+        };
+        static InputFieldVariableDefinition input_field_definition_instance{};
+
+        struct BindingContainerVariableDefinition : public Rml::VariableDefinition {
+            BindingContainerVariableDefinition() : Rml::VariableDefinition(Rml::DataVariableType::Array) {}
+
+            bool Get(void*, Rml::Variant&) override {
+                return false;
+            }
+            bool Set(void*, const Rml::Variant&) override {
+                return false;
+            }
+
+            int Size(void*) override {
+                return static_cast<int>(recomp::bindings_per_input);
+            }
+            Rml::DataVariable Child(void* ptr, const Rml::DataAddressEntry& address) override {
+                const auto input = static_cast<recomp::GameInput>(
+                    static_cast<size_t>(reinterpret_cast<uintptr_t>(ptr)));
+                return Rml::DataVariable{
+                    &input_field_definition_instance,
+                    &recomp::get_input_binding(input, address.index, g_current_input_device)
+                };
+            }
+        };
+        static BindingContainerVariableDefinition binding_container_var_instance{};
+
+        struct BindingArrayContainerVariableDefinition : public Rml::VariableDefinition {
+            BindingArrayContainerVariableDefinition() : Rml::VariableDefinition(Rml::DataVariableType::Array) {}
+
+            bool Get(void*, Rml::Variant&) override {
+                return false;
+            }
+            bool Set(void*, const Rml::Variant&) override {
+                return false;
+            }
+
+            int Size(void*) override {
+                return static_cast<int>(recomp::get_num_inputs());
+            }
+            Rml::DataVariable Child(void*, const Rml::DataAddressEntry& address) override {
+                return Rml::DataVariable(
+                    &binding_container_var_instance,
+                    reinterpret_cast<void*>(static_cast<uintptr_t>(address.index))
+                );
+            }
+        };
+        static BindingArrayContainerVariableDefinition binding_array_var_instance{};
+
+        struct InputContainerVariableDefinition : public Rml::VariableDefinition {
+            InputContainerVariableDefinition() : Rml::VariableDefinition(Rml::DataVariableType::Struct) {}
+
+            bool Get(void*, Rml::Variant&) override {
+                return true;
+            }
+            bool Set(void*, const Rml::Variant&) override {
+                return false;
+            }
+
+            int Size(void*) override {
+                return static_cast<int>(recomp::get_num_inputs());
+            }
+            Rml::DataVariable Child(void*, const Rml::DataAddressEntry& address) override {
+                if (address.name == "array") {
+                    return Rml::DataVariable(&binding_array_var_instance, nullptr);
+                }
+
+                const recomp::GameInput input = recomp::get_input_from_enum_name(address.name);
+                if (input != recomp::GameInput::COUNT) {
+                    return Rml::DataVariable(
+                        &binding_container_var_instance,
+                        reinterpret_cast<void*>(static_cast<uintptr_t>(static_cast<size_t>(input)))
+                    );
+                }
+
+                return Rml::DataVariable{};
+            }
+        };
+
+        struct InputContainer {};
+        constructor.RegisterCustomDataVariableDefinition<InputContainer>(
+            Rml::MakeUnique<InputContainerVariableDefinition>());
+
+        static InputContainer dummy_container;
+        constructor.Bind("inputs", &dummy_container);
+
+        constructor.BindFunc("cur_input_row", [](Rml::Variant& out) {
+            if (g_focused_input_index == -1) {
+                out = "NONE";
+            } else {
+                out = recomp::get_input_enum_name(static_cast<recomp::GameInput>(g_focused_input_index));
+            }
+        });
+
+        constructor.BindFunc("active_binding_input", [](Rml::Variant& out) {
+            if (g_scanned_input_index == -1) {
+                out = "NONE";
+            } else {
+                out = recomp::get_input_enum_name(static_cast<recomp::GameInput>(g_scanned_input_index));
+            }
+        });
+
+        constructor.Bind<int>("active_binding_slot", &g_scanned_binding_index);
+
+        g_controls_model = constructor.GetModelHandle();
     }
 
     void make_bindings(Rml::Context* context) override {
@@ -964,6 +1432,8 @@ public:
         });
         g_config_model = constructor.GetModelHandle();
 
+        make_controls_bindings(context);
+
         Rml::DataModelConstructor nav_constructor = context->CreateDataModel("nav_help_model");
         if (!nav_constructor) {
             throw std::runtime_error("Failed to make RmlUi data model for LoD nav help");
@@ -999,21 +1469,19 @@ public:
 } // namespace
 
 std::string recomp::InputField::to_string() const {
-    if (input_type == kInputNone) {
-        return "";
+    switch (static_cast<recomp::InputType>(input_type)) {
+        case recomp::InputType::None:
+            return "";
+        case recomp::InputType::ControllerDigital:
+            return controller_button_prompt(static_cast<SDL_GameControllerButton>(input_id));
+        case recomp::InputType::ControllerAnalog:
+            return controller_axis_prompt(input_id);
+        case recomp::InputType::Keyboard:
+            return keyboard_prompt(static_cast<SDL_Scancode>(input_id));
+        case recomp::InputType::Mouse:
+            return "Mouse " + std::to_string(input_id);
     }
-    if (input_type == kInputControllerDigital) {
-        switch (input_id) {
-            case SDL_CONTROLLER_BUTTON_A: return "A";
-            case SDL_CONTROLLER_BUTTON_B: return "B";
-            case SDL_CONTROLLER_BUTTON_X: return "X";
-            case SDL_CONTROLLER_BUTTON_Y: return "Y";
-            case SDL_CONTROLLER_BUTTON_BACK: return "Back";
-            case SDL_CONTROLLER_BUTTON_START: return "Start";
-            default: return "Button " + std::to_string(input_id);
-        }
-    }
-    return std::to_string(input_id);
+    return std::to_string(input_type) + "," + std::to_string(input_id);
 }
 
 recomp::InputField& recomp::get_input_binding(GameInput input, size_t binding_index, InputDevice device) {
@@ -1034,10 +1502,41 @@ void recomp::set_input_binding(GameInput input, size_t binding_index, InputDevic
     }
 }
 
-void recomp::start_scanning_input(InputDevice) {}
-void recomp::stop_scanning_input() {}
-void recomp::finish_scanning_input(InputField) {}
-void recomp::cancel_scanning_input() {}
+void recomp::start_scanning_input(InputDevice device) {
+    g_scanning_device = device;
+}
+
+void recomp::stop_scanning_input() {
+    g_scanning_device = InputDevice::COUNT;
+}
+
+void recomp::finish_scanning_input(InputField scanned_field) {
+    initialise_default_menu_bindings();
+    if (g_scanned_input_index >= 0 &&
+        g_scanned_binding_index >= 0 &&
+        g_scanned_binding_index < static_cast<int>(bindings_per_input) &&
+        g_scanning_device != InputDevice::COUNT) {
+        set_input_binding(
+            static_cast<GameInput>(g_scanned_input_index),
+            static_cast<size_t>(g_scanned_binding_index),
+            g_scanning_device,
+            scanned_field);
+        zelda64::save_config();
+    }
+
+    g_scanning_device = InputDevice::COUNT;
+    g_scanned_input_index = -1;
+    g_scanned_binding_index = -1;
+    dirty_controls();
+}
+
+void recomp::cancel_scanning_input() {
+    g_scanning_device = InputDevice::COUNT;
+    g_scanned_input_index = -1;
+    g_scanned_binding_index = -1;
+    dirty_controls();
+}
+
 void recomp::config_menu_set_cont_or_kb(bool) {
     dirty_nav_help();
     if (g_config_model) {
@@ -1045,11 +1544,48 @@ void recomp::config_menu_set_cont_or_kb(bool) {
     }
 }
 recomp::InputField recomp::get_scanned_input() { return {}; }
-int recomp::get_scanned_input_index() { return -1; }
+int recomp::get_scanned_input_index() { return g_scanned_input_index; }
+recomp::InputDevice recomp::get_scanning_input_device() { return g_scanning_device; }
+
+size_t recomp::get_num_inputs() {
+    return static_cast<size_t>(GameInput::COUNT);
+}
+
+const std::string& recomp::get_input_name(GameInput input) {
+    static const std::array<std::string, static_cast<size_t>(GameInput::COUNT)> input_names = [] {
+        std::array<std::string, static_cast<size_t>(GameInput::COUNT)> names{};
+        for (const InputInfo& info : k_input_info) {
+            names[static_cast<size_t>(info.input)] = std::string{info.display_name};
+        }
+        return names;
+    }();
+    return input_names.at(static_cast<size_t>(input));
+}
+
+const std::string& recomp::get_input_enum_name(GameInput input) {
+    static const std::array<std::string, static_cast<size_t>(GameInput::COUNT)> enum_names = [] {
+        std::array<std::string, static_cast<size_t>(GameInput::COUNT)> names{};
+        for (const InputInfo& info : k_input_info) {
+            names[static_cast<size_t>(info.input)] = std::string{info.enum_name};
+        }
+        return names;
+    }();
+    return enum_names.at(static_cast<size_t>(input));
+}
+
+recomp::GameInput recomp::get_input_from_enum_name(std::string_view name) {
+    for (const InputInfo& info : k_input_info) {
+        if (info.enum_name == name) {
+            return info.input;
+        }
+    }
+    return GameInput::COUNT;
+}
+
 recomp::BackgroundInputMode recomp::get_background_input_mode() { return g_background_input_mode; }
 void recomp::set_background_input_mode(BackgroundInputMode mode) { g_background_input_mode = mode; }
 bool recomp::game_input_disabled() { return recompui::is_context_capturing_input(); }
-bool recomp::all_input_disabled() { return false; }
+bool recomp::all_input_disabled() { return g_scanning_device != InputDevice::COUNT; }
 
 std::filesystem::path zelda64::get_program_path() {
 #if defined(__APPLE__)
@@ -1140,7 +1676,36 @@ void zelda64::show_error_message_box(const char* title, const char* message) {
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, message, nullptr);
 }
 
-void zelda64::save_config() {}
+void zelda64::save_config() {
+    lod_save_controls_bindings_from_ui();
+}
+
+void zelda64::reset_input_bindings() {
+    reset_bindings_to_defaults(recomp::InputDevice::Controller);
+    reset_bindings_to_defaults(recomp::InputDevice::Keyboard);
+    dirty_controls();
+}
+
+void zelda64::reset_cont_input_bindings() {
+    reset_bindings_to_defaults(recomp::InputDevice::Controller);
+    dirty_controls();
+}
+
+void zelda64::reset_kb_input_bindings() {
+    reset_bindings_to_defaults(recomp::InputDevice::Keyboard);
+    dirty_controls();
+}
+
+void zelda64::reset_single_input_binding(recomp::InputDevice device, recomp::GameInput input) {
+    recomp::set_input_binding(input, 0, device, {});
+    recomp::set_input_binding(input, 1, device, {});
+    const input_mapping defaults = default_binding_for(device, input);
+    for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+        recomp::set_input_binding(input, binding_index, device, defaults[binding_index]);
+    }
+    dirty_controls();
+}
+
 bool zelda64::get_debug_mode_enabled() { return g_debug_enabled; }
 void zelda64::set_debug_mode_enabled(bool enabled) { g_debug_enabled = enabled; }
 void zelda64::open_quit_game_prompt() {

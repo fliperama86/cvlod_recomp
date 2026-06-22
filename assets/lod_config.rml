@@ -3,6 +3,7 @@
     <title>Settings</title>
     <link type="text/rcss" href="rml.rcss"/>
     <link type="text/rcss" href="recomp.rcss"/>
+    <link type="text/template" href="config_menu/controls.rml" />
     <style>
         body { width: 100%; height: 100%; }
     </style>
@@ -60,37 +61,8 @@
                         <div>Controls</div>
                         <div class="tab__indicator"></div>
                     </tab>
-                    <panel class="config" data-model="config_model">
-                        <form class="config__form">
-                            <div class="config__hz-wrapper">
-                                <div class="config__wrapper" data-event-mouseout="set_cur_config_index(-1)">
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(0)">
-                                        <label class="config-option__title">Controller</label>
-                                        <div class="config-option__list">
-                                            <div class="config-option__details">Enabled</div>
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
-                                        <label class="config-option__title">Keyboard</label>
-                                        <div class="config-option__list">
-                                            <div class="config-option__details">Enabled</div>
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
-                                        <label class="config-option__title">Menu Prompts</label>
-                                        <div class="config-option__list">
-                                            <div class="config-option__details">Automatic</div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="config__wrapper">
-                                    <p data-if="cur_config_index == -1"><b>Controls</b> shows the input paths active in this release.</p>
-                                    <p data-if="cur_config_index == 0">Controller input uses the current runtime bindings.</p>
-                                    <p data-if="cur_config_index == 1">Keyboard input uses the current runtime bindings.</p>
-                                    <p data-if="cur_config_index == 2">Footer prompts update automatically when the active input device changes.</p>
-                                </div>
-                            </div>
-                        </form>
+                    <panel class="config" data-model="controls_model">
+                        <template src="config-menu__controls" />
                     </panel>
 
                     <tab class="tab" id="tab_graphics" onclick="show_graphics_tab">

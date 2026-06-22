@@ -63,6 +63,7 @@
 #include "lod_ui_overlay.h"
 #include "lod_version.h"
 #ifdef LOD_USE_ZELDA_MENU
+#include "recomp_input.h"
 #include "recomp_ui.h"
 #include "zelda_support.h"
 #endif
@@ -309,6 +310,251 @@ static ControlsConfig default_controls_config() {
 
 static ControlsConfig g_controls_config = default_controls_config();
 
+#ifdef LOD_USE_ZELDA_MENU
+static bool n64_button_to_game_input(uint16_t n64_button, recomp::GameInput& out) {
+    switch (n64_button) {
+        case N64_BUTTON_A: out = recomp::GameInput::A; return true;
+        case N64_BUTTON_B: out = recomp::GameInput::B; return true;
+        case N64_BUTTON_Z: out = recomp::GameInput::Z; return true;
+        case N64_BUTTON_START: out = recomp::GameInput::START; return true;
+        case N64_BUTTON_L: out = recomp::GameInput::L; return true;
+        case N64_BUTTON_R: out = recomp::GameInput::R; return true;
+        case N64_CBUTTON_UP: out = recomp::GameInput::C_UP; return true;
+        case N64_CBUTTON_DOWN: out = recomp::GameInput::C_DOWN; return true;
+        case N64_CBUTTON_LEFT: out = recomp::GameInput::C_LEFT; return true;
+        case N64_CBUTTON_RIGHT: out = recomp::GameInput::C_RIGHT; return true;
+        case N64_DPAD_UP: out = recomp::GameInput::DPAD_UP; return true;
+        case N64_DPAD_DOWN: out = recomp::GameInput::DPAD_DOWN; return true;
+        case N64_DPAD_LEFT: out = recomp::GameInput::DPAD_LEFT; return true;
+        case N64_DPAD_RIGHT: out = recomp::GameInput::DPAD_RIGHT; return true;
+        default: return false;
+    }
+}
+
+static bool game_input_is_menu_action(recomp::GameInput input) {
+    return input == recomp::GameInput::TOGGLE_MENU ||
+        input == recomp::GameInput::ACCEPT_MENU ||
+        input == recomp::GameInput::APPLY_MENU;
+}
+
+static recomp::InputField zelda_controller_button_field(SDL_GameControllerButton button) {
+    return {
+        static_cast<uint32_t>(recomp::InputType::ControllerDigital),
+        static_cast<int32_t>(button),
+    };
+}
+
+static recomp::InputField zelda_controller_axis_field(SDL_GameControllerAxis axis, bool positive) {
+    const int32_t encoded_axis = static_cast<int32_t>(axis) + 1;
+    return {
+        static_cast<uint32_t>(recomp::InputType::ControllerAnalog),
+        positive ? encoded_axis : -encoded_axis,
+    };
+}
+
+static void clear_recomp_n64_bindings(recomp::InputDevice device) {
+    for (size_t input_index = 0; input_index < recomp::get_num_inputs(); input_index++) {
+        const auto input = static_cast<recomp::GameInput>(input_index);
+        if (game_input_is_menu_action(input)) {
+            continue;
+        }
+        for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+            recomp::set_input_binding(input, binding_index, device, {});
+        }
+    }
+}
+
+static void add_recomp_binding(recomp::InputDevice device, recomp::GameInput input, recomp::InputField field) {
+    if (field.input_type == static_cast<uint32_t>(recomp::InputType::None)) {
+        return;
+    }
+
+    for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+        recomp::InputField& existing = recomp::get_input_binding(input, binding_index, device);
+        if (existing.input_type == static_cast<uint32_t>(recomp::InputType::None)) {
+            recomp::set_input_binding(input, binding_index, device, field);
+            return;
+        }
+    }
+
+    recomp::set_input_binding(input, 0, device, field);
+}
+
+static void add_legacy_n64_binding(recomp::InputDevice device, uint16_t n64_button, recomp::InputField field) {
+    recomp::GameInput input{};
+    if (n64_button_to_game_input(n64_button, input)) {
+        add_recomp_binding(device, input, field);
+    }
+}
+
+static void apply_controls_config_to_recomp_bindings(const ControlsConfig& config) {
+    clear_recomp_n64_bindings(recomp::InputDevice::Controller);
+
+    for (int button = 0; button < SDL_CONTROLLER_BUTTON_MAX; button++) {
+        add_legacy_n64_binding(
+            recomp::InputDevice::Controller,
+            config.buttons[button],
+            zelda_controller_button_field(static_cast<SDL_GameControllerButton>(button)));
+    }
+
+    add_legacy_n64_binding(
+        recomp::InputDevice::Controller,
+        config.left_trigger,
+        zelda_controller_axis_field(SDL_CONTROLLER_AXIS_TRIGGERLEFT, true));
+    add_legacy_n64_binding(
+        recomp::InputDevice::Controller,
+        config.right_trigger,
+        zelda_controller_axis_field(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, true));
+
+    if (config.right_stick_to_dpad) {
+        add_recomp_binding(
+            recomp::InputDevice::Controller,
+            recomp::GameInput::DPAD_LEFT,
+            zelda_controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTX, config.right_stick_invert_x));
+        add_recomp_binding(
+            recomp::InputDevice::Controller,
+            recomp::GameInput::DPAD_RIGHT,
+            zelda_controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTX, !config.right_stick_invert_x));
+        add_recomp_binding(
+            recomp::InputDevice::Controller,
+            recomp::GameInput::DPAD_UP,
+            zelda_controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTY, config.right_stick_invert_y));
+        add_recomp_binding(
+            recomp::InputDevice::Controller,
+            recomp::GameInput::DPAD_DOWN,
+            zelda_controller_axis_field(SDL_CONTROLLER_AXIS_RIGHTY, !config.right_stick_invert_y));
+    }
+}
+
+static nlohmann::json input_field_to_json(const recomp::InputField& field) {
+    const auto type = static_cast<recomp::InputType>(field.input_type);
+    const char* type_name = "none";
+    switch (type) {
+        case recomp::InputType::None: type_name = "none"; break;
+        case recomp::InputType::Keyboard: type_name = "keyboard"; break;
+        case recomp::InputType::Mouse: type_name = "mouse"; break;
+        case recomp::InputType::ControllerDigital: type_name = "controller_button"; break;
+        case recomp::InputType::ControllerAnalog: type_name = "controller_axis"; break;
+    }
+    return nlohmann::json{
+        {"type", type_name},
+        {"id", field.input_id},
+    };
+}
+
+static bool input_field_from_json(const nlohmann::json& json, recomp::InputField& out) {
+    if (!json.is_object()) {
+        return false;
+    }
+
+    auto type_it = json.find("type");
+    if (type_it == json.end() || !type_it->is_string()) {
+        return false;
+    }
+
+    std::string type = normalized_config_key(type_it->get<std::string>());
+    int id = 0;
+    if (auto id_it = json.find("id"); id_it != json.end() && id_it->is_number_integer()) {
+        id = id_it->get<int>();
+    }
+
+    if (type == "none" || type == "empty" || type == "off") {
+        out = {};
+        return true;
+    }
+    if (type == "keyboard" || type == "key") {
+        out = {static_cast<uint32_t>(recomp::InputType::Keyboard), id};
+        return true;
+    }
+    if (type == "mouse") {
+        out = {static_cast<uint32_t>(recomp::InputType::Mouse), id};
+        return true;
+    }
+    if (type == "controller_button" || type == "controller_digital" || type == "button") {
+        out = {static_cast<uint32_t>(recomp::InputType::ControllerDigital), id};
+        return true;
+    }
+    if (type == "controller_axis" || type == "controller_analog" || type == "axis") {
+        out = {static_cast<uint32_t>(recomp::InputType::ControllerAnalog), id};
+        return true;
+    }
+
+    return false;
+}
+
+static nlohmann::json controls_device_bindings_to_json(recomp::InputDevice device) {
+    nlohmann::json bindings = nlohmann::json::object();
+    for (size_t input_index = 0; input_index < recomp::get_num_inputs(); input_index++) {
+        const auto input = static_cast<recomp::GameInput>(input_index);
+        nlohmann::json input_bindings = nlohmann::json::array();
+        for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+            input_bindings.push_back(input_field_to_json(recomp::get_input_binding(input, binding_index, device)));
+        }
+        bindings[recomp::get_input_enum_name(input)] = input_bindings;
+    }
+    return bindings;
+}
+
+static nlohmann::json controls_bindings_to_json() {
+    return nlohmann::json{
+        {"version", 1},
+        {"controller", controls_device_bindings_to_json(recomp::InputDevice::Controller)},
+        {"keyboard", controls_device_bindings_to_json(recomp::InputDevice::Keyboard)},
+    };
+}
+
+static void apply_controls_device_bindings_json(const nlohmann::json& json, recomp::InputDevice device) {
+    if (!json.is_object()) {
+        return;
+    }
+
+    for (auto it = json.begin(); it != json.end(); ++it) {
+        const recomp::GameInput input = recomp::get_input_from_enum_name(it.key());
+        if (input == recomp::GameInput::COUNT) {
+            fprintf(stderr, "[CONFIG] Ignoring unknown input binding key '%s'\n", it.key().c_str());
+            continue;
+        }
+
+        for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+            recomp::set_input_binding(input, binding_index, device, {});
+        }
+
+        if (!it->is_array()) {
+            recomp::InputField field{};
+            if (input_field_from_json(*it, field)) {
+                recomp::set_input_binding(input, 0, device, field);
+            }
+            continue;
+        }
+
+        for (size_t binding_index = 0;
+             binding_index < recomp::bindings_per_input && binding_index < it->size();
+             binding_index++) {
+            recomp::InputField field{};
+            if (input_field_from_json(it->at(binding_index), field)) {
+                recomp::set_input_binding(input, binding_index, device, field);
+            }
+        }
+    }
+}
+
+static void apply_controls_bindings_json_to_recomp(const nlohmann::json& json) {
+    auto bindings_it = json.find("bindings");
+    if (bindings_it == json.end() || !bindings_it->is_object()) {
+        return;
+    }
+
+    if (auto controller_it = bindings_it->find("controller");
+        controller_it != bindings_it->end()) {
+        apply_controls_device_bindings_json(*controller_it, recomp::InputDevice::Controller);
+    }
+    if (auto keyboard_it = bindings_it->find("keyboard");
+        keyboard_it != bindings_it->end()) {
+        apply_controls_device_bindings_json(*keyboard_it, recomp::InputDevice::Keyboard);
+    }
+}
+#endif
+
 static nlohmann::json controls_config_to_json(const ControlsConfig& config) {
     nlohmann::json buttons = nlohmann::json::object();
     for (int i = 0; i < SDL_CONTROLLER_BUTTON_MAX; i++) {
@@ -318,7 +564,7 @@ static nlohmann::json controls_config_to_json(const ControlsConfig& config) {
         }
     }
 
-    return nlohmann::json{
+    nlohmann::json root = nlohmann::json{
         {"gamepad", {
             {"buttons", buttons},
             {"axes", {
@@ -334,6 +580,10 @@ static nlohmann::json controls_config_to_json(const ControlsConfig& config) {
             }},
         }},
     };
+#ifdef LOD_USE_ZELDA_MENU
+    root["bindings"] = controls_bindings_to_json();
+#endif
+    return root;
 }
 
 static void read_controls_button_binding(const nlohmann::json& buttons,
@@ -494,6 +744,13 @@ static void update_ui_controls_config_summary(const ControlsConfig& config) {
     lod::ui::set_controls_config_summary(buttons, triggers.str(), right_stick.str());
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+void lod_save_controls_bindings_from_ui() {
+    save_controls_config(g_controls_config);
+    update_ui_controls_config_summary(g_controls_config);
+}
+#endif
+
 static ControlsConfig load_controls_config() {
     auto config = default_controls_config();
 
@@ -507,10 +764,17 @@ static ControlsConfig load_controls_config() {
         nlohmann::json json;
         f >> json;
         config = controls_config_from_json(json);
+#ifdef LOD_USE_ZELDA_MENU
+        apply_controls_config_to_recomp_bindings(config);
+        apply_controls_bindings_json_to_recomp(json);
+#endif
     } catch (const std::exception& e) {
         fprintf(stderr, "[CONFIG] Failed to parse %s: %s; using control defaults\n",
                 controls_config_path().string().c_str(), e.what());
         config = default_controls_config();
+#ifdef LOD_USE_ZELDA_MENU
+        apply_controls_config_to_recomp_bindings(config);
+#endif
     }
 
     save_controls_config(config);
@@ -1428,6 +1692,99 @@ static float normalize_axis(Sint16 value) {
     return v < 0.0f ? -normalized : normalized;
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+static float zelda_input_field_value(const recomp::InputField& field) {
+    switch (static_cast<recomp::InputType>(field.input_type)) {
+        case recomp::InputType::None:
+            return 0.0f;
+
+        case recomp::InputType::Keyboard: {
+            int key_count = 0;
+            const uint8_t* keys = SDL_GetKeyboardState(&key_count);
+            if (field.input_id < 0 || field.input_id >= key_count) {
+                return 0.0f;
+            }
+            return keys[field.input_id] ? 1.0f : 0.0f;
+        }
+
+        case recomp::InputType::ControllerDigital:
+            if (game_controller == nullptr) {
+                return 0.0f;
+            }
+            return SDL_GameControllerGetButton(
+                game_controller,
+                static_cast<SDL_GameControllerButton>(field.input_id)) ? 1.0f : 0.0f;
+
+        case recomp::InputType::ControllerAnalog: {
+            if (game_controller == nullptr || field.input_id == 0) {
+                return 0.0f;
+            }
+            const int encoded_axis = field.input_id;
+            const auto axis = static_cast<SDL_GameControllerAxis>(std::abs(encoded_axis) - 1);
+            float value = normalize_axis(SDL_GameControllerGetAxis(game_controller, axis));
+            if (encoded_axis < 0) {
+                value = -value;
+            }
+            return std::max(value, 0.0f);
+        }
+
+        case recomp::InputType::Mouse:
+            return 0.0f;
+    }
+
+    return 0.0f;
+}
+
+static float zelda_input_value(recomp::GameInput input, recomp::InputDevice device) {
+    float value = 0.0f;
+    for (size_t binding_index = 0; binding_index < recomp::bindings_per_input; binding_index++) {
+        value = std::max(
+            value,
+            zelda_input_field_value(recomp::get_input_binding(input, binding_index, device)));
+    }
+    return value;
+}
+
+static float zelda_input_value(recomp::GameInput input) {
+    return std::max(
+        zelda_input_value(input, recomp::InputDevice::Keyboard),
+        zelda_input_value(input, recomp::InputDevice::Controller));
+}
+
+static bool zelda_input_pressed(recomp::GameInput input) {
+    return zelda_input_value(input) > 0.5f;
+}
+
+static uint16_t n64_button_for_game_input(recomp::GameInput input) {
+    switch (input) {
+        case recomp::GameInput::A: return N64_BUTTON_A;
+        case recomp::GameInput::B: return N64_BUTTON_B;
+        case recomp::GameInput::Z: return N64_BUTTON_Z;
+        case recomp::GameInput::START: return N64_BUTTON_START;
+        case recomp::GameInput::L: return N64_BUTTON_L;
+        case recomp::GameInput::R: return N64_BUTTON_R;
+        case recomp::GameInput::C_UP: return N64_CBUTTON_UP;
+        case recomp::GameInput::C_DOWN: return N64_CBUTTON_DOWN;
+        case recomp::GameInput::C_LEFT: return N64_CBUTTON_LEFT;
+        case recomp::GameInput::C_RIGHT: return N64_CBUTTON_RIGHT;
+        case recomp::GameInput::DPAD_UP: return N64_DPAD_UP;
+        case recomp::GameInput::DPAD_DOWN: return N64_DPAD_DOWN;
+        case recomp::GameInput::DPAD_LEFT: return N64_DPAD_LEFT;
+        case recomp::GameInput::DPAD_RIGHT: return N64_DPAD_RIGHT;
+        case recomp::GameInput::X_AXIS_NEG:
+        case recomp::GameInput::X_AXIS_POS:
+        case recomp::GameInput::Y_AXIS_POS:
+        case recomp::GameInput::Y_AXIS_NEG:
+        case recomp::GameInput::TOGGLE_MENU:
+        case recomp::GameInput::ACCEPT_MENU:
+        case recomp::GameInput::APPLY_MENU:
+        case recomp::GameInput::COUNT:
+            return 0;
+    }
+    return 0;
+}
+#endif
+
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
 #if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     {
@@ -1452,6 +1809,28 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     }
 #endif
 
+#ifdef LOD_USE_ZELDA_MENU
+    for (size_t input_index = 0; input_index < recomp::get_num_inputs(); input_index++) {
+        const auto input = static_cast<recomp::GameInput>(input_index);
+        const uint16_t n64_button = n64_button_for_game_input(input);
+        if (n64_button != 0 && zelda_input_pressed(input)) {
+            *buttons |= n64_button;
+        }
+    }
+
+    *x = std::clamp(
+        zelda_input_value(recomp::GameInput::X_AXIS_POS) -
+            zelda_input_value(recomp::GameInput::X_AXIS_NEG),
+        -1.0f,
+        1.0f);
+    *y = std::clamp(
+        zelda_input_value(recomp::GameInput::Y_AXIS_POS) -
+            zelda_input_value(recomp::GameInput::Y_AXIS_NEG),
+        -1.0f,
+        1.0f);
+
+    return true;
+#else
     const uint8_t* keys = SDL_GetKeyboardState(nullptr);
 
     if (keys[SDL_SCANCODE_RETURN])  *buttons |= N64_BUTTON_A;
@@ -1513,6 +1892,7 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
     }
 
     return true;
+#endif
 }
 
 void set_rumble(int controller_num, bool rumble) {

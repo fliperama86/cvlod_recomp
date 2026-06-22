@@ -181,3 +181,25 @@ license change explicitly.
   - `git diff --check` passes.
   - `tools/smoke_zelda_release.sh` passes against the default `build/` path; `cmake -LAH build` reports `LOD_USE_ZELDA_MENU:BOOL=ON`; bundled app and config-open smokes both exit with timeout status 124 and leave no stale process.
   - Legacy fallback build passes with `cmake -S . -B build-legacy-overlay -DLOD_USE_ZELDA_MENU=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo && cmake --build build-legacy-overlay --target LodRecomp --parallel`.
+
+## 2026-06-22 Zelda controls rebinding slice
+
+- The Controls tab now uses the imported ZeldaRecomp `assets/config_menu/controls.rml` template instead of the temporary read-only status panel.
+- `recomp::GameInput` now covers the real N64 buttons, analog directions, and menu actions needed by the Zelda binding editor.
+- Zelda-style keyboard/controller binding arrays are wired for:
+  - controller/keyboard device toggle,
+  - record next key/button/axis,
+  - clear a binding row,
+  - reset one row,
+  - reset the current device to defaults,
+  - input-aware promptfont labels.
+- Controller Start is not bound to Toggle Menu. Toggle Menu defaults to Select/Back only.
+- `controls.json` remains backward-compatible with the existing `gamepad` section and now writes a versioned `bindings` section for the Zelda-style editor.
+- Zelda-menu gameplay input now reads the binding arrays directly, so rebinding affects `get_n64_input()`.
+- Follow-up correction: when making the current app config the default, only copy controls unless graphics/audio are explicitly requested.
+- Validation:
+  - `git diff --check` passes.
+  - `python3 tools/check_version.py` passes with `VERSION ok: 0.2.16`.
+  - `cmake --build build --target LodRecomp -j "$(sysctl -n hw.ncpu)"` passes.
+  - `python3 tools/ci_smoke.py --cwd build --seconds 5 --log /tmp/lod_controls_menu_smoke.log -- ./LodRecomp` passes and leaves no stale `LodRecomp` process.
+  - `tools/smoke_zelda_release.sh` passes, including bundled app smoke and config-open smoke.
