@@ -74,7 +74,7 @@ license change explicitly.
   - Keeps Mods absent rather than shipping a placeholder.
 - Expanded `assets/lod_config.rml` into a fuller LoD-specific settings shell:
   - General: version, ROM status, config folder, portable mode, background input, rumble/Controller Pak/high-res status, debug visibility, Change ROM.
-  - Graphics: window mode, internal resolution, downsample factor, aspect ratio, HUD placement, MSAA, refresh rate/manual refresh, high precision framebuffer, read-only API/display refresh, Apply, Discard, Reset Defaults.
+  - Graphics: window mode, internal resolution, MSAA, Experimental Display Modes warning toggle, aspect ratio, HUD placement, refresh rate/manual refresh, read-only API/display refresh, Apply, Discard, Reset Defaults.
   - Controls: intentionally truthful read-only status until the real rebinding backend is implemented.
   - Audio: real Master Volume and Mute controls only, plus read-only SDL/backend/queue/audio RSP status.
   - Debug: developer-gated with `RECOMP_UI_SHOW_DEBUG=1`, read-only gamestate, exec flags, map overlay, NI pair, graphics, and config path diagnostics.

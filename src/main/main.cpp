@@ -784,6 +784,7 @@ static ControlsConfig load_controls_config() {
 static ultramodern::renderer::GraphicsConfig default_graphics_config() {
     ultramodern::renderer::GraphicsConfig config{};
     config.developer_mode = false;
+    config.experimental_display_modes = false;
     config.res_option = ultramodern::renderer::Resolution::Original2x;
     config.wm_option = ultramodern::renderer::WindowMode::Windowed;
     config.hr_option = ultramodern::renderer::HUDRatioMode::Original;
@@ -797,9 +798,16 @@ static ultramodern::renderer::GraphicsConfig default_graphics_config() {
     return config;
 }
 
+static void force_original_display_modes(ultramodern::renderer::GraphicsConfig& config) {
+    config.hr_option = ultramodern::renderer::HUDRatioMode::Original;
+    config.ar_option = ultramodern::renderer::AspectRatio::Original;
+    config.rr_option = ultramodern::renderer::RefreshRate::Original;
+}
+
 static nlohmann::json graphics_config_to_json(const ultramodern::renderer::GraphicsConfig& config) {
     return nlohmann::json{
         {"developer_mode", config.developer_mode},
+        {"experimental_display_modes", config.experimental_display_modes},
         {"resolution", config.res_option},
         {"window_mode", config.wm_option},
         {"hud_ratio", config.hr_option},
@@ -833,9 +841,14 @@ static void read_graphics_enum(const nlohmann::json& json, const char* key, Enum
 
 static ultramodern::renderer::GraphicsConfig graphics_config_from_json(const nlohmann::json& json) {
     auto config = default_graphics_config();
+    bool has_experimental_display_modes = false;
 
     if (auto it = json.find("developer_mode"); it != json.end() && it->is_boolean()) {
         config.developer_mode = it->get<bool>();
+    }
+    if (auto it = json.find("experimental_display_modes"); it != json.end() && it->is_boolean()) {
+        config.experimental_display_modes = it->get<bool>();
+        has_experimental_display_modes = true;
     }
     read_graphics_enum(json, "resolution", config.res_option);
     read_graphics_enum(json, "window_mode", config.wm_option);
@@ -857,6 +870,17 @@ static ultramodern::renderer::GraphicsConfig graphics_config_from_json(const nlo
         if (value >= 1 && value <= 8) {
             config.ds_option = value;
         }
+    }
+
+    const bool uses_experimental_display =
+        config.hr_option != ultramodern::renderer::HUDRatioMode::Original ||
+        config.ar_option != ultramodern::renderer::AspectRatio::Original ||
+        config.rr_option != ultramodern::renderer::RefreshRate::Original;
+    if (!has_experimental_display_modes && uses_experimental_display) {
+        config.experimental_display_modes = true;
+    }
+    if (!config.experimental_display_modes) {
+        force_original_display_modes(config);
     }
 
     return config;
@@ -958,17 +982,22 @@ static const char* graphics_refresh_name(ultramodern::renderer::RefreshRate valu
 
 static void apply_and_save_graphics_config(const ultramodern::renderer::GraphicsConfig& config,
                                            const char* reason) {
-    ultramodern::renderer::set_graphics_config(config);
-    save_graphics_config(config);
+    auto normalized_config = config;
+    if (!normalized_config.experimental_display_modes) {
+        force_original_display_modes(normalized_config);
+    }
+    ultramodern::renderer::set_graphics_config(normalized_config);
+    save_graphics_config(normalized_config);
     fprintf(stderr,
-            "[CONFIG] %s: resolution=%s window=%s aspect=%s msaa=%s refresh=%s manual=%d\n",
+            "[CONFIG] %s: resolution=%s window=%s aspect=%s experimental_display=%s msaa=%s refresh=%s manual=%d\n",
             reason,
-            graphics_resolution_name(config.res_option),
-            graphics_window_mode_name(config.wm_option),
-            graphics_aspect_name(config.ar_option),
-            graphics_msaa_name(config.msaa_option),
-            graphics_refresh_name(config.rr_option),
-            config.rr_manual_value);
+            graphics_resolution_name(normalized_config.res_option),
+            graphics_window_mode_name(normalized_config.wm_option),
+            graphics_aspect_name(normalized_config.ar_option),
+            normalized_config.experimental_display_modes ? "on" : "off",
+            graphics_msaa_name(normalized_config.msaa_option),
+            graphics_refresh_name(normalized_config.rr_option),
+            normalized_config.rr_manual_value);
 }
 
 std::filesystem::path lod::settings::config_path() {

@@ -844,6 +844,14 @@ scrollbarhorizontal sliderbar {
 .config-option__title {
   padding: 0 12dp;
 }
+.config-option--disabled .config-option__title,
+.config-option--disabled .config-option__tab-label {
+  opacity: 0.5;
+}
+.config-option--disabled .config-option__tab-label:hover {
+  color: rgba(255, 255, 255, 0.6);
+  cursor: default;
+}
 
 .config-option__radio-tabs,
 .config-option__list {

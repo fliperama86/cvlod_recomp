@@ -110,6 +110,14 @@ if [ $SKIP_VERIFY -eq 0 ]; then
     echo "    N64Recomp binary and submodule verified clean."
 fi
 
+# --- Step 2b: Audit map overlay function boundaries ---
+echo "==> Auditing map hidden function boundaries..."
+if [ $DRY_RUN -eq 1 ]; then
+    echo "    [dry-run] Would run: python3 tools/audit_map_hidden_boundaries.py --fail-on-missing"
+else
+    python3 "$(dirname "$0")/audit_map_hidden_boundaries.py" --fail-on-missing
+fi
+
 # --- Step 3: Backup current RecompiledFuncs ---
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 BACKUP_PATH="${BACKUP_DIR}_${TIMESTAMP}"

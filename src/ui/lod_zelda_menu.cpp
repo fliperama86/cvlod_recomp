@@ -614,6 +614,68 @@ bool graphics_changed() {
     return g_pending_graphics != ultramodern::renderer::get_graphics_config();
 }
 
+void dirty_config();
+
+void force_original_display_modes(ultramodern::renderer::GraphicsConfig& config) {
+    config.hr_option = ultramodern::renderer::HUDRatioMode::Original;
+    config.ar_option = ultramodern::renderer::AspectRatio::Original;
+    config.rr_option = ultramodern::renderer::RefreshRate::Original;
+}
+
+void normalize_pending_display_modes() {
+    if (!g_pending_graphics.experimental_display_modes) {
+        force_original_display_modes(g_pending_graphics);
+    }
+}
+
+void set_pending_experimental_display_modes(bool enabled) {
+    if (g_pending_graphics.experimental_display_modes == enabled) {
+        return;
+    }
+
+    g_pending_graphics.experimental_display_modes = enabled;
+    normalize_pending_display_modes();
+    g_config_status = enabled
+        ? "Experimental display modes unlocked. Original is still recommended for normal play."
+        : "Experimental display modes locked. Aspect Ratio, HUD Placement, and Refresh Rate were reset to Original.";
+    dirty_config();
+}
+
+void request_pending_experimental_display_modes(bool enabled) {
+    if (!enabled) {
+        set_pending_experimental_display_modes(false);
+        return;
+    }
+
+    if (g_pending_graphics.experimental_display_modes) {
+        return;
+    }
+
+    g_config_status = "Confirm Experimental Display Modes before enabling.";
+    dirty_config();
+    recompui::open_choice_prompt(
+        "Enable Experimental Display Modes?",
+        "These options unlock aspect, HUD, and refresh overrides. They can cause timing-sensitive bugs, text or item hangs, and culling issues. Original is recommended for normal play.",
+        "Enable",
+        "Cancel",
+        []() {
+            set_pending_experimental_display_modes(true);
+        },
+        []() {
+            g_config_status = "Experimental Display Modes remain locked.";
+            dirty_config();
+        },
+        recompui::ButtonVariant::Warning,
+        recompui::ButtonVariant::Secondary,
+        true,
+        "lod_exp_display_modes"
+    );
+}
+
+const char* experimental_display_modes_status() {
+    return g_pending_graphics.experimental_display_modes ? "On" : "Off";
+}
+
 void dirty_config() {
     if (!g_config_model) {
         return;
@@ -623,6 +685,7 @@ void dirty_config() {
 
 void reset_pending_graphics_from_active() {
     g_pending_graphics = ultramodern::renderer::get_graphics_config();
+    normalize_pending_display_modes();
     g_audio_config = lod::settings::get_audio_config();
     g_config_path_display = lod::settings::config_path().empty()
         ? std::string{"Registered at startup"}
@@ -732,6 +795,9 @@ const char* aspect_ratio_to_string(ultramodern::renderer::AspectRatio value) {
 }
 
 void set_aspect_ratio_from_string(const std::string& value) {
+    if (!g_pending_graphics.experimental_display_modes && value != "Original") {
+        return;
+    }
     if (value == "Original") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Original;
     else if (value == "Expand") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Expand;
     else if (value == "Manual") g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Manual;
@@ -766,6 +832,9 @@ const char* refresh_rate_to_string(ultramodern::renderer::RefreshRate value) {
 }
 
 void set_refresh_rate_from_string(const std::string& value) {
+    if (!g_pending_graphics.experimental_display_modes && value != "Original") {
+        return;
+    }
     if (value == "Original") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Original;
     else if (value == "Display") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Display;
     else if (value == "Manual") g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Manual;
@@ -782,6 +851,9 @@ const char* hud_ratio_to_string(ultramodern::renderer::HUDRatioMode value) {
 }
 
 void set_hud_ratio_from_string(const std::string& value) {
+    if (!g_pending_graphics.experimental_display_modes && value != "Original") {
+        return;
+    }
     if (value == "Original") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Original;
     else if (value == "Clamp16x9") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Clamp16x9;
     else if (value == "Full") g_pending_graphics.hr_option = ultramodern::renderer::HUDRatioMode::Full;
@@ -849,12 +921,24 @@ bool stage_graphics_function_key(Rml::Input::KeyIdentifier key) {
             g_pending_graphics.res_option = next_enum_option(g_pending_graphics.res_option);
             break;
         case Rml::Input::KeyIdentifier::KI_F6:
+            if (!g_pending_graphics.experimental_display_modes) {
+                g_pending_graphics.ar_option = ultramodern::renderer::AspectRatio::Original;
+                g_config_status = "Enable Experimental Display Modes to change Aspect Ratio.";
+                dirty_config();
+                return true;
+            }
             g_pending_graphics.ar_option = next_enum_option(g_pending_graphics.ar_option);
             break;
         case Rml::Input::KeyIdentifier::KI_F7:
             g_pending_graphics.msaa_option = next_enum_option(g_pending_graphics.msaa_option);
             break;
         case Rml::Input::KeyIdentifier::KI_F8:
+            if (!g_pending_graphics.experimental_display_modes) {
+                g_pending_graphics.rr_option = ultramodern::renderer::RefreshRate::Original;
+                g_config_status = "Enable Experimental Display Modes to change Refresh Rate.";
+                dirty_config();
+                return true;
+            }
             g_pending_graphics.rr_option = next_enum_option(g_pending_graphics.rr_option);
             break;
         default:
@@ -1023,6 +1107,9 @@ public:
         });
         recompui::register_event(listener, "reset_graphics", [](const std::string&, Rml::Event&) {
             reset_pending_graphics_defaults();
+        });
+        recompui::register_event(listener, "toggle_experimental_display_modes", [](const std::string&, Rml::Event&) {
+            request_pending_experimental_display_modes(!g_pending_graphics.experimental_display_modes);
         });
         recompui::register_event(listener, "select_rom", [](const std::string&, Rml::Event&) {
             select_rom();
@@ -1326,6 +1413,19 @@ public:
         constructor.BindFunc("display_refresh_rate", [](Rml::Variant& out) {
             out = ultramodern::get_display_refresh_rate();
         });
+        constructor.BindFunc("experimental_display_modes", [](Rml::Variant& out) {
+            out = g_pending_graphics.experimental_display_modes;
+        });
+        constructor.BindFunc("experimental_display_modes_status", [](Rml::Variant& out) {
+            out = experimental_display_modes_status();
+        });
+        constructor.BindFunc("experimental_display_modes_option",
+            [](Rml::Variant& out) {
+                out = experimental_display_modes_status();
+            },
+            [](const Rml::Variant& in) {
+                request_pending_experimental_display_modes(in.Get<std::string>() == "On");
+            });
         bind_option_string(constructor, "res_option",
             []() { return resolution_to_string(g_pending_graphics.res_option); },
             [](const std::string& value) { set_resolution_from_string(value); });
@@ -1366,7 +1466,8 @@ public:
                 dirty_config();
             });
         constructor.BindFunc("manual_refresh_enabled", [](Rml::Variant& out) {
-            out = g_pending_graphics.rr_option == ultramodern::renderer::RefreshRate::Manual;
+            out = g_pending_graphics.experimental_display_modes &&
+                  g_pending_graphics.rr_option == ultramodern::renderer::RefreshRate::Manual;
         });
         constructor.BindFunc("graphics_api", [](Rml::Variant& out) {
             out = graphics_api_to_string(g_pending_graphics.api_option);

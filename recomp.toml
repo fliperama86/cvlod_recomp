@@ -28,9 +28,7 @@ stubs = [
     # Boundary issue: branches past common section end
     "func_80176104",
     "func_8018C680",
-    # Overlay functions with boundary issues
-    "map_ovl_29_func_802E4E9C",
-    "map_ovl_29_func_802E534C",
+    # Former Tower of Sorcery boundary stubs are now generated and fixed by the post-processing chain.
     # Overlay functions with branches to unmapped addresses
     "map_ovl_42_func_802E8A80",
     "map_ovl_42_func_802E8A88",

@@ -87,79 +87,71 @@
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
                                         <label class="config-option__title">Window Mode</label>
                                         <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" style="nav-up:#lod_res_original; nav-down:#lod_ds" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Windowed" id="lod_wm_windowed" style="nav-up:#lod_res_original; nav-down:#lod_msaa_none" />
                                             <label class="config-option__tab-label" for="lod_wm_windowed">Windowed</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" style="nav-up:#lod_res_2x; nav-down:#lod_ds" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="window_mode" data-checked="wm_option" value="Fullscreen" id="lod_wm_fullscreen" style="nav-up:#lod_res_2x; nav-down:#lod_msaa_2x" />
                                             <label class="config-option__tab-label" for="lod_wm_fullscreen">Fullscreen</label>
                                         </div>
                                     </div>
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
-                                        <label class="config-option__title">Downsampling: {{ds_option}}</label>
-                                        <div class="config-option__range-wrapper config-option__list">
-                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" class="nav-vert" id="lod_ds" type="range" min="1" max="8" step="1" data-value="ds_option" style="flex:1; margin:0dp; nav-up:#lod_wm_windowed; nav-down:#lod_ar_original" />
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(3)">
-                                        <label class="config-option__title">Aspect Ratio</label>
-                                        <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" style="nav-up:#lod_ds; nav-down:#lod_hr_original" />
-                                            <label class="config-option__tab-label" for="lod_ar_original">Original</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Expand" id="lod_ar_expand" style="nav-up:#lod_ds; nav-down:#lod_hr_16x9" />
-                                            <label class="config-option__tab-label" for="lod_ar_expand">Expand</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" style="nav-up:#lod_ds; nav-down:#lod_hr_full" />
-                                            <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(4)">
-                                        <label class="config-option__title">HUD Placement</label>
-                                        <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Original" id="lod_hr_original" style="nav-up:#lod_ar_original; nav-down:#lod_msaa_none" />
-                                            <label class="config-option__tab-label" for="lod_hr_original">Original</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Clamp16x9" id="lod_hr_16x9" style="nav-up:#lod_ar_expand; nav-down:#lod_msaa_2x" />
-                                            <label class="config-option__tab-label" for="lod_hr_16x9">Clamp 16:9</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="hud_ratio" data-checked="hr_option" value="Full" id="lod_hr_full" style="nav-up:#lod_ar_manual; nav-down:#lod_msaa_4x" />
-                                            <label class="config-option__tab-label" for="lod_hr_full">Full</label>
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(5)">
                                         <label class="config-option__title">MS Anti-Aliasing</label>
                                         <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" style="nav-up:#lod_hr_original; nav-down:#lod_rr_original" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="msaa" data-checked="msaa_option" value="None" id="lod_msaa_none" style="nav-up:#lod_wm_windowed; nav-down:#lod_exp_display_modes" />
                                             <label class="config-option__tab-label" for="lod_msaa_none">None</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA2X" id="lod_msaa_2x" style="nav-up:#lod_hr_16x9; nav-down:#lod_rr_display" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="msaa" data-checked="msaa_option" value="MSAA2X" id="lod_msaa_2x" style="nav-up:#lod_wm_fullscreen; nav-down:#lod_exp_display_modes_on" />
                                             <label class="config-option__tab-label" for="lod_msaa_2x">2x</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA4X" id="lod_msaa_4x" style="nav-up:#lod_hr_full; nav-down:#lod_rr_manual" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="msaa" data-checked="msaa_option" value="MSAA4X" id="lod_msaa_4x" style="nav-up:#lod_wm_fullscreen; nav-down:#lod_exp_display_modes_on" />
                                             <label class="config-option__tab-label" for="lod_msaa_4x">4x</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" style="nav-up:#lod_hr_full; nav-down:#lod_rr_manual" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="msaa" data-checked="msaa_option" value="MSAA8X" id="lod_msaa_8x" style="nav-up:#lod_wm_fullscreen; nav-down:#lod_exp_display_modes_on" />
                                             <label class="config-option__tab-label" for="lod_msaa_8x">8x</label>
                                         </div>
                                     </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(6)">
+                                    <div class="config-option" data-event-mouseover="set_cur_config_index(3)">
+                                        <label class="config-option__title">Experimental Display Modes</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="experimental_display_modes" data-checked="experimental_display_modes_option" value="Off" id="lod_exp_display_modes" style="nav-up:#lod_msaa_none; nav-down:#lod_ar_original" />
+                                            <label class="config-option__tab-label" for="lod_exp_display_modes">Off</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(3)" name="experimental_display_modes" data-checked="experimental_display_modes_option" value="On" id="lod_exp_display_modes_on" style="nav-up:#lod_msaa_2x; nav-down:#lod_ar_expand" />
+                                            <label class="config-option__tab-label" for="lod_exp_display_modes_on">On</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-class-config-option--disabled="!experimental_display_modes" data-event-mouseover="set_cur_config_index(4)">
+                                        <label class="config-option__title">Aspect Ratio</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="aspect_ratio" data-checked="ar_option" value="Original" id="lod_ar_original" style="nav-up:#lod_exp_display_modes; nav-down:#lod_hr_original" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_ar_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="aspect_ratio" data-checked="ar_option" value="Expand" id="lod_ar_expand" style="nav-up:#lod_exp_display_modes_on; nav-down:#lod_hr_16x9" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_ar_expand">Expand</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(4)" name="aspect_ratio" data-checked="ar_option" value="Manual" id="lod_ar_manual" style="nav-up:#lod_exp_display_modes_on; nav-down:#lod_hr_full" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_ar_manual">Manual</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-class-config-option--disabled="!experimental_display_modes" data-event-mouseover="set_cur_config_index(5)">
+                                        <label class="config-option__title">HUD Placement</label>
+                                        <div class="config-option__list">
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="hud_ratio" data-checked="hr_option" value="Original" id="lod_hr_original" style="nav-up:#lod_ar_original; nav-down:#lod_rr_original" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_hr_original">Original</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="hud_ratio" data-checked="hr_option" value="Clamp16x9" id="lod_hr_16x9" style="nav-up:#lod_ar_expand; nav-down:#lod_rr_display" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_hr_16x9">Clamp 16:9</label>
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(5)" name="hud_ratio" data-checked="hr_option" value="Full" id="lod_hr_full" style="nav-up:#lod_ar_manual; nav-down:#lod_rr_manual" data-attrif-disabled="!experimental_display_modes" />
+                                            <label class="config-option__tab-label" for="lod_hr_full">Full</label>
+                                        </div>
+                                    </div>
+                                    <div class="config-option" data-class-config-option--disabled="!experimental_display_modes" data-event-mouseover="set_cur_config_index(6)">
                                         <label class="config-option__title">Refresh Rate</label>
                                         <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" style="nav-up:#lod_msaa_none; nav-down:#lod_hpfb_auto" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Original" id="lod_rr_original" style="nav-up:#lod_hr_original; nav-down:#lod_rr_manual_value" data-attrif-disabled="!experimental_display_modes" />
                                             <label class="config-option__tab-label" for="lod_rr_original">Original</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Display" id="lod_rr_display" style="nav-up:#lod_msaa_2x; nav-down:#lod_hpfb_on" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Display" id="lod_rr_display" style="nav-up:#lod_hr_16x9; nav-down:#lod_rr_manual_value" data-attrif-disabled="!experimental_display_modes" />
                                             <label class="config-option__tab-label" for="lod_rr_display">Display</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" style="nav-up:#lod_msaa_4x; nav-down:#lod_rr_manual_value" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(6)" name="refresh_rate" data-checked="rr_option" value="Manual" id="lod_rr_manual" style="nav-up:#lod_hr_full; nav-down:#lod_rr_manual_value" data-attrif-disabled="!experimental_display_modes" />
                                             <label class="config-option__tab-label" for="lod_rr_manual">Manual</label>
                                         </div>
                                     </div>
                                     <div data-if="manual_refresh_enabled" class="config-option" data-event-mouseover="set_cur_config_index(7)">
                                         <label class="config-option__title">Manual Refresh: {{rr_manual_value}}Hz</label>
                                         <div class="config-option__range-wrapper config-option__list">
-                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(7)" class="nav-vert" id="lod_rr_manual_value" type="range" min="20" max="360" step="1" data-value="rr_manual_value" style="flex:1; margin:0dp; nav-up:#lod_rr_manual; nav-down:#lod_hpfb_auto" />
-                                        </div>
-                                    </div>
-                                    <div class="config-option" data-event-mouseover="set_cur_config_index(8)">
-                                        <label class="config-option__title">High Precision Framebuffer</label>
-                                        <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="Auto" id="lod_hpfb_auto" />
-                                            <label class="config-option__tab-label" for="lod_hpfb_auto">Auto</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="On" id="lod_hpfb_on" />
-                                            <label class="config-option__tab-label" for="lod_hpfb_on">On</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(8)" name="hpfb" data-checked="hpfb_option" value="Off" id="lod_hpfb_off" />
-                                            <label class="config-option__tab-label" for="lod_hpfb_off">Off</label>
+                                            <input data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(7)" class="nav-vert" id="lod_rr_manual_value" type="range" min="20" max="360" step="1" data-value="rr_manual_value" style="flex:1; margin:0dp; nav-up:#lod_rr_manual" />
                                         </div>
                                     </div>
                                 </div>
@@ -167,13 +159,14 @@
                                     <p data-if="cur_config_index == -1"><b>Graphics</b> changes are staged. Apply writes graphics.json and updates the renderer.</p>
                                     <p data-if="cur_config_index == 0">Controls the internal rendering resolution.</p>
                                     <p data-if="cur_config_index == 1">Switches between windowed and fullscreen modes. F11 also stages this setting.</p>
-                                    <p data-if="cur_config_index == 2">Downsampling quality for supported high-resolution modes.</p>
-                                    <p data-if="cur_config_index == 3">Controls how the rendered image fits the display.</p>
-                                    <p data-if="cur_config_index == 4">Controls HUD placement relative to widescreen output.</p>
-                                    <p data-if="cur_config_index == 5">Sets multisample antialiasing. The renderer may clamp unsupported levels.</p>
-                                    <p data-if="cur_config_index == 6">Original preserves game timing. Display and Manual are experimental options.</p>
+                                    <p data-if="cur_config_index == 2">Sets multisample antialiasing. The renderer may clamp unsupported levels.</p>
+                                    <p data-if="cur_config_index == 3">Unlocks aspect, HUD, and refresh overrides. Keep Off for the safest gameplay.</p>
+                                    <p data-if="cur_config_index == 4">Controls how the rendered image fits the display. Requires Experimental Display Modes.</p>
+                                    <p data-if="cur_config_index == 5">Controls HUD placement relative to widescreen output. Requires Experimental Display Modes.</p>
+                                    <p data-if="cur_config_index == 6">Original preserves game timing. Display and Manual require Experimental Display Modes.</p>
                                     <p data-if="cur_config_index == 7">Manual refresh target in Hz.</p>
-                                    <p data-if="cur_config_index == 8">Controls high precision framebuffer behavior.</p>
+                                    <p data-if="!experimental_display_modes"><b>Stable display mode:</b> Aspect Ratio, HUD Placement, and Refresh Rate are locked to Original. Enable Experimental Display Modes to unlock them.</p>
+                                    <p data-if="experimental_display_modes"><b>Warning:</b> Experimental Display Modes can cause timing-sensitive bugs, text or item hangs, and culling issues. Original is recommended for normal play.</p>
                                     <p>Graphics API: {{graphics_api}}
 Display refresh: {{display_refresh_rate}}Hz
 {{config_status}}</p>

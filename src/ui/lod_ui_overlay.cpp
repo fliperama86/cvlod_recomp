@@ -171,6 +171,7 @@ Enum prev_enum_option(Enum value) {
 ultramodern::renderer::GraphicsConfig make_default_graphics_config() {
     ultramodern::renderer::GraphicsConfig config{};
     config.developer_mode = false;
+    config.experimental_display_modes = false;
     config.res_option = ultramodern::renderer::Resolution::Original2x;
     config.wm_option = ultramodern::renderer::WindowMode::Windowed;
     config.hr_option = ultramodern::renderer::HUDRatioMode::Original;

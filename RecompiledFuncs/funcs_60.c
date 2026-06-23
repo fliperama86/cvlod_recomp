@@ -3989,7 +3989,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x801777C4: jal         0x800058A4
     // 0x801777C8: lw          $a0, 0x0($a3)
     ctx->r4 = MEM_W(ctx->r7, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_9;
     // 0x801777C8: lw          $a0, 0x0($a3)
     ctx->r4 = MEM_W(ctx->r7, 0X0);
@@ -4001,7 +4001,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x801777D4: jal         0x800058A4
     // 0x801777D8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_10;
     // 0x801777D8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4013,7 +4013,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x801777E4: jal         0x800058A4
     // 0x801777E8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_11;
     // 0x801777E8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4025,7 +4025,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x801777F4: jal         0x800058A4
     // 0x801777F8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_12;
     // 0x801777F8: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4037,7 +4037,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x80177804: jal         0x800058A4
     // 0x80177808: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_13;
     // 0x80177808: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4049,7 +4049,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x80177814: jal         0x800058A4
     // 0x80177818: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_14;
     // 0x80177818: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4061,7 +4061,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x80177824: jal         0x800058A4
     // 0x80177828: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_15;
     // 0x80177828: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4073,7 +4073,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x80177834: jal         0x800058A4
     // 0x80177838: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_16;
     // 0x80177838: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
@@ -4085,7 +4085,7 @@ RECOMP_FUNC void func_80177614(uint8_t* rdram, recomp_context* ctx) {
     // 0x80177844: jal         0x800058A4
     // 0x80177848: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);
-    func_800058A4(rdram, ctx);
+    sceneNode_linkChild(rdram, ctx);
         goto after_17;
     // 0x80177848: lw          $a1, 0x0($s0)
     ctx->r5 = MEM_W(ctx->r16, 0X0);

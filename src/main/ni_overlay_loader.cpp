@@ -41,6 +41,14 @@
 #define LOD_ENABLE_B2_ASSET_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_TOWER_NI126_TRACE
+#define LOD_ENABLE_TOWER_NI126_TRACE 0
+#endif
+
+#ifndef LOD_FIX_TOWER_INPUT_RELEASE
+#define LOD_FIX_TOWER_INPUT_RELEASE 0
+#endif
+
 #ifndef LOD_ENABLE_NI99_MAP76_TRACE
 #define LOD_ENABLE_NI99_MAP76_TRACE 1
 #endif
@@ -2080,6 +2088,352 @@ static void lod_install_pause_item_trace_wrappers(int pair_index, uint32_t vram,
 }
 #endif
 
+#if LOD_ENABLE_TOWER_NI126_TRACE
+static recomp_func_t* lod_orig_tower_ni126_entry = nullptr;
+static recomp_func_t* lod_orig_tower_ni126_state_init = nullptr;
+static recomp_func_t* lod_orig_tower_ni126_state_fade_in = nullptr;
+static recomp_func_t* lod_orig_tower_ni126_state_wait = nullptr;
+static recomp_func_t* lod_orig_tower_ni126_state_fade_out = nullptr;
+static recomp_func_t* lod_orig_tower_ni126_state_destroy = nullptr;
+static recomp_func_t* lod_orig_tower_ni18_entry = nullptr;
+
+static bool lod_tower_ni_trace_enabled() {
+    return lod_current_map_overlay_rom() == 0x007D9790;
+}
+
+static uint32_t lod_tower_ni_u32(uint8_t* rdram, uint32_t base, int32_t off) {
+    return (uint32_t)MEM_W(off, lod_ni_canonical_gpr(base));
+}
+
+static int16_t lod_tower_ni_s16(uint8_t* rdram, uint32_t base, int32_t off) {
+    return (int16_t)MEM_H(off, lod_ni_canonical_gpr(base));
+}
+
+static uint16_t lod_tower_ni_u16(uint8_t* rdram, uint32_t base, int32_t off) {
+    return (uint16_t)MEM_HU(off, lod_ni_canonical_gpr(base));
+}
+
+static uint8_t lod_tower_ni_u8(uint8_t* rdram, uint32_t base, int32_t off) {
+    return (uint8_t)MEM_BU(off, lod_ni_canonical_gpr(base));
+}
+
+static int lod_tower_ni_log_this(uint32_t* counter, bool force = false) {
+    uint32_t count = ++(*counter);
+    if (force || count <= 80 || (count % 120) == 0) {
+        return (int)count;
+    }
+    return 0;
+}
+
+static void lod_tower_ni_log_state(uint8_t* rdram, const char* tag, int call,
+                                   int pair, const char* func, uint32_t obj) {
+    if (!lod_tower_ni_trace_enabled()) {
+        return;
+    }
+
+    uint32_t depth = (uint16_t)lod_tower_ni_s16(rdram, obj, 0x0E);
+    uint8_t state0_count = lod_tower_ni_u8(rdram, obj, 0x08);
+    uint8_t state0_index = lod_tower_ni_u8(rdram, obj, 0x09);
+    uint32_t cb = lod_tower_ni_u32(rdram, obj, 0x10);
+    uint32_t child = lod_tower_ni_u32(rdram, obj, 0x24);
+    uint32_t entry_index = lod_tower_ni_u32(rdram, obj, 0x34);
+    uint32_t timer = lod_tower_ni_u32(rdram, obj, 0x38);
+    uint32_t limit = lod_tower_ni_u32(rdram, obj, 0x48);
+    uint32_t frame = lod_tower_ni_u32(rdram, obj, 0x4C);
+    uint32_t done = lod_tower_ni_u32(rdram, obj, 0x50);
+    uint32_t linked = lod_tower_ni_u32(rdram, obj, 0x54);
+    uint32_t flag58 = lod_tower_ni_u32(rdram, obj, 0x58);
+    uint32_t unk5c = lod_tower_ni_u32(rdram, obj, 0x5C);
+    uint32_t unk60 = lod_tower_ni_u32(rdram, obj, 0x60);
+
+    uint32_t table_off = 0x844 + (entry_index * 12);
+    uint16_t table_stage = 0;
+    uint16_t table_entry = 0;
+    uint8_t table_match_a = 0;
+    uint8_t table_match_b = 0;
+    uint8_t table_duration = 0;
+    uint8_t table_color0 = 0;
+    uint8_t table_color1 = 0;
+    uint8_t table_color2 = 0;
+    if (entry_index < 23) {
+        table_stage = lod_tower_ni_u16(rdram, 0x0F000000, (int32_t)table_off + 0);
+        table_entry = lod_tower_ni_u16(rdram, 0x0F000000, (int32_t)table_off + 2);
+        table_match_a = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 4);
+        table_match_b = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 5);
+        table_duration = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 6);
+        table_color0 = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 7);
+        table_color1 = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 8);
+        table_color2 = lod_tower_ni_u8(rdram, 0x0F000000, (int32_t)table_off + 9);
+    }
+
+    int16_t stage_global = (int16_t)MEM_H(-0x546E, (gpr)(int32_t)0x801D0000);
+    int16_t sys_gate = (int16_t)MEM_H(0x2B4E, (gpr)(int32_t)0x801C82C0);
+    uint32_t exec_flags = lod_ni_telemetry_exec_flags(rdram);
+    int gs = lod_ni_telemetry_gamestate(rdram);
+
+    fprintf(stderr,
+            "[TOWER_NI] %s #%d pair=%d func=%s obj=0x%08X gs=%d map#%d "
+            "stage=0x%04X sys_gate=%d exec=0x%08X loaded0f=%d loaded0e=%d "
+            "state={depth=%u count=%u index=%u cb=0x%08X child=0x%08X entry=%u "
+            "timer=%d limit=%d frame=%d done=%d linked=0x%08X flag58=%d unk5c=0x%08X unk60=0x%08X} "
+            "table={off=0x%03X stage=0x%04X entry=%u match=%u/%u duration=%u color=%02X/%02X/%02X}\n",
+            tag, call, pair, func, obj, gs, lod_current_map_overlay_load_count(),
+            (uint16_t)stage_global, sys_gate, exec_flags, loaded_0f_pair, loaded_0e_pair,
+            depth, state0_count, state0_index, cb, child, entry_index,
+            (int32_t)timer, (int32_t)limit, (int32_t)frame, (int32_t)done,
+            linked, (int32_t)flag58, unk5c, unk60,
+            table_off, table_stage, table_entry, table_match_a, table_match_b,
+            table_duration, table_color0, table_color1, table_color2);
+}
+
+static void lod_tower_ni_trace_call(uint8_t* rdram, recomp_context* ctx,
+                                    int pair, const char* func,
+                                    recomp_func_t* original,
+                                    uint32_t* counter,
+                                    bool force_post = false) {
+    uint32_t obj = (uint32_t)ctx->r4;
+    int call = lod_tower_ni_log_this(counter);
+    if (call != 0) {
+        lod_tower_ni_log_state(rdram, "pre", call, pair, func, obj);
+    }
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+    if (call != 0 || force_post) {
+        int post_call = call != 0 ? call : (int)*counter;
+        lod_tower_ni_log_state(rdram, "post", post_call, pair, func, obj);
+    }
+}
+
+static void lod_trace_tower_ni126_entry(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "entry",
+                            lod_orig_tower_ni126_entry, &counter, true);
+}
+
+static void lod_trace_tower_ni126_state_init(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "state_init_0F000070",
+                            lod_orig_tower_ni126_state_init, &counter, true);
+}
+
+static void lod_trace_tower_ni126_state_fade_in(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "state_fade_in_0F000318",
+                            lod_orig_tower_ni126_state_fade_in, &counter);
+}
+
+static void lod_trace_tower_ni126_state_wait(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "state_wait_0F000490",
+                            lod_orig_tower_ni126_state_wait, &counter, true);
+}
+
+static void lod_trace_tower_ni126_state_fade_out(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "state_fade_out_0F000590",
+                            lod_orig_tower_ni126_state_fade_out, &counter);
+}
+
+static void lod_trace_tower_ni126_state_destroy(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 126, "state_destroy_0F00064C",
+                            lod_orig_tower_ni126_state_destroy, &counter, true);
+}
+
+static void lod_trace_tower_ni18_entry(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_tower_ni_trace_call(rdram, ctx, 18, "entry",
+                            lod_orig_tower_ni18_entry, &counter, true);
+}
+
+static void lod_install_tower_ni_trace_wrapper(uint32_t vram,
+                                               recomp_func_t* wrapper,
+                                               recomp_func_t** original_out,
+                                               const char* name) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current == wrapper) {
+        return;
+    }
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    fprintf(stderr,
+            "[TOWER_NI] installed %s wrapper vram=0x%08X original=%p wrapper=%p\n",
+            name, vram, (void*)current, (void*)wrapper);
+}
+
+static void lod_install_tower_ni_trace_wrappers(int pair_index, uint32_t vram,
+                                                const char* reason) {
+    if (vram != 0x0F000000 || !lod_tower_ni_trace_enabled()) {
+        return;
+    }
+
+    if (pair_index == 126) {
+        lod_install_tower_ni_trace_wrapper(0x0F000000, lod_trace_tower_ni126_entry,
+            &lod_orig_tower_ni126_entry, "pair126.entry");
+        lod_install_tower_ni_trace_wrapper(0x0F000070, lod_trace_tower_ni126_state_init,
+            &lod_orig_tower_ni126_state_init, "pair126.0F000070");
+        lod_install_tower_ni_trace_wrapper(0x0F000318, lod_trace_tower_ni126_state_fade_in,
+            &lod_orig_tower_ni126_state_fade_in, "pair126.0F000318");
+        lod_install_tower_ni_trace_wrapper(0x0F000490, lod_trace_tower_ni126_state_wait,
+            &lod_orig_tower_ni126_state_wait, "pair126.0F000490");
+        lod_install_tower_ni_trace_wrapper(0x0F000590, lod_trace_tower_ni126_state_fade_out,
+            &lod_orig_tower_ni126_state_fade_out, "pair126.0F000590");
+        lod_install_tower_ni_trace_wrapper(0x0F00064C, lod_trace_tower_ni126_state_destroy,
+            &lod_orig_tower_ni126_state_destroy, "pair126.0F00064C");
+    }
+    else if (pair_index == 18) {
+        lod_install_tower_ni_trace_wrapper(0x0F000000, lod_trace_tower_ni18_entry,
+            &lod_orig_tower_ni18_entry, "pair18.entry");
+    }
+
+    fprintf(stderr,
+            "[TOWER_NI] trace wrappers considered pair=%d vram=0x%08X reason=%s map#%d map=0x%08X\n",
+            pair_index, vram, reason, lod_current_map_overlay_load_count(),
+            lod_current_map_overlay_rom());
+}
+#endif
+
+#if LOD_FIX_TOWER_INPUT_RELEASE
+static recomp_func_t* lod_orig_tower_input_release_state_init = nullptr;
+static recomp_func_t* lod_orig_tower_input_release_state_destroy = nullptr;
+
+static uint32_t lod_tower_input_phys(uint32_t base, int32_t off) {
+    return ((uint32_t)((int32_t)base + off)) & 0x1FFFFFFF;
+}
+
+static uint32_t lod_tower_input_u32(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_tower_input_phys(base, off);
+    return lod_ni_telemetry_range_ok(phys, 4) ? *(uint32_t*)(rdram + phys) : 0;
+}
+
+static int16_t lod_tower_input_s16(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_tower_input_phys(base, off);
+    return lod_ni_telemetry_range_ok(phys, 2) ? *(int16_t*)(rdram + (phys ^ 2)) : 0;
+}
+
+static uint8_t lod_tower_input_u8(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_tower_input_phys(base, off);
+    return lod_ni_telemetry_range_ok(phys, 1) ? rdram[phys ^ 3] : 0;
+}
+
+static void lod_tower_release_input_flags_if_stuck(uint8_t* rdram, const char* reason) {
+    constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
+    constexpr uint32_t TOWER_TRANSITION_LOCKED_FLAGS = 0x20000000;
+    constexpr uint32_t TOWER_CONTROLLABLE_FLAGS = 0x38000000;
+    constexpr uint32_t TOWER_MISSING_GAMEPLAY_FLAGS =
+        TOWER_CONTROLLABLE_FLAGS & ~TOWER_TRANSITION_LOCKED_FLAGS;
+
+    if (lod_current_map_overlay_rom() != 0x007D9790 ||
+        lod_ni_telemetry_gamestate(rdram) != 3 ||
+        !lod_ni_telemetry_range_ok(EXEC_FLAGS_PHYS, 4)) {
+        return;
+    }
+
+    uint32_t* exec_flags = (uint32_t*)(rdram + EXEC_FLAGS_PHYS);
+    const uint32_t before = *exec_flags;
+    if ((before & TOWER_CONTROLLABLE_FLAGS) != TOWER_TRANSITION_LOCKED_FLAGS) {
+        return;
+    }
+
+    const uint32_t after = before | TOWER_MISSING_GAMEPLAY_FLAGS;
+    *exec_flags = after;
+
+    static int release_log_count = 0;
+    release_log_count++;
+    if (release_log_count <= 8 || (release_log_count % 120) == 0) {
+        fprintf(stderr,
+                "[TOWER_INPUT_RELEASE_FIX] %s #%d exec 0x%08X -> 0x%08X map#%d\n",
+                reason, release_log_count, before, after,
+                lod_current_map_overlay_load_count());
+    }
+}
+
+static bool lod_tower_pair126_restart_init_without_fade(uint8_t* rdram, uint32_t obj) {
+    if (obj == 0) {
+        return false;
+    }
+
+    // Normal Tower entry creates a fade child and reaches state_destroy.
+    // Restart-from-save/death can enter with a nonzero stage, table entry 9,
+    // no fade child/link, and never reaches destroy, leaving exec flags locked.
+    int16_t stage_global = lod_tower_input_s16(rdram, 0x801D0000, -0x546E);
+    uint8_t state0_count = lod_tower_input_u8(rdram, obj, 0x08);
+    uint8_t state0_index = lod_tower_input_u8(rdram, obj, 0x09);
+    uint32_t child = lod_tower_input_u32(rdram, obj, 0x24);
+    uint32_t entry_index = lod_tower_input_u32(rdram, obj, 0x34);
+    uint32_t limit = lod_tower_input_u32(rdram, obj, 0x48);
+    uint32_t frame = lod_tower_input_u32(rdram, obj, 0x4C);
+    uint32_t linked = lod_tower_input_u32(rdram, obj, 0x54);
+
+    return stage_global != 0 &&
+        state0_count == 1 &&
+        state0_index == 0 &&
+        entry_index == 9 &&
+        child == 0 &&
+        linked == 0 &&
+        limit == 0 &&
+        frame == 0;
+}
+
+static void lod_fix_tower_input_release_state_init(uint8_t* rdram, recomp_context* ctx) {
+    uint32_t obj = (uint32_t)ctx->r4;
+    if (lod_orig_tower_input_release_state_init != nullptr) {
+        lod_orig_tower_input_release_state_init(rdram, ctx);
+    }
+    if (lod_tower_pair126_restart_init_without_fade(rdram, obj)) {
+        lod_tower_release_input_flags_if_stuck(rdram, "pair126.init-restart");
+    }
+}
+
+static void lod_fix_tower_input_release_state_destroy(uint8_t* rdram, recomp_context* ctx) {
+    if (lod_orig_tower_input_release_state_destroy != nullptr) {
+        lod_orig_tower_input_release_state_destroy(rdram, ctx);
+    }
+    lod_tower_release_input_flags_if_stuck(rdram, "pair126.destroy");
+}
+
+static void lod_install_tower_input_release_single(uint32_t func_vram,
+                                                   recomp_func_t* wrapper,
+                                                   recomp_func_t** original_out,
+                                                   const char* name,
+                                                   const char* reason) {
+    recomp_func_t* current = get_function((int32_t)func_vram);
+    if (current == wrapper) {
+        return;
+    }
+
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)func_vram, wrapper);
+
+    static int install_count = 0;
+    install_count++;
+    if (install_count <= 6 || (install_count % 120) == 0) {
+        fprintf(stderr,
+                "[TOWER_INPUT_RELEASE_FIX] installed %s wrapper #%d "
+                "reason=%s original=%p\n",
+                name, install_count, reason, (void*)current);
+    }
+}
+
+static void lod_install_tower_input_release_wrapper(int pair_index, uint32_t vram,
+                                                    const char* reason) {
+    if (pair_index != 126 || vram != 0x0F000000 ||
+        lod_current_map_overlay_rom() != 0x007D9790) {
+        return;
+    }
+
+    lod_install_tower_input_release_single(0x0F000070,
+        lod_fix_tower_input_release_state_init,
+        &lod_orig_tower_input_release_state_init,
+        "pair126.init", reason);
+    lod_install_tower_input_release_single(0x0F00064C,
+        lod_fix_tower_input_release_state_destroy,
+        &lod_orig_tower_input_release_state_destroy,
+        "pair126.destroy", reason);
+}
+#endif
+
 static int ni_index_to_pair(int ni_index) {
     if (ni_index < NI_TEXT_INDEX_START) return -1;
     int offset = ni_index - NI_TEXT_INDEX_START;
@@ -2102,8 +2456,9 @@ static uint8_t* ni_segment_base(uint8_t* rdram, uint32_t vram) {
 // Some LoD model/node records carry segment-6 pointers (0x06xxxxxx) into data
 // that lives in the reusable NI segment mirror. Recompiled CPU MEM_* accesses do
 // not perform RSP-style segment lookup, so 0x06xxxxxx maps to rdram+0x86xxxxxx.
-// Keep that alias populated with the active NI segment image when this
-// experiment is enabled.
+// Keep that alias populated with the active NI segment image. This fixes
+// CPU-side segmented-pointer dereferences such as 0x0600635C, which otherwise
+// become host accesses through the unmapped 0x86000000 KSEG0 mirror.
 static constexpr uint32_t NI_SEG6_CPU_ALIAS_VADDR = 0x06000000;
 static constexpr uint32_t NI_SEG6_CPU_ALIAS_MAX_SIZE = 0x00100000;
 
@@ -2135,6 +2490,7 @@ static void ni_mirror_segment_to_seg6_cpu_alias(uint8_t* rdram,
 
     memcpy(alias, segment_base, size);
 
+#if LOD_ENABLE_TLB_SEG6_TRACE
     static int copy_count = 0;
     copy_count++;
     if (copy_count <= 24 || (copy_count % 200) == 0) {
@@ -2147,6 +2503,7 @@ static void ni_mirror_segment_to_seg6_cpu_alias(uint8_t* rdram,
                 copy_count, pair_index, vram, size, reason,
                 NI_SEG6_CPU_ALIAS_VADDR, w0, w4, w73dc);
     }
+#endif
 }
 #endif
 
@@ -2597,6 +2954,16 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     if (pair_index == 44 && vram == 0x0F000000 &&
         lod_current_map_overlay_rom() == 0x0076CD00) {
         lod_install_map76_boss_ni44_destroy_trace_wrapper("pair44-load");
+    }
+#endif
+#if LOD_ENABLE_TOWER_NI126_TRACE
+    if ((pair_index == 126 || pair_index == 18) && vram == 0x0F000000) {
+        lod_install_tower_ni_trace_wrappers(pair_index, vram, "tower-pair-load");
+    }
+#endif
+#if LOD_FIX_TOWER_INPUT_RELEASE
+    if (pair_index == 126 && vram == 0x0F000000) {
+        lod_install_tower_input_release_wrapper(pair_index, vram, "tower-pair-load");
     }
 #endif
 

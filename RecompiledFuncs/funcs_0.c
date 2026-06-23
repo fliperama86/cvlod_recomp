@@ -1,6 +1,28 @@
 #include "recomp.h"
 #include "funcs.h"
 #include "lod_symbols.h"
+#ifndef LOD_FIX_EXPAND_SCENE_NODE_POOL
+#define LOD_FIX_EXPAND_SCENE_NODE_POOL 0
+#endif
+
+#ifndef LOD_SCENE_NODE_POOL_MIN
+#define LOD_SCENE_NODE_POOL_MIN 0x2A0
+#endif
+
+#ifndef LOD_SCENE_DATA_POOL_MIN
+#define LOD_SCENE_DATA_POOL_MIN 0x480
+#endif
+
+#if LOD_FIX_EXPAND_SCENE_NODE_POOL
+static void lod_scene_pools_apply_minimum(recomp_context* ctx) {
+    if ((uint32_t)ctx->r4 < (uint32_t)LOD_SCENE_NODE_POOL_MIN) {
+        ctx->r4 = ADD32(0, LOD_SCENE_NODE_POOL_MIN);
+    }
+    if ((uint32_t)ctx->r5 < (uint32_t)LOD_SCENE_DATA_POOL_MIN) {
+        ctx->r5 = ADD32(0, LOD_SCENE_DATA_POOL_MIN);
+    }
+}
+#endif
 
 RECOMP_FUNC void recomp_entrypoint(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
@@ -611,7 +633,12 @@ L_80000754:
     // 0x8000077C: jal         0x80004CB0
     // 0x80000780: nop
 
-    func_80004CB0(rdram, ctx);
+#if LOD_FIX_EXPAND_SCENE_NODE_POOL
+    // --- PATCH: expand scene-pool minimums, scene4_init ---
+    lod_scene_pools_apply_minimum(ctx);
+    // --- END PATCH ---
+#endif
+    sceneGraphPools_init(rdram, ctx);
         goto after_5;
     // 0x80000780: nop
 
@@ -1316,7 +1343,12 @@ L_80000B78:
     // 0x80000B98: jal         0x80004CB0
     // 0x80000B9C: nop
 
-    func_80004CB0(rdram, ctx);
+#if LOD_FIX_EXPAND_SCENE_NODE_POOL
+    // --- PATCH: expand scene-pool minimums, scene_init ---
+    lod_scene_pools_apply_minimum(ctx);
+    // --- END PATCH ---
+#endif
+    sceneGraphPools_init(rdram, ctx);
         goto after_4;
     // 0x80000B9C: nop
 

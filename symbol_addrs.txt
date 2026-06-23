@@ -148,6 +148,29 @@ save_screen_inner_state4_init = 0x802ED630; // type:func  // map_ovl_34 inner st
 save_screen_inner_state5_update = 0x802ED6C4; // type:func  // map_ovl_34 inner state 5 update, consumes movement/result helper
 save_screen_state3_update  = 0x802ED804; // type:func  // map_ovl_34 save-screen object state 3 handler
 save_screen_outer_state4_bridge = 0x802EDBD8; // type:func  // map_ovl_34 outer state 4 bridge into secondary schedule table
+map_ovl_29_destroy_spawned_child_effects = 0x802E64AC; // type:func  // Tower map callback: destroys spawned child/effect objects
+map_ovl_29_func_802E6750 = 0x802E6750; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E67C0 = 0x802E67C0; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F20
+map_ovl_29_func_802E69B8 = 0x802E69B8; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F24
+map_ovl_29_func_802E6C54 = 0x802E6C54; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E6CC4 = 0x802E6CC4; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F28
+map_ovl_29_func_802E6D3C = 0x802E6D3C; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F2C
+map_ovl_29_func_802E6EE0 = 0x802E6EE0; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F30
+map_ovl_29_func_802E6FE8 = 0x802E6FE8; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F34
+map_ovl_29_func_802E7374 = 0x802E7374; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E73E4 = 0x802E73E4; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F48
+map_ovl_29_func_802E745C = 0x802E745C; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F4C
+map_ovl_29_func_802E763C = 0x802E763C; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F50
+map_ovl_29_func_802E78F4 = 0x802E78F4; // type:func  // Tower hidden callback boundary split, table refs at 0x802E8F38/0x802E8F54
+map_ovl_29_func_802E7938 = 0x802E7938; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E7A18 = 0x802E7A18; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E7A88 = 0x802E7A88; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F8C
+map_ovl_29_func_802E7B00 = 0x802E7B00; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F90
+map_ovl_29_func_802E7CE4 = 0x802E7CE4; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F94
+map_ovl_29_func_802E8020 = 0x802E8020; // type:func  // Tower hidden callback boundary split, table ref at 0x802E8F98
+map_ovl_29_func_802E8060 = 0x802E8060; // type:func  // Tower hidden callback boundary split
+map_ovl_29_func_802E8738 = 0x802E8738; // type:func  // Tower hidden callback boundary split
+map_ovl_29_update_distance_flag = 0x802E8A98; // type:func  // Tower object/player distance flag helper
 
 // Game State Manager
 GameStateMgr_execute       = 0x80000578; // type:func  // root object manager, dispatches scene
@@ -158,7 +181,16 @@ GameStateMgr_dispatch      = 0x80002E3C; // type:func  // consumes manager queue
 scene_init                 = 0x800007B0; // type:func  // scene init, writes scene_arg, loads scene
 object_dispatch_table      = 0x800AD640; // type:data  // per-frame handler dispatch (indexed by template_id)
 object_file_info_table     = 0x800AEA8C; // type:data  // NI file info / creation guard (indexed by template_id)
+sceneGraphPools_init       = 0x80004CB0; // type:func  // initializes scene-node and scene-data pools
+sceneDataPool_contains     = 0x80005484; // type:func  // checks whether a pointer is in the scene data pool
+sceneDataPool_alloc        = 0x800054B0; // type:func  // allocates a 64-byte scene data pool entry
+sceneDataPool_free         = 0x80005530; // type:func  // frees a scene data pool entry
+sceneNode_alloc            = 0x80005574; // type:func  // allocates a 0xB8-byte scene node and optional data entries
+sceneNode_initFromDescriptor = 0x8000572C; // type:func  // initializes a scene node from descriptor tables
+sceneNode_linkChild        = 0x800058A4; // type:func  // links a scene node as a child
+sceneNode_linkSibling      = 0x800058F8; // type:func  // links a scene node through the sibling-style path
 sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
+sceneNode_createLinked     = 0x80005ABC; // type:func  // allocates and links a scene node variant
 sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform
 sceneSelector_write        = 0x80149DE4; // type:func  // writes scene selector record to sys+0x7C
 sceneSelector_update1      = 0x80149BC4; // type:func  // updates scene selector globals
@@ -191,6 +223,13 @@ object_dispatchChild       = 0x8000516C; // type:func  // dispatches single chil
 object_executeChildObject  = 0x80010B84; // type:func  // iterates parent slots, creates child objects
 object_activateChildren    = 0x80010C80; // type:func  // activates deferred children (bit 30 check)
 object_execute             = 0x80010DD4; // type:func  // dispatches object's state function
+
+// Graphics node / display-list emission
+gfx_update_and_draw_root   = 0x800065DC; // type:func  // per-frame graphics root update, then draws root node list
+gfx_emit_node_segment_commands = 0x80006990; // type:func  // emits texture/segment display-list commands for a graphics node
+gfx_emit_node_child_lists  = 0x80007018; // type:func  // emits child/sub display-list commands for a graphics node
+gfx_emit_node_recursive    = 0x800070F0; // type:func  // recursively walks graphics nodes and emits RDP state packets
+gfx_draw_root_node_list    = 0x80008AC8; // type:func  // chooses sorted/root graphics node draw path
 
 // Figure/model hierarchy
 Figure_Update              = 0x8000C914; // type:func  // CV64 Figure_Update match
@@ -277,11 +316,29 @@ bgHandler_active           = 0x80177948; // type:func  // background handler act
 bgHandler_inactive         = 0x80177B4C; // type:func  // background handler inactive path
 ovl47_localDispatch        = 0x8014B300; // type:func  // overlay 47 local state dispatcher
 ovl47_gateProducer         = 0x8014B370; // type:func  // overlay 47 gate producer (increments 0x8019D194)
+vec3_distance              = 0x80147D5C; // type:func  // computes 3D distance between two xyz vectors
 
 // Request bit system
 requestBit_set             = 0x801476FC; // type:func  // sets bit in request word at 0x8019D19C
 requestBit_test            = 0x80147718; // type:func  // tests bit in request word
 requestBit_clear           = 0x80147728; // type:func  // clears bit in request word
+
+// Common interactables (CV64 cross-reference)
+Interactable_Entrypoint = 0x80186DF0; // type:func  // CUTSCENE_INTERACTABLES state dispatcher
+Interactable_Init = 0x80186E60; // type:func  // initializes pickable item/text spot state, model, event flag, and trigger
+Interactable_Main = 0x80187564; // type:func  // idle/update path; advances after object +0x3C interacting flag is set
+Interactable_InitCheck = 0x80187C78; // type:func  // starts item name textbox, White Jewel save prompt, or text spot message
+Interactable_SelectTextboxOption = 0x80187E04; // type:func  // handles White Jewel yes/no and text spot option actions
+Interactable_StopCheck = 0x80188264; // type:func  // waits for save/textbox completion and clears freeze/interacting state
+Interactable_Destroy = 0x8018842C; // type:func  // final item pickup/event-flag destroy path
+Interactable_stopInteraction = 0x801885A4; // type:func  // clears textbox pointer, fade timer, textbox-active flag, and object +0x3C
+Player_getActorCurrentlyInteractingWith = 0x80188730; // type:func  // scans object slots for CUTSCENE_INTERACTABLES and special textboxes
+playerCanInteractWithSpecialTextbox = 0x80188A80; // type:func  // position/facing gate for special textbox objects
+playerCanInteractWithInteractuable = 0x80188B84; // type:func  // position/facing gate for pickable items and text spots
+interactables_getInteractingType = 0x80188E84; // type:func  // returns player interaction action type
+interactables_setInteractingFlag = 0x80188F78; // type:func  // writes object +0x3C when player accepts interaction
+interactable_createWithSettings = 0x80188F84; // type:func  // creates CUTSCENE_INTERACTABLES child and stores settings at object +0x70
+interactable_setPosition = 0x80188FC4; // type:func  // writes interactable position fields
 
 // NI overlay system
 NI_systemInit              = 0x801CB5CC; // type:func  // overlay_system: creates NI file management object

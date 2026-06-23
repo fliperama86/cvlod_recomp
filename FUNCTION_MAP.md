@@ -8,6 +8,16 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 |---------|------|-------------|
 | 0x80000578 | GameStateMgr_execute | Root object manager — dispatches scene via scene_arg |
 | 0x800007B0 | scene_init | Scene init — writes scene_arg, calls scene loader |
+| 0x80004CB0 | sceneGraphPools_init | Initializes scene-node pool (`0xB8` bytes per entry) and scene-data pool |
+| 0x80005484 | sceneDataPool_contains | Checks whether a pointer is inside the scene-data pool span |
+| 0x800054B0 | sceneDataPool_alloc | Allocates a 64-byte scene-data pool entry |
+| 0x80005530 | sceneDataPool_free | Frees a 64-byte scene-data pool entry |
+| 0x80005574 | sceneNode_alloc | Allocates a scene graph node and optional associated scene-data entries |
+| 0x8000572C | sceneNode_initFromDescriptor | Initializes scene graph node fields from descriptor tables |
+| 0x800058A4 | sceneNode_linkChild | Links a scene graph node as a child |
+| 0x800058F8 | sceneNode_linkSibling | Links a scene graph node through the sibling-style path |
+| 0x80005A30 | sceneLookup | Allocates/looks up a scene graph node and links it into the scene |
+| 0x80005ABC | sceneNode_createLinked | Allocates and links a scene graph node variant |
 | 0x80001C20 | object_curLevel_goToNextFunc | Advances the current object schedule level and clears deeper levels |
 | 0x80001C5C | object_prevLevel_goToNextFunc | Advances the previous object schedule level and clears deeper levels |
 | 0x80001C9C | object_nextLevel_goToNextFunc | Advances the next object schedule level and clears deeper levels |
@@ -24,7 +34,6 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80002410 | object_create | Creates object from template ID |
 | 0x80002808 | object_allocEntryInList | Allocates data in object's alloc_data[] array |
 | 0x80002CE0 | object_free | Default destroy function |
-| 0x80005A30 | sceneLookup | Looks up scene state entry from descriptor table |
 | 0x80010B84 | object_executeChildObject | Iterates parent GSS_SLOT entries, creates child objects |
 | 0x80010DD4 | object_execute | Dispatches object's state function |
 | 0x801431CC | sceneStateCopy | Reads alloc_data[15] (+0x70), copies transform data |
@@ -282,6 +291,7 @@ General NI call-table boundary audit:
 - `--fix-syms` splits missing call-table targets that land inside declared functions, using generated `ni_ovl_XXX_func_XXXXXXXX` names. The generalized pass added 166 build-safe NI function-boundary splits after the `ni_ovl_015_knight_clear_motion_substate` fix.
 - Regen now runs the strengthened audit with `--scan-call-tables --fail-on-missing`; future missing internal call targets should fail regeneration before becoming runtime range-fallback bugs.
 - Exclusions are intentionally narrow: `ni118` labels `0x0F0014D8`/`0x0F00150C` make current N64Recomp abort while sizing a local jump table, and `ni120` result labels remain handled by the scoped pair-120 runtime shim.
+- `tools/audit_map_hidden_boundaries.py --fail-on-missing` applies the same class of guard to map overlays. It conservatively reports stack-prologue starts that sit inside an already declared function range and immediately follow a `jr ra` epilogue, then regen fails before those hidden map callbacks can range-fallback to the wrong generated function.
 
 NI pair 15 / Art Tower knight (`actor_id=0x20DD`) notes:
 
@@ -304,6 +314,42 @@ NI pair 15 / Art Tower knight (`actor_id=0x20DD`) notes:
 | 0x0F004628 | ni_ovl_015_knight_close_action_check | Checks close/player-action condition used by a death/interaction path |
 | 0x0F004698 | ni_ovl_015_knight_xz_distance_to_player | Computes XZ distance between the knight and player |
 
+General geometry helper notes:
+
+| Address | Symbol | Notes |
+|---------|--------|-------|
+| 0x80147D5C | vec3_distance | Computes 3D distance between two xyz vectors passed in `a0`/`a1`; used by Tower map object visibility and other scene/model helpers |
+
+Common interactable helper notes:
+
+| Address | Symbol | Notes |
+|---------|--------|-------|
+| 0x80186DF0 | Interactable_Entrypoint | State dispatcher for `CUTSCENE_INTERACTABLES` objects |
+| 0x80186E60 | Interactable_Init | Initializes pickable item/text spot state, model, event flag, and trigger fields |
+| 0x80187564 | Interactable_Main | Idle/update path; advances to interaction handling after object `+0x3C` is set |
+| 0x80187C78 | Interactable_InitCheck | Starts item name textbox, White Jewel save prompt, or text spot message after interaction |
+| 0x80187E04 | Interactable_SelectTextboxOption | Handles White Jewel yes/no and text spot option actions |
+| 0x80188264 | Interactable_StopCheck | Waits for save/textbox completion and clears freeze/interacting state |
+| 0x8018842C | Interactable_Destroy | Final item pickup/event-flag destroy path |
+| 0x801885A4 | Interactable_stopInteraction | Clears textbox pointer, fade timer, textbox-active flag, and object `+0x3C` |
+| 0x80188730 | Player_getActorCurrentlyInteractingWith | Scans object slots for current interactable candidates, including save points and drops using object ID `0x27`; returns the selected actor or deferred textbox/special candidate |
+| 0x80188A80 | playerCanInteractWithSpecialTextbox | Special-textbox interaction gate, matching the CV64 shared-engine helper |
+| 0x80188B84 | playerCanInteractWithInteractuable | Position, trigger, and facing gate for normal interactables; Tower save/drop traces hook this function to distinguish missing candidates from rejected candidates |
+| 0x80188E84 | interactables_getInteractingType | Reads the current interactable type for the selected common interactable |
+| 0x80188F78 | interactables_setInteractingFlag | Sets the object interaction flag at object `+0x3C`; trace hook logs when a selected save/drop candidate is actually flagged |
+| 0x80188F84 | interactable_createWithSettings | Creates a common interactable from settings data |
+| 0x80188FC4 | interactable_setPosition | Copies interactable position data into the object |
+
+Tower of Sorcery map overlay (`map_ovl_29`, ROM `0x007D9790`) notes:
+
+| Address | Symbol | Notes |
+|---------|--------|-------|
+| 0x802E4E9C | map_ovl_29_func_802E4E9C | Generated after removing the old Tower stub; calls `map_ovl_29_update_distance_flag` during per-object update |
+| 0x802E534C | map_ovl_29_func_802E534C | Generated after removing the old Tower stub; animates/positions Tower scene objects and calls `map_ovl_29_update_distance_flag` |
+| 0x802E5418 / 0x802E568C / 0x802E5900 | internal labels inside `map_ovl_29_func_802E534C` | These are internal jump-table labels that depend on the containing function's stack/register state; do not split them as standalone functions |
+| 0x802E6750..0x802E8738 | map_ovl_29_func_* hidden callback splits | Twenty-one conservative map-overlay boundary splits found by `tools/audit_map_hidden_boundaries.py`; many are referenced by the Tower data table at `0x802E8F20..0x802E8F98`. These prevent indirect map callbacks from range-falling back into the earlier containing functions. |
+| 0x802E8A98 | map_ovl_29_update_distance_flag | Compares object position (`obj+0x50`) against the current player/object pointer from `0x801CAC20`, then stores a dynamic draw/object handle at `obj+0x74` when inside the distance gate; widening the original `240.0f` cutoff did not fix the Tower black screen and the experiment was removed |
+
 ## Key Globals
 | Address | Name | Description |
 |---------|------|-------------|
@@ -322,3 +368,19 @@ NI pair 15 / Art Tower knight (`actor_id=0x20DD`) notes:
 | 0x801CAC1C | sys+0x295C | NI system object pointer |
 | 0x8031AC78 | root_object | Root object (scene_arg at +0x24) |
 | 0x8031B42C | save_object | Save screen overlay object (runtime addr, varies) |
+
+## Graphics node / display-list emission
+
+| Address | Name | Notes |
+|---------|------|-------|
+| 0x800065DC | gfx_update_and_draw_root | Per-frame graphics root update, then draws the current root node list from `0x800C1650` |
+| 0x80006990 | gfx_emit_node_segment_commands | Emits texture/segment display-list commands for a graphics node |
+| 0x80007018 | gfx_emit_node_child_lists | Emits child/sub display-list commands for a graphics node |
+| 0x800070F0 | gfx_emit_node_recursive | Recursively walks graphics nodes and emits RDP state packets (`E700`, `FA00`, `FB00`, `F900`, `F800`) |
+| 0x80008AC8 | gfx_draw_root_node_list | Chooses the sorted/root graphics node draw path before falling back to `gfx_emit_node_recursive` |
+
+### Segment-6 CPU alias notes
+
+- CPU MEM_* accesses to game segment pointers `0x06xxxxxx` land in the recomp's KSEG0 mirror at `rdram+0x86000000+offset`.
+- The first Tower fix mirrored active NI overlay data into the low segment-6 CPU alias, but later death/reload/attack crashes reached `0x0603D70C` and guest `0x4603DFBC`, outside the active NI overlay span.
+- `LOD_FIX_SEG6_CPU_ALIAS_GUARD` maps zero-filled 16MB CPU aliases for direct `0x06xxxxxx` and kuseg/TLB `0x46xxxxxx` segment-6 forms so stale or not-yet-populated graphics-node links do not hard-crash. Normal `osMapTLB` segment copies and the NI overlay mirror still overwrite that guard with real data when mappings are known.

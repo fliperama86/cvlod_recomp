@@ -23,6 +23,14 @@
 #define LOD_POST_RDRAM_GUARD_SIZE 0x10000
 #endif
 
+#ifndef LOD_FIX_SEG6_CPU_ALIAS_GUARD
+#define LOD_FIX_SEG6_CPU_ALIAS_GUARD 0
+#endif
+
+#ifndef LOD_SEG6_CPU_ALIAS_GUARD_SIZE
+#define LOD_SEG6_CPU_ALIAS_GUARD_SIZE 0x01000000
+#endif
+
 #ifndef LOD_ENABLE_NATIVE_HIGH_RES
 #define LOD_ENABLE_NATIVE_HIGH_RES 0
 #endif
@@ -465,6 +473,36 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
                 kReportedOsMemSize,
                 LOD_ENABLE_NATIVE_HIGH_RES ? "8MB/native high-res enabled" : "4MB/native high-res disabled");
     }
+
+#if LOD_FIX_SEG6_CPU_ALIAS_GUARD
+    // CPU MEM_* accesses to direct segmented 0x06xxxxxx pointers land at
+    // rdram+0x86000000+offset in the recomp. Tower reload traces also found
+    // stale graphics-node links in the 0x46xxxxxx kuseg/TLB alias, which land at
+    // rdram+0xC6000000+offset if the page is not actively mapped. Normal
+    // osMapTLB handling and the NI overlay loader copy real segment pages over
+    // known mirrors, but stale or late-created graphics-node links can
+    // temporarily point deeper into segment 6 than the currently copied span.
+    // Keep both segment-6 CPU aliases readable and zero-filled so those reads
+    // behave like an empty/open segment instead of a host SIGBUS. This is
+    // intentionally separate from the post-RDRAM KSEG0 guard, and applies
+    // equally on macOS, Linux, and Windows.
+    auto map_zero_segment6_alias = [&](uint64_t alias_offset, const char* label) {
+        constexpr size_t seg6_alias_size = LOD_SEG6_CPU_ALIAS_GUARD_SIZE;
+        uint8_t* seg6_alias = rdram + alias_offset;
+        uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
+        uint8_t* aligned = (uint8_t*)((uintptr_t)seg6_alias & ~page_mask);
+        size_t aligned_size = (seg6_alias + seg6_alias_size - aligned + page_mask) & ~page_mask;
+        int seg6_ret = mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
+        fprintf(stderr, "[mprotect] segment-6 CPU alias guard %s: rdram+0x%08llX size=0x%zX %s\n",
+                label, (unsigned long long)alias_offset, seg6_alias_size,
+                seg6_ret == 0 ? "OK" : "FAILED");
+        if (seg6_ret == 0) {
+            memset(seg6_alias, 0, seg6_alias_size);
+        }
+    };
+    map_zero_segment6_alias(0x86000000ULL, "direct-0x06");
+    map_zero_segment6_alias(0xC6000000ULL, "tlb-0x46");
+#endif
 
     // === ROM byte-swap mapping ===
     // Map the original 16MB ROM (byte-swapped) to rdram+0x10000000.

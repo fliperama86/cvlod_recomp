@@ -2688,7 +2688,7 @@ L_80002DBC:
     // 0x80002DC4: jal         0x80005484
     // 0x80002DC8: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
-    func_80005484(rdram, ctx);
+    sceneDataPool_contains(rdram, ctx);
         goto after_1;
     // 0x80002DC8: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
@@ -2916,7 +2916,7 @@ L_80002EE8:
     // 0x80002EF0: jal         0x80005530
     // 0x80002EF4: and         $a0, $a1, $s5
     ctx->r4 = ctx->r5 & ctx->r21;
-    func_80005530(rdram, ctx);
+    sceneDataPool_free(rdram, ctx);
         goto after_2;
     // 0x80002EF4: and         $a0, $a1, $s5
     ctx->r4 = ctx->r5 & ctx->r21;
