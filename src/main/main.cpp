@@ -33,6 +33,9 @@
 #include <cctype>
 #include <limits.h>
 #include <system_error>
+#include <ctime>
+#include <cstring>
+#include <cerrno>
 #if defined(__APPLE__) || defined(__linux__)
 #include <execinfo.h>
 #endif
@@ -41,6 +44,8 @@
 #include "ultramodern/ultramodern.hpp"
 #define SDL_MAIN_HANDLED
 #ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
 #include "SDL.h"
 #include "SDL_syswm.h"
 #else
@@ -132,6 +137,291 @@ static std::atomic_bool g_rom_validation_busy{false};
 static std::atomic_bool g_rom_game_started{false};
 static int g_argc_for_rom_discovery = 0;
 static char** g_argv_for_rom_discovery = nullptr;
+
+namespace {
+
+#ifdef _WIN32
+using lod_fd_t = int;
+static constexpr lod_fd_t kInvalidFd = -1;
+static int lod_pipe(lod_fd_t fds[2]) { return _pipe(fds, 64 * 1024, _O_BINARY); }
+static lod_fd_t lod_dup(lod_fd_t fd) { return _dup(fd); }
+static int lod_dup2(lod_fd_t src, lod_fd_t dst) { return _dup2(src, dst); }
+static int lod_close(lod_fd_t fd) { return _close(fd); }
+static int lod_read(lod_fd_t fd, void* data, unsigned int len) { return _read(fd, data, len); }
+static int lod_write(lod_fd_t fd, const void* data, unsigned int len) { return _write(fd, data, len); }
+static void lod_short_sleep_ms(unsigned int ms) { Sleep(ms); }
+#ifndef STDOUT_FILENO
+#define STDOUT_FILENO 1
+#endif
+#ifndef STDERR_FILENO
+#define STDERR_FILENO 2
+#endif
+#else
+using lod_fd_t = int;
+static constexpr lod_fd_t kInvalidFd = -1;
+static int lod_pipe(lod_fd_t fds[2]) { return pipe(fds); }
+static lod_fd_t lod_dup(lod_fd_t fd) { return dup(fd); }
+static int lod_dup2(lod_fd_t src, lod_fd_t dst) { return dup2(src, dst) == -1 ? -1 : 0; }
+static int lod_close(lod_fd_t fd) { return close(fd); }
+static ssize_t lod_read(lod_fd_t fd, void* data, size_t len) { return read(fd, data, len); }
+static ssize_t lod_write(lod_fd_t fd, const void* data, size_t len) { return write(fd, data, len); }
+static void lod_short_sleep_ms(unsigned int ms) { usleep(ms * 1000); }
+#endif
+
+static constexpr size_t kDefaultSessionLogMaxKiB = 512;
+static constexpr size_t kMinSessionLogMaxKiB = 64;
+static constexpr size_t kMaxSessionLogMaxKiB = 8192;
+
+struct SessionLogState {
+    std::atomic_bool active{false};
+    lod_fd_t tee_fd = kInvalidFd;
+};
+
+static SessionLogState g_session_log;
+
+static void lod_write_all_fd(lod_fd_t fd, const char* data, size_t len) {
+    if (fd == kInvalidFd || data == nullptr || len == 0) {
+        return;
+    }
+
+    size_t written_total = 0;
+    while (written_total < len) {
+        const size_t remaining = len - written_total;
+#ifdef _WIN32
+        const unsigned int chunk = static_cast<unsigned int>(std::min<size_t>(remaining, 64 * 1024));
+#else
+        const size_t chunk = remaining;
+#endif
+        int written = static_cast<int>(lod_write(fd, data + written_total, chunk));
+        if (written <= 0) {
+            return;
+        }
+        written_total += static_cast<size_t>(written);
+    }
+}
+
+static size_t lod_parse_log_max_kib() {
+    const char* env = std::getenv("LOD_LOG_MAX_KB");
+    if (env == nullptr || env[0] == '\0') {
+        return kDefaultSessionLogMaxKiB;
+    }
+
+    char* end = nullptr;
+    errno = 0;
+    unsigned long value = std::strtoul(env, &end, 10);
+    if (errno != 0 || end == env || (end != nullptr && *end != '\0')) {
+        return kDefaultSessionLogMaxKiB;
+    }
+
+    return std::clamp<size_t>(static_cast<size_t>(value), kMinSessionLogMaxKiB, kMaxSessionLogMaxKiB);
+}
+
+static const char* lod_platform_name() {
+#ifdef _WIN32
+    return "Windows";
+#elif defined(__APPLE__)
+    return "macOS";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "Unknown";
+#endif
+}
+
+static std::string lod_now_string() {
+    std::time_t now = std::time(nullptr);
+    std::tm tm_value{};
+#ifdef _WIN32
+    localtime_s(&tm_value, &now);
+#else
+    localtime_r(&now, &tm_value);
+#endif
+
+    char buffer[64] = {};
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S %Z", &tm_value);
+    return buffer;
+}
+
+static std::string lod_make_session_log_header(const std::filesystem::path& config_path,
+                                               bool portable_mode,
+                                               size_t max_kib) {
+    std::ostringstream out;
+    out << "[LOG] LodRecomp current-session log\n";
+    out << "[LOG] This file is truncated on each launch and keeps the most recent output.\n";
+    out << "[LOG] Version: " << LOD_RECOMP_VERSION << "\n";
+    out << "[LOG] Platform: " << lod_platform_name() << "\n";
+#ifdef NDEBUG
+    out << "[LOG] Build: release\n";
+#else
+    out << "[LOG] Build: debug\n";
+#endif
+    out << "[LOG] Started: " << lod_now_string() << "\n";
+    out << "[LOG] Config path: " << config_path.string() << "\n";
+    out << "[LOG] Portable mode: " << (portable_mode ? "yes" : "no") << "\n";
+    out << "[LOG] Tail cap: " << max_kib << " KiB (override with LOD_LOG_MAX_KB)\n";
+    out << "\n";
+    return out.str();
+}
+
+static void lod_trim_tail_to_cap(std::string& tail, size_t cap_bytes, bool& truncated) {
+    if (tail.size() <= cap_bytes) {
+        return;
+    }
+
+    const size_t drop = tail.size() - cap_bytes;
+    tail.erase(0, drop);
+    truncated = true;
+
+    const size_t newline = tail.find('\n');
+    if (newline != std::string::npos && newline + 1 < tail.size()) {
+        tail.erase(0, newline + 1);
+    }
+}
+
+static bool lod_write_log_snapshot(const std::filesystem::path& path,
+                                   const std::string& header,
+                                   const std::string& tail,
+                                   bool truncated,
+                                   size_t max_kib) {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        return false;
+    }
+
+    out.write(header.data(), static_cast<std::streamsize>(header.size()));
+    if (truncated) {
+        std::ostringstream marker;
+        marker << "[LOG] Older log data omitted, " << max_kib << " KiB session cap reached.\n\n";
+        const std::string marker_text = marker.str();
+        out.write(marker_text.data(), static_cast<std::streamsize>(marker_text.size()));
+    }
+    out.write(tail.data(), static_cast<std::streamsize>(tail.size()));
+    out.flush();
+    return static_cast<bool>(out);
+}
+
+static void lod_session_log_reader(lod_fd_t read_fd,
+                                   lod_fd_t tee_fd,
+                                   std::filesystem::path path,
+                                   std::string header,
+                                   size_t max_kib) {
+    const size_t cap_bytes = max_kib * 1024;
+    std::array<char, 8192> buffer{};
+    std::string tail;
+    bool truncated = false;
+    bool warned_snapshot_failure = false;
+
+    while (true) {
+        auto count = lod_read(read_fd, buffer.data(), static_cast<unsigned int>(buffer.size()));
+        if (count <= 0) {
+            break;
+        }
+
+        const size_t len = static_cast<size_t>(count);
+        lod_write_all_fd(tee_fd, buffer.data(), len);
+
+        if (len >= cap_bytes) {
+            tail.assign(buffer.data() + (len - cap_bytes), buffer.data() + len);
+            truncated = true;
+        } else {
+            tail.append(buffer.data(), len);
+        }
+        lod_trim_tail_to_cap(tail, cap_bytes, truncated);
+
+        if (!lod_write_log_snapshot(path, header, tail, truncated, max_kib) && !warned_snapshot_failure) {
+            warned_snapshot_failure = true;
+            std::ostringstream warning;
+            warning << "[LOG] Failed to update session log at " << path.string()
+                    << "; continuing with console logging only.\n";
+            const std::string warning_text = warning.str();
+            lod_write_all_fd(tee_fd, warning_text.data(), warning_text.size());
+        }
+    }
+
+    lod_close(read_fd);
+}
+
+static void lod_restore_fd(lod_fd_t original_fd, int target_fd) {
+    if (original_fd != kInvalidFd) {
+        lod_dup2(original_fd, target_fd);
+    }
+}
+
+static void lod_start_session_log(const std::filesystem::path& config_path, bool portable_mode) {
+    const size_t max_kib = lod_parse_log_max_kib();
+    const std::filesystem::path log_path = config_path / "LodRecomp.log";
+    const std::string header = lod_make_session_log_header(config_path, portable_mode, max_kib);
+
+    std::error_code ec;
+    std::filesystem::create_directories(config_path, ec);
+    if (ec) {
+        fprintf(stderr,
+                "[LOG] Failed to create log directory %s: %s; continuing without file logging.\n",
+                config_path.string().c_str(), ec.message().c_str());
+        return;
+    }
+
+    if (!lod_write_log_snapshot(log_path, header, "", false, max_kib)) {
+        fprintf(stderr,
+                "[LOG] Failed to open session log %s; continuing with console logging only.\n",
+                log_path.string().c_str());
+        return;
+    }
+
+    lod_fd_t pipe_fds[2] = {kInvalidFd, kInvalidFd};
+    if (lod_pipe(pipe_fds) != 0) {
+        fprintf(stderr,
+                "[LOG] Failed to create log pipe for %s; continuing with console logging only.\n",
+                log_path.string().c_str());
+        return;
+    }
+
+    lod_fd_t original_stdout = lod_dup(STDOUT_FILENO);
+    lod_fd_t original_stderr = lod_dup(STDERR_FILENO);
+    lod_fd_t tee_fd = original_stderr != kInvalidFd ? original_stderr : original_stdout;
+
+    if (lod_dup2(pipe_fds[1], STDOUT_FILENO) != 0 ||
+        lod_dup2(pipe_fds[1], STDERR_FILENO) != 0) {
+        lod_restore_fd(original_stdout, STDOUT_FILENO);
+        lod_restore_fd(original_stderr, STDERR_FILENO);
+        lod_close(pipe_fds[0]);
+        lod_close(pipe_fds[1]);
+        if (original_stdout != kInvalidFd) {
+            lod_close(original_stdout);
+        }
+        if (original_stderr != kInvalidFd) {
+            lod_close(original_stderr);
+        }
+        fprintf(stderr,
+                "[LOG] Failed to redirect output to session log %s; continuing with console logging only.\n",
+                log_path.string().c_str());
+        return;
+    }
+
+    setvbuf(stdout, nullptr, _IONBF, 0);
+    setvbuf(stderr, nullptr, _IONBF, 0);
+
+    lod_close(pipe_fds[1]);
+    g_session_log.tee_fd = tee_fd;
+    g_session_log.active.store(true);
+
+    std::thread reader(lod_session_log_reader, pipe_fds[0], tee_fd, log_path, header, max_kib);
+    reader.detach();
+
+    fprintf(stderr, "[LOG] Current-session log: %s (tail cap %zu KiB)\n",
+            log_path.string().c_str(), max_kib);
+}
+
+static void lod_session_log_crash_delay() {
+    if (!g_session_log.active.load()) {
+        return;
+    }
+    fflush(stdout);
+    fflush(stderr);
+    lod_short_sleep_ms(200);
+}
+
+}
 
 static std::filesystem::path graphics_config_path() {
     return g_config_path / "graphics.json";
@@ -2451,6 +2741,7 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     fprintf(stderr, "\n[CRASH] Exception 0x%08lX at address %p (ip=%p)\n",
             static_cast<unsigned long>(rec->ExceptionCode), fault_addr, rec->ExceptionAddress);
     report_crash_details(fault_addr);
+    lod_session_log_crash_delay();
     _exit(127);
     return EXCEPTION_EXECUTE_HANDLER;
 }
@@ -2467,6 +2758,7 @@ static void crash_handler(int sig, siginfo_t* info, void* ctx) {
     }
 #endif
     report_crash_details(info->si_addr);
+    lod_session_log_crash_delay();
     _exit(128 + sig);
 }
 #endif
@@ -2475,6 +2767,7 @@ static void signal_handler(int sig) {
     fprintf(stderr, "\n[LodRecomp] Caught signal %d, shutting down...\n", sig);
     ultramodern::quit();
     // Give threads a moment to clean up, then force exit
+    lod_session_log_crash_delay();
     std::this_thread::sleep_for(std::chrono::milliseconds(500));
     _exit(0);
 }
@@ -2542,8 +2835,6 @@ int main(int argc, char** argv) {
     if (auto portable_path = find_portable_config_path(argc, argv)) {
         config_path = *portable_path;
         g_portable_mode = true;
-        fprintf(stderr, "[CONFIG] Portable mode enabled: %s\n",
-                config_path.string().c_str());
     } else {
         g_portable_mode = false;
 #ifdef __APPLE__
@@ -2563,7 +2854,19 @@ int main(int argc, char** argv) {
         config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
 #endif
     }
-    std::filesystem::create_directories(config_path);
+    std::error_code config_dir_ec;
+    std::filesystem::create_directories(config_path, config_dir_ec);
+    if (config_dir_ec) {
+        fprintf(stderr, "[CONFIG] Failed to create config directory %s: %s\n",
+                config_path.string().c_str(), config_dir_ec.message().c_str());
+    }
+    lod_start_session_log(config_path, g_portable_mode);
+    if (g_portable_mode) {
+        fprintf(stderr, "[CONFIG] Portable mode enabled: %s\n",
+                config_path.string().c_str());
+    } else {
+        fprintf(stderr, "[CONFIG] Config path: %s\n", config_path.string().c_str());
+    }
     recomp::register_config_path(config_path);
     g_config_path = config_path;
     lod::ui::set_config_path_display(g_config_path.string());

@@ -53,7 +53,10 @@ arrows = D-pad, WASD = analog stick. SDL game controllers are
 supported. Controller Back/Select shows or hides the settings menu;
 Start/Options remains mapped to N64 Start.
 
-Config files are stored in ~/.lodrecomp.
+Config files and the current-session log are stored in ~/.lodrecomp.
+For crash reports, attach ~/.lodrecomp/LodRecomp.log. It is truncated
+on each launch and keeps the most recent 512 KiB by default. Use
+LOD_LOG_MAX_KB=4096 only when asked for a larger debug log.
 For portable mode, create an empty portable.txt next to LodRecomp;
 config files and saves will stay in that same folder.
 

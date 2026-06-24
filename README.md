@@ -108,7 +108,8 @@ The app intentionally looks for `rom.z64` beside `LodRecomp.app` first, so keep 
 
 ### Graphics/settings overlay
 
-The app creates a persistent graphics config at `~/Library/Application Support/LodRecomp/graphics.json` on macOS and `%APPDATA%\LodRecomp\graphics.json` on Windows.
+The app creates persistent settings and a current-session log in its config folder. The log is `LodRecomp.log`, is truncated on each launch, and keeps the most recent 512 KiB of output by default.
+On macOS this is under `~/Library/Application Support/LodRecomp/`; on Windows it is under `%APPDATA%\LodRecomp\`.
 Fresh configs default to `Original2x` internal resolution; existing configs are preserved.
 
 To use portable mode, create an empty `portable.txt` beside `LodRecomp`/`LodRecomp.app`. Config files and saves will be stored in that same folder.
@@ -225,7 +226,7 @@ If no valid `rom.z64` is found, the app opens an in-window ROM Setup screen. Cho
 
 The binary is not code-signed yet, so the first launch may show a SmartScreen "Windows protected your PC" prompt — click **More info → Run anyway**. Verify the download against the SHA256 checksum published in the release notes first.
 
-Config files (`graphics.json`, `controls.json`) are stored in `%APPDATA%\LodRecomp`.
+Config files (`graphics.json`, `controls.json`) and the current-session log (`LodRecomp.log`) are stored in `%APPDATA%\LodRecomp`.
 
 ### Building from source on Windows
 
@@ -390,7 +391,7 @@ When reporting a crash or regression, include:
 - Top-level commit SHA: `git rev-parse HEAD`
 - Submodule SHAs: `git submodule status --recursive`
 - Build flags/CMake options used
-- Full log around `[CRASH]`, `[ni_ovl] WARNING`, `[KSEG0-TRACE]`, or `[KSEG0-DMAMGR]`
+- `LodRecomp.log` from the config folder or portable folder. It is truncated on each launch, keeps a header plus the most recent 512 KiB, and can be enlarged for targeted debugging with `LOD_LOG_MAX_KB=4096`.
 - Whether the run used low-resolution or high-resolution mode
 
 Known current posture is tracked in [`docs/RECOVERY_TO_GAMEPLAY.md`](docs/RECOVERY_TO_GAMEPLAY.md).
