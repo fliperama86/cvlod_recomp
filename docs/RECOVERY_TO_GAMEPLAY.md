@@ -229,11 +229,14 @@ Evidence:
 - The missing lantern-carrying vampire was traced to asset `0x97`: material/root DL `0x0F000D38` belonged to NI pair `57`, but the scene later drew it after pair `91` replaced segment `0x0F`; the validated generalized fallback resolved that stale DL from the saved pair snapshot.
 - The target intro scene was manually confirmed good by the user: lantern vampire visible, table visible, vampire lady stable/no black flicker.
 - The same build also kept the previously affected skull/enemy route fixed according to user confirmation.
+- Issue #20 root-cause follow-up, 2026-06-25: the later Renon/merchant render crash is the same stale NI display-list owner class, not a BranchZ/W issue. Bounded root trace showed normal RDRAM caller DLs such as `caller=0x001BE980` executing `G_DL 0x0F003E80` while the live `0x0F` overlay was pair `30`. At pair 30 offset `0x3E80`, the bytes are MIPS code (`8DF80010 2529799C 3C070F01...`), so RT64 parsed code as GBI and could reach OOB vertex addresses. The valid display list at the same offset belongs to saved pair `26` and starts with valid GBI (`E7000000`, `FC127FFF`, `E200001C`, `DF000000`). The current stale-snapshot fallback therefore fixes the symptom by recovering the right pair owner, but the cleaner long-term model is owner-aware NI display-list resolution rather than only span/bounds checks on the currently loaded overlay.
+- Proper fix follow-up, 2026-06-25: RT64 now uses a shared owner-aware LoD NI display-list resolver for `G_DL`, BranchZ, and BranchW. The resolver decodes `0x0E/0x0F/0x8E/0x8F` targets, accepts live current-pair bytes only when the target starts as active-GBI data and does not look like MIPS code, then searches recent saved NI pair snapshots and accepts only structurally valid DL candidates. Diagnostic validation `/tmp/lod_recomp_logs/issue20_owner_resolver_20260625_223518.log` timed out cleanly, repeatedly resolving `G_DL 0x0F003E80` from live pair `30` to saved pair `26`; the default `build/` target also compiled successfully.
 
 Regression checks:
 
 - Watch the intro lantern/table section: the lantern vampire should be visible during the target shot, the table should render, and nearby characters should not flicker black.
 - If a future intro/model render regression appears, first compare `LOD_FIX_RUN_DL_STALE_NI_FALLBACK=0/1` and `LOD_FIX_INTRO_6C_MODEL38_TLB=0/1` before adding one-off asset remaps.
+- For issue #20-style regressions, inspect `G_DL` caller, target, current pair, and fallback pair first. A target can be inside the current loaded NI span and still be wrong if the display task refers to a previous pair at the same `0x0E/0x0F` offset.
 
 ## Pause Item Menu Rendering Fix (2026-06-06)
 
