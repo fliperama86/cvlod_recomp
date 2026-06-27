@@ -604,7 +604,6 @@ const char* config_tab_name(recompui::ConfigTab tab) {
         case recompui::ConfigTab::Controls: return "Controls";
         case recompui::ConfigTab::Graphics: return "Graphics";
         case recompui::ConfigTab::Sound: return "Audio";
-        case recompui::ConfigTab::Advanced: return "Advanced";
         case recompui::ConfigTab::Mods: return "Mods";
         case recompui::ConfigTab::Debug: return "Debug";
     }
@@ -1126,9 +1125,6 @@ public:
         });
         recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::Sound);
-        });
-        recompui::register_event(listener, "show_advanced_tab", [](const std::string&, Rml::Event&) {
-            recompui::set_config_tab(recompui::ConfigTab::Advanced);
         });
         recompui::register_event(listener, "show_debug_tab", [](const std::string&, Rml::Event&) {
             if (show_debug_tab()) {
@@ -1885,9 +1881,8 @@ int recompui::config_tab_to_index(ConfigTab tab) {
         case ConfigTab::Controls: return 1;
         case ConfigTab::Graphics: return 2;
         case ConfigTab::Sound: return 3;
-        case ConfigTab::Advanced: return 4;
         case ConfigTab::Mods: return 0;
-        case ConfigTab::Debug: return 5;
+        case ConfigTab::Debug: return 4;
     }
     return 0;
 }

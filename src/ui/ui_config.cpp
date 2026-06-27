@@ -34,8 +34,6 @@ int recompui::config_tab_to_index(recompui::ConfigTab tab) {
         return 3;
     case recompui::ConfigTab::Mods:
         return 4;
-    case recompui::ConfigTab::Advanced:
-        return 5;
     case recompui::ConfigTab::Debug:
         return 5;
     default:
