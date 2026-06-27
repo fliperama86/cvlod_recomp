@@ -213,8 +213,8 @@ Display refresh: {{display_refresh_rate}}Hz
                                     </div>
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
                                         <label class="config-option__title">Audio Driver</label>
-                                        <div class="config-option-dropdown">
-                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
+                                        <div class="config-option-dropdown" style="width:420dp">
+                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
                                                 <option value="auto">Auto</option>
                                                 <option value="default">SDL Default</option>
                                                 <option value="wasapi">WASAPI</option>
