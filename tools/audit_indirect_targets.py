@@ -17,8 +17,9 @@ The audit has two complementary scans:
   * The legacy word scan treats aligned words inside the overlay executable
     range as candidate indirect targets.
   * --scan-call-tables follows local MIPS patterns where a table word is loaded
-    and immediately consumed by jalr. This catches callback/state tables in raw
-    data without treating every pointer-looking rodata word as a function.
+    or a constant target is built in a register and immediately consumed by
+    jalr. This catches callback/state tables and code-built helper calls
+    without treating every pointer-looking rodata word as a function.
 
 Use --fix-syms with --scan-call-tables to split proven call-table targets that
 land inside an existing declared function range. The splitter only changes
@@ -53,11 +54,39 @@ PROJECT_DIR = Path(__file__).resolve().parents[1]
 DEFAULT_SYMS = PROJECT_DIR / "castlevania2.syms.toml"
 DEFAULT_RAW_DIR = PROJECT_DIR / "tools" / "ni_ovl" / "out" / "raw"
 
-# Targets that look like jalr call-table entries but are unsafe to auto-split
-# with the current N64Recomp. Keep this list tiny and documented: every entry is
-# still visible in raw data, but adding a boundary there currently prevents the
-# generator from reaching the normal truncation/repair point.
-CALL_TABLE_TARGET_EXCLUDES = {
+# Targets that look like jalr-driven indirect call entries but are unsafe to
+# auto-split with the current N64Recomp. Keep this list documented: every entry
+# is still visible in raw/code data, but adding a boundary there currently
+# prevents the generator from reaching the normal truncation/repair point or
+# leaves unresolved generated static_* helpers at link time.
+INDIRECT_TARGET_EXCLUDES = {
+    # Existing constant-jalr helpers found by the generalized audit on
+    # 2026-06-26. Splitting this full set caused N64Recomp to abort early at
+    # static_54_0F0024E4 and left many unresolved static_* helpers. Leave these
+    # excluded until the generator/fixer can handle the broader split set.
+    (0, 0x0F00243C),
+    (0, 0x0F00659C),
+    (0, 0x0F0075B0),
+    (1, 0x0F0044DC),
+    (4, 0x0F00A5D0),
+    (4, 0x0F00A7D4),
+    (4, 0x0F00B4B8),
+    (5, 0x0F00723C),
+    (5, 0x0F0073F4),
+    (5, 0x0F008364),
+    (5, 0x0F00BC7C),
+    (6, 0x0F00409C),
+    (6, 0x0F0040EC),
+    (6, 0x0F005418),
+    (6, 0x0F006364),
+    (6, 0x0F00707C),
+    (6, 0x0F00712C),
+    (38, 0x0F008A8C),
+    (39, 0x0F001040),
+    (61, 0x0F007634),
+    (71, 0x0F009CEC),
+    (71, 0x0F00A0A0),
+
     # ni118 has tiny branch-label targets inside ni_ovl_118_func_0F0013A4.
     # Splitting either one causes N64Recomp to abort early while sizing the
     # local jump table at 0x0F001A70 for instruction 0x0F0014D0, leaving later
@@ -114,8 +143,8 @@ def parse_args() -> argparse.Namespace:
                               "restricted to the executable text range. This is intentionally "
                               "broad/noisy; prefer --scan-call-tables for callback tables."))
     parser.add_argument("--scan-call-tables", action="store_true",
-                        help=("Also scan local MIPS jalr call-table patterns and audit the "
-                              "raw-data function pointers they consume."))
+                        help=("Also scan local MIPS jalr call-table and constant-target "
+                              "patterns, then audit the function pointers they consume."))
     parser.add_argument("--fix-syms", action="store_true",
                         help=("Update castlevania2.syms.toml by splitting missing call-table "
                               "targets that land inside existing functions. Implies "
@@ -457,7 +486,7 @@ def scan_call_table_refs(pair: int, section: dict[str, Any], raw_path: Path,
             continue
 
         for table_site, target in entries:
-            if (pair, target) in CALL_TABLE_TARGET_EXCLUDES:
+            if (pair, target) in INDIRECT_TARGET_EXCLUDES:
                 continue
             if only_targets is not None and target not in only_targets:
                 continue
@@ -497,6 +526,75 @@ def scan_call_table_refs(pair: int, section: dict[str, Any], raw_path: Path,
         row["containing_end"] = containing[1] if containing else None
         row["calls"] = sorted(row["calls"])[:8]
         row["table_bases"] = sorted(row["table_bases"])[:8]
+        missing.append(row)
+
+    return missing
+
+
+def scan_const_jalr_refs(pair: int, section: dict[str, Any], raw_path: Path,
+                         only_targets: set[int] | None = None) -> list[dict[str, Any]]:
+    vram = int(section["vram"])
+    size = int(section["size"])
+    functions, known_starts, known_ranges = known_function_data(section)
+
+    data = raw_path.read_bytes()
+    text_size = min(size, len(data))
+    text_end = vram + text_size
+    instrs = [struct.unpack_from(">I", data, raw_off)[0]
+              for raw_off in range(0, max(0, text_size - 3), 4)]
+    start_indices = function_start_indices(vram, len(instrs), functions)
+
+    refs: dict[int, dict[str, Any]] = {}
+    for index, ins in enumerate(instrs):
+        d = decode(ins)
+        if d["op"] != 0 or d["fn"] != 0x09:  # jalr
+            continue
+
+        call_site = vram + index * 4
+        target_value = resolve_reg_value(instrs, d["rs"], index, start_indices[index])
+        if target_value.kind != "const" or target_value.value is None:
+            continue
+
+        target = target_value.value
+        if target % 4 != 0 or not (vram <= target < text_end):
+            continue
+        if (pair, target) in INDIRECT_TARGET_EXCLUDES:
+            continue
+        if only_targets is not None and target not in only_targets:
+            continue
+        if target in known_starts:
+            continue
+        if not candidate_is_code(data, vram, target):
+            continue
+
+        row = refs.setdefault(target, {
+            "source": "const-jalr",
+            "pair": pair,
+            "target": target,
+            "refs": 0,
+            "sites": [],
+            "site_regions": [],
+            "calls": [],
+            "table_bases": [],
+            "words": words_at(data, target - vram),
+            "containing": None,
+            "containing_start": None,
+            "containing_end": None,
+        })
+        row["refs"] += 1
+        if call_site not in row["sites"] and len(row["sites"]) < 8:
+            row["sites"].append(call_site)
+            row["site_regions"].append("const-jalr")
+        if call_site not in row["calls"]:
+            row["calls"].append(call_site)
+
+    missing: list[dict[str, Any]] = []
+    for target, row in sorted(refs.items()):
+        containing = containing_function(target, known_ranges)
+        row["containing"] = containing[2] if containing else None
+        row["containing_start"] = containing[0] if containing else None
+        row["containing_end"] = containing[1] if containing else None
+        row["calls"] = sorted(row["calls"])[:8]
         missing.append(row)
 
     return missing
@@ -579,7 +677,7 @@ def fix_syms(syms_path: Path, syms: dict[str, Any], sections: list[dict[str, Any
     targets_by_pair: dict[int, set[int]] = {}
     skipped: list[dict[str, Any]] = []
     for row in missing:
-        if row["source"] != "call-table":
+        if row["source"] not in ("call-table", "const-jalr"):
             continue
         if row["containing_start"] is None:
             skipped.append(row)
@@ -587,7 +685,7 @@ def fix_syms(syms_path: Path, syms: dict[str, Any], sections: list[dict[str, Any
         targets_by_pair.setdefault(row["pair"], set()).add(row["target"])
 
     if not targets_by_pair:
-        print("[audit_indirect_targets] No call-table internal targets need syms splits.")
+        print("[audit_indirect_targets] No indirect internal targets need syms splits.")
         return 0
 
     text = syms_path.read_text()
@@ -602,7 +700,7 @@ def fix_syms(syms_path: Path, syms: dict[str, Any], sections: list[dict[str, Any
         text = replace_section_functions_block(text, pair, updated_functions)
         total_added += added
         section["functions"] = updated_functions
-        print(f"[audit_indirect_targets] ni_ovl_{pair:03d}: split {added} call-table target(s)")
+        print(f"[audit_indirect_targets] ni_ovl_{pair:03d}: split {added} indirect target(s)")
 
     syms_path.write_text(text)
     if skipped:
@@ -627,10 +725,13 @@ def print_missing(missing: list[dict[str, Any]], limit: int, scan_full_raw: bool
         words = " ".join(f"{word:08X}" for word in row["words"])
         containing = row["containing"] or "(no containing declared function)"
         extras = ""
-        if row["source"] == "call-table":
+        if row["source"] in ("call-table", "const-jalr"):
             calls = ", ".join(f"0x{call:08X}" for call in row["calls"])
             bases = ", ".join(f"0x{base:08X}" for base in row["table_bases"])
-            extras = f" calls=[{calls}] tables=[{bases}]"
+            if row["source"] == "call-table":
+                extras = f" calls=[{calls}] tables=[{bases}]"
+            else:
+                extras = f" calls=[{calls}]"
         print(
             f"  ni_ovl_{row['pair']:03d} source={row['source']} target=0x{row['target']:08X} "
             f"refs={row['refs']} sites=[{sites}] containing={containing}{extras} words=[{words}]"
@@ -666,12 +767,16 @@ def main() -> int:
         if args.fix_syms:
             missing_rows.extend(scan_call_table_refs(entry["pair"], entry["section"], entry["raw_path"],
                                                      only_targets=only_targets))
+            missing_rows.extend(scan_const_jalr_refs(entry["pair"], entry["section"], entry["raw_path"],
+                                                     only_targets=only_targets))
         else:
             missing_rows.extend(scan_word_refs(entry["pair"], entry["section"], entry["raw_path"],
                                                scan_full_raw=args.scan_full_raw,
                                                only_targets=only_targets))
             if args.scan_call_tables:
                 missing_rows.extend(scan_call_table_refs(entry["pair"], entry["section"], entry["raw_path"],
+                                                         only_targets=only_targets))
+                missing_rows.extend(scan_const_jalr_refs(entry["pair"], entry["section"], entry["raw_path"],
                                                          only_targets=only_targets))
 
     missing = merge_missing(missing_rows)
@@ -688,7 +793,7 @@ def main() -> int:
     if not missing:
         scope = "full raw blobs" if args.scan_full_raw else "executable ranges"
         if args.scan_call_tables:
-            scope += " + call tables"
+            scope += " + call tables/const jalr"
         target_note = ""
         if only_targets:
             target_note = " for target(s) " + ", ".join(f"0x{target:08X}" for target in sorted(only_targets))
