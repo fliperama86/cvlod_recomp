@@ -147,6 +147,43 @@ static LodCommandLineOptions g_cli_options;
 namespace {
 
 #ifdef _WIN32
+static std::string lod_ascii_lower(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+static std::string lod_trim_ascii(std::string value) {
+    auto is_space = [](unsigned char ch) {
+        return std::isspace(ch) != 0;
+    };
+    value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), is_space));
+    value.erase(std::find_if_not(value.rbegin(), value.rend(), is_space).base(), value.end());
+    return value;
+}
+
+static void lod_configure_windows_audio_driver() {
+    // SDL queued audio can crackle with DirectSound on affected Windows systems.
+    // Keep explicit non-DirectSound overrides for diagnostics, but recover the
+    // known bad/missing cases before any SDL subsystem has a chance to touch audio.
+    const char* raw_driver = SDL_getenv("SDL_AUDIODRIVER");
+    const std::string configured_driver = raw_driver != nullptr ? lod_trim_ascii(raw_driver) : "";
+    const std::string configured_driver_lower = lod_ascii_lower(configured_driver);
+    if (configured_driver.empty() || configured_driver_lower == "directsound") {
+        SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
+        const char* previous_driver =
+            raw_driver == nullptr ? "(unset)" : (configured_driver.empty() ? "(empty)" : configured_driver.c_str());
+        fprintf(stderr,
+                "[AUDIO] Windows SDL audio driver default: %s -> wasapi\n",
+                previous_driver);
+    } else {
+        fprintf(stderr,
+                "[AUDIO] Windows SDL audio driver override: %s\n",
+                configured_driver.c_str());
+    }
+}
+
 using lod_fd_t = int;
 static constexpr lod_fd_t kInvalidFd = -1;
 static int lod_pipe(lod_fd_t fds[2]) { return _pipe(fds, 64 * 1024, _O_BINARY); }
@@ -2982,6 +3019,10 @@ static std::optional<std::filesystem::path> find_portable_config_path(int argc, 
 }
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+    lod_configure_windows_audio_driver();
+#endif
+
     LodCommandLineParseResult cli_parse = lod_parse_command_line(argc, argv);
     if (!cli_parse.error.empty()) {
         fprintf(stderr, "[CONFIG] %s\n\n", cli_parse.error.c_str());
@@ -3085,13 +3126,6 @@ int main(int argc, char** argv) {
             audio_config.master_volume,
             audio_config.mute ? "on" : "off",
             audio_config_path().string().c_str());
-
-#ifdef _WIN32
-    // Prefer WASAPI on Windows; SDL queued audio can crackle with DirectSound.
-    if (SDL_getenv("SDL_AUDIODRIVER") == nullptr) {
-        SDL_setenv("SDL_AUDIODRIVER", "wasapi", false);
-    }
-#endif
 
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(48000);
