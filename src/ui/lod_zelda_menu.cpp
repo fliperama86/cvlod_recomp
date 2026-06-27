@@ -1515,23 +1515,27 @@ public:
                 g_audio_status = "Audio driver saved. Restart LodRecomp for the new backend to take effect.";
                 dirty_config();
             });
-        constructor.BindFunc("audio_driver_wasapi_supported", [](Rml::Variant& out) {
-            out = lod::settings::audio_driver_setting_supported("wasapi");
+        constructor.BindFunc("audio_driver_windows_platform", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("wasapi") ||
+                  lod::settings::audio_driver_setting_supported("directsound");
         });
-        constructor.BindFunc("audio_driver_directsound_supported", [](Rml::Variant& out) {
-            out = lod::settings::audio_driver_setting_supported("directsound");
-        });
-        constructor.BindFunc("audio_driver_pulseaudio_supported", [](Rml::Variant& out) {
-            out = lod::settings::audio_driver_setting_supported("pulseaudio");
-        });
-        constructor.BindFunc("audio_driver_pipewire_supported", [](Rml::Variant& out) {
-            out = lod::settings::audio_driver_setting_supported("pipewire");
-        });
-        constructor.BindFunc("audio_driver_alsa_supported", [](Rml::Variant& out) {
-            out = lod::settings::audio_driver_setting_supported("alsa");
-        });
-        constructor.BindFunc("audio_driver_coreaudio_supported", [](Rml::Variant& out) {
+        constructor.BindFunc("audio_driver_macos_platform", [](Rml::Variant& out) {
             out = lod::settings::audio_driver_setting_supported("coreaudio");
+        });
+        constructor.BindFunc("audio_driver_linux_platform", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("pulseaudio") ||
+                  lod::settings::audio_driver_setting_supported("pipewire") ||
+                  lod::settings::audio_driver_setting_supported("alsa");
+        });
+        constructor.BindFunc("audio_driver_default_platform", [](Rml::Variant& out) {
+            const bool known_platform =
+                lod::settings::audio_driver_setting_supported("wasapi") ||
+                lod::settings::audio_driver_setting_supported("directsound") ||
+                lod::settings::audio_driver_setting_supported("coreaudio") ||
+                lod::settings::audio_driver_setting_supported("pulseaudio") ||
+                lod::settings::audio_driver_setting_supported("pipewire") ||
+                lod::settings::audio_driver_setting_supported("alsa");
+            out = !known_platform;
         });
         constructor.BindFunc("audio_backend_status", [](Rml::Variant& out) {
             out = audio_backend_status();

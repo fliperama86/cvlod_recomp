@@ -205,24 +205,45 @@ Display refresh: {{display_refresh_rate}}Hz
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(1)">
                                         <label class="config-option__title">Mute</label>
                                         <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="Off" id="lod_audio_mute_off" style="nav-up:#audio_main_volume; nav-down:#lod_audio_driver_auto" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="Off" id="lod_audio_mute_off" style="nav-up:#audio_main_volume; nav-down:#lod_audio_driver_select" />
                                             <label class="config-option__tab-label" for="lod_audio_mute_off">Off</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="On" id="lod_audio_mute_on" style="nav-up:#audio_main_volume; nav-down:#lod_audio_driver_auto" />
+                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(1)" name="audio_mute" data-checked="audio_mute_mode" value="On" id="lod_audio_mute_on" style="nav-up:#audio_main_volume; nav-down:#lod_audio_driver_select" />
                                             <label class="config-option__tab-label" for="lod_audio_mute_on">On</label>
                                         </div>
                                     </div>
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
                                         <label class="config-option__title">Audio Driver</label>
-                                        <div class="config-option-dropdown" style="width:420dp; flex:0 0 auto; margin-top:12dp">
+                                        <div class="config-option-dropdown" data-if="audio_driver_windows_platform" style="width:420dp; flex:0 0 auto; margin-top:12dp">
                                             <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; flex:0 0 auto; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
                                                 <option value="auto">Auto</option>
                                                 <option value="default">SDL Default</option>
-                                                <option data-if="audio_driver_wasapi_supported" value="wasapi">WASAPI</option>
-                                                <option data-if="audio_driver_directsound_supported" value="directsound">DirectSound</option>
-                                                <option data-if="audio_driver_pulseaudio_supported" value="pulseaudio">PulseAudio</option>
-                                                <option data-if="audio_driver_pipewire_supported" value="pipewire">PipeWire</option>
-                                                <option data-if="audio_driver_alsa_supported" value="alsa">ALSA</option>
-                                                <option data-if="audio_driver_coreaudio_supported" value="coreaudio">CoreAudio</option>
+                                                <option value="wasapi">WASAPI</option>
+                                                <option value="directsound">DirectSound</option>
+                                                <option value="dummy">Dummy</option>
+                                            </select>
+                                        </div>
+                                        <div class="config-option-dropdown" data-if="audio_driver_macos_platform" style="width:420dp; flex:0 0 auto; margin-top:12dp">
+                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; flex:0 0 auto; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
+                                                <option value="auto">Auto</option>
+                                                <option value="default">SDL Default</option>
+                                                <option value="coreaudio">CoreAudio</option>
+                                                <option value="dummy">Dummy</option>
+                                            </select>
+                                        </div>
+                                        <div class="config-option-dropdown" data-if="audio_driver_linux_platform" style="width:420dp; flex:0 0 auto; margin-top:12dp">
+                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; flex:0 0 auto; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
+                                                <option value="auto">Auto</option>
+                                                <option value="default">SDL Default</option>
+                                                <option value="pulseaudio">PulseAudio</option>
+                                                <option value="pipewire">PipeWire</option>
+                                                <option value="alsa">ALSA</option>
+                                                <option value="dummy">Dummy</option>
+                                            </select>
+                                        </div>
+                                        <div class="config-option-dropdown" data-if="audio_driver_default_platform" style="width:420dp; flex:0 0 auto; margin-top:12dp">
+                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; flex:0 0 auto; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
+                                                <option value="auto">Auto</option>
+                                                <option value="default">SDL Default</option>
                                                 <option value="dummy">Dummy</option>
                                             </select>
                                         </div>
