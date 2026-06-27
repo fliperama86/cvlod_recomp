@@ -211,6 +211,7 @@ Regression checks:
 
 - Test setup note: because `build/portable.txt` exists next to `build/LodRecomp.app`, both `open build/LodRecomp.app` and trace runs launched with cwd `build/` use portable settings/saves under `build/`. Do not replace these from `~/Library/Application Support/LodRecomp` unless explicitly testing the non-portable app-support profile.
 - Keep the user repro save/settings under the portable build directory being tested (`build/`, `build-tower-trace/`, or `build-tower-cfb/`), not app-support, unless explicitly testing non-portable launch.
+- CLI save overrides are available for repro isolation: `--save-path <file>` uses an exact save file, while `--save-dir <dir>` uses `<dir>/<game_id>.bin`. Use these instead of copying reporter saves between global and portable profiles when possible.
 - Write local/test logs under `/tmp/lod_recomp_logs` or another temporary directory, not the user's Desktop.
 - Next validation should run `./build/LodRecomp` from the Tower repro save, try save points and dropped items when interaction works and fails, then inspect `/tmp/lod_recomp_logs/tower_interact_trace.log` for `[INTERACT_TRACE]` and `[INTERACT_STATE]`.
 
@@ -443,6 +444,7 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT` | off | Debug-only controller/PIF input to load a save, open pause, and select Item for menu-rendering repros | Use with CFB snapshots for pause/item menu regressions |
 | `LOD_ENABLE_PAUSE_ITEM_TRACE` | off | Debug-only pause/item NI overlay and text-object tracing | Enable only when item-menu state or text creation regresses |
 | `LOD_ENABLE_CFB_SNAPSHOT` | off | Debug-only internal VI color framebuffer PPM snapshots | Use for visual regressions where OS screenshots are unreliable |
+| `LOD_CHEAT_INFINITE_HEALTH` | off | Runtime env-var cheat for repro survival; applies LoD USA GameShark-equivalent `811CAB3A 2AF8` once per VI without changing recompiled code | Use only for boss/crash route reproduction when dying blocks investigation |
 | `LOD_POST_RDRAM_GUARD_SIZE` | `0x10000` | CMake cache variable for the zero-filled post-RDRAM guard at `rdram+0x80800000`; `0x20000` survived one 180s fast-idle diagnostic run | Keep default at `0x10000`; A/B test `0x20000` when validating open-bus/guard-width hypothesis |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; never a permanent fix | Use only for downstream comparison, never as baseline |
 

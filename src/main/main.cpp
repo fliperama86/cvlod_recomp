@@ -135,8 +135,14 @@ static std::atomic<int> g_audio_master_volume_percent{100};
 static std::atomic_bool g_audio_muted{false};
 static std::atomic_bool g_rom_validation_busy{false};
 static std::atomic_bool g_rom_game_started{false};
-static int g_argc_for_rom_discovery = 0;
-static char** g_argv_for_rom_discovery = nullptr;
+
+struct LodCommandLineOptions {
+    std::optional<std::filesystem::path> rom_path;
+    std::optional<std::filesystem::path> save_path;
+    std::optional<std::filesystem::path> save_dir;
+};
+
+static LodCommandLineOptions g_cli_options;
 
 namespace {
 
@@ -1591,7 +1597,7 @@ ultramodern::renderer::WindowHandle create_window(ultramodern::gfx_callbacks_t::
 #endif
 }
 
-static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path);
+static void handle_rom_setup_requests(const std::filesystem::path& config_path);
 
 #ifdef LOD_USE_ZELDA_MENU
 static bool zelda_ui_trace_enabled() {
@@ -1726,7 +1732,7 @@ void update_gfx(void*) {
     zelda64::process_pending_file_dialogs();
 #endif
 
-    handle_rom_setup_requests(g_argc_for_rom_discovery, g_argv_for_rom_discovery, g_config_path);
+    handle_rom_setup_requests(g_config_path);
 }
 
 // ── Audio ───────────────────────────────────────────────────────────
@@ -2358,6 +2364,54 @@ static std::string ascii_lower(std::string value) {
     return value;
 }
 
+static bool lod_env_flag_enabled(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return false;
+    }
+
+    std::string normalized = ascii_lower(value);
+    return normalized != "0" && normalized != "false" && normalized != "off" && normalized != "no";
+}
+
+// Declared in overlays.cpp. Set during lod_on_init once RDRAM exists.
+extern uint8_t* rdram_ptr_for_debug;
+
+static bool lod_infinite_health_cheat_enabled() {
+    static const bool enabled = lod_env_flag_enabled("LOD_CHEAT_INFINITE_HEALTH");
+    return enabled;
+}
+
+static void lod_write_guest_u16(uint8_t* rdram, uint32_t guest_addr, uint16_t value) {
+    constexpr uint32_t rdram_size = 0x00800000;
+    uint32_t phys = guest_addr & 0x1FFFFFFF;
+    if (phys + sizeof(uint16_t) > rdram_size) {
+        return;
+    }
+
+    *reinterpret_cast<uint16_t*>(rdram + (phys ^ 2)) = value;
+}
+
+static void lod_debug_cheats_vi_callback() {
+    if (!lod_infinite_health_cheat_enabled()) {
+        return;
+    }
+
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+
+    // GameShark/Action Replay "Infinite Energy" for LoD USA:
+    // 811CAB3A 2AF8. Re-apply every VI just like the original cheat device.
+    lod_write_guest_u16(rdram, 0x801CAB3Au, 0x2AF8u);
+    static bool logged = false;
+    if (!logged) {
+        fprintf(stderr, "[CHEAT] Infinite health applied at 0x801CAB3A\n");
+        logged = true;
+    }
+}
+
 static bool is_n64_rom_path(const std::filesystem::path& path) {
     std::string ext = ascii_lower(path.extension().string());
     return ext == ".z64" || ext == ".n64" || ext == ".v64";
@@ -2471,11 +2525,10 @@ static std::filesystem::path prompt_for_rom_path() {
     return selected;
 }
 
-static std::filesystem::path discover_rom_path(int argc, char** argv,
-                                               const std::filesystem::path& config_path) {
+static std::filesystem::path discover_rom_path(const std::filesystem::path& config_path) {
     // Check command line argument first
-    if (argc > 1) {
-        return std::filesystem::path(argv[1]);
+    if (g_cli_options.rom_path.has_value()) {
+        return *g_cli_options.rom_path;
     }
 
     // Release/default path: keep runtime setup simple for testers.
@@ -2580,7 +2633,7 @@ static void start_rom_validation_thread(std::filesystem::path rom_path, bool per
     }).detach();
 }
 
-static void retry_rom_discovery(int argc, char** argv, const std::filesystem::path& config_path) {
+static void retry_rom_discovery(const std::filesystem::path& config_path) {
     if (g_rom_validation_busy.load(std::memory_order_relaxed) ||
         g_rom_game_started.load(std::memory_order_relaxed)) {
         return;
@@ -2589,7 +2642,7 @@ static void retry_rom_discovery(int argc, char** argv, const std::filesystem::pa
     lod::ui::set_rom_setup_status("Searching",
         "Checking command-line, portable, stored, and local ROM paths...",
         "None selected", true);
-    std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
+    std::filesystem::path rom_path = discover_rom_path(config_path);
     if (rom_path.empty()) {
         lod::ui::set_rom_setup_status("Missing",
             "No valid ROM path was found automatically. Select your ROM file to start.",
@@ -2600,7 +2653,7 @@ static void retry_rom_discovery(int argc, char** argv, const std::filesystem::pa
     start_rom_validation_thread(std::move(rom_path), false, "retry discovery");
 }
 
-static void handle_rom_setup_requests(int argc, char** argv, const std::filesystem::path& config_path) {
+static void handle_rom_setup_requests(const std::filesystem::path& config_path) {
     switch (lod::ui::consume_rom_setup_request()) {
         case lod::ui::RomSetupRequest::None:
             return;
@@ -2624,7 +2677,7 @@ static void handle_rom_setup_requests(int argc, char** argv, const std::filesyst
             return;
         }
         case lod::ui::RomSetupRequest::Retry:
-            retry_rom_discovery(argc, argv, config_path);
+            retry_rom_discovery(config_path);
             return;
         case lod::ui::RomSetupRequest::Help:
             return;
@@ -2669,7 +2722,6 @@ static void validate_rom_for_zelda_launcher(const std::filesystem::path& rom_pat
 extern uint32_t trace_ring[];
 extern int trace_ring_pos;
 extern int trace_total;
-extern uint8_t* rdram_ptr_for_debug;
 
 extern "C" {
 LodKseg0FaultTraceSnapshot lod_kseg0_fault_trace_snapshot = {};
@@ -2779,6 +2831,125 @@ static bool lod_path_exists(const std::filesystem::path& path) {
     return std::filesystem::exists(path, ec);
 }
 
+struct LodCommandLineParseResult {
+    LodCommandLineOptions options;
+    bool help_requested = false;
+    std::string error;
+};
+
+static bool lod_has_prefix(const std::string& value, const char* prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+static std::filesystem::path lod_make_cli_path_absolute(std::filesystem::path path) {
+    if (path.is_relative()) {
+        std::error_code ec;
+        std::filesystem::path cwd = std::filesystem::current_path(ec);
+        if (!ec) {
+            path = cwd / path;
+        }
+    }
+    return path.lexically_normal();
+}
+
+static void lod_print_command_line_usage(const char* exe_name, FILE* stream) {
+    const char* exe = (exe_name != nullptr && exe_name[0] != '\0') ? exe_name : "LodRecomp";
+    fprintf(stream,
+        "Usage: %s [rom.z64] [--save-path PATH | --save-dir DIR]\n"
+        "\n"
+        "Options:\n"
+        "  --save-path PATH   Use an exact save file path.\n"
+        "  --save-dir DIR     Store the save as DIR/castlevania2.n64.us.bin.\n"
+        "  -h, --help         Show this help text.\n",
+        exe);
+}
+
+static LodCommandLineParseResult lod_parse_command_line(int argc, char** argv) {
+    LodCommandLineParseResult result;
+    bool positional_only = false;
+
+    auto read_path_value = [&](int& i, const char* option_name,
+                               std::optional<std::filesystem::path>& destination) -> bool {
+        if (i + 1 >= argc || argv[i + 1] == nullptr || argv[i + 1][0] == '\0') {
+            result.error = std::string(option_name) + " requires a path argument";
+            return false;
+        }
+        destination = lod_make_cli_path_absolute(std::filesystem::path(argv[++i]));
+        return true;
+    };
+
+    auto set_path_value = [&](const char* option_name, const std::string& value,
+                              std::optional<std::filesystem::path>& destination) -> bool {
+        if (value.empty()) {
+            result.error = std::string(option_name) + " requires a non-empty path argument";
+            return false;
+        }
+        destination = lod_make_cli_path_absolute(std::filesystem::path(value));
+        return true;
+    };
+
+    for (int i = 1; i < argc; i++) {
+        if (argv[i] == nullptr || argv[i][0] == '\0') {
+            continue;
+        }
+
+        std::string arg(argv[i]);
+        if (!positional_only) {
+            if (arg == "--") {
+                positional_only = true;
+                continue;
+            }
+            if (arg == "-h" || arg == "--help") {
+                result.help_requested = true;
+                continue;
+            }
+            if (arg == "--save-path") {
+                if (!read_path_value(i, "--save-path", result.options.save_path)) {
+                    return result;
+                }
+                continue;
+            }
+            if (arg == "--save-dir") {
+                if (!read_path_value(i, "--save-dir", result.options.save_dir)) {
+                    return result;
+                }
+                continue;
+            }
+            constexpr const char* save_path_prefix = "--save-path=";
+            constexpr const char* save_dir_prefix = "--save-dir=";
+            if (lod_has_prefix(arg, save_path_prefix)) {
+                if (!set_path_value("--save-path", arg.substr(std::strlen(save_path_prefix)), result.options.save_path)) {
+                    return result;
+                }
+                continue;
+            }
+            if (lod_has_prefix(arg, save_dir_prefix)) {
+                if (!set_path_value("--save-dir", arg.substr(std::strlen(save_dir_prefix)), result.options.save_dir)) {
+                    return result;
+                }
+                continue;
+            }
+            if (!arg.empty() && arg[0] == '-') {
+                result.error = "Unknown command-line option: " + arg;
+                return result;
+            }
+        }
+
+        if (!result.options.rom_path.has_value()) {
+            result.options.rom_path = lod_make_cli_path_absolute(std::filesystem::path(arg));
+        } else {
+            result.error = "Unexpected extra command-line argument: " + arg;
+            return result;
+        }
+    }
+
+    if (result.options.save_path.has_value() && result.options.save_dir.has_value()) {
+        result.error = "Pass only one of --save-path or --save-dir";
+    }
+
+    return result;
+}
+
 static std::optional<std::filesystem::path> find_portable_config_path(int argc, char** argv) {
     std::vector<std::filesystem::path> candidate_dirs;
 
@@ -2811,8 +2982,17 @@ static std::optional<std::filesystem::path> find_portable_config_path(int argc, 
 }
 
 int main(int argc, char** argv) {
-    g_argc_for_rom_discovery = argc;
-    g_argv_for_rom_discovery = argv;
+    LodCommandLineParseResult cli_parse = lod_parse_command_line(argc, argv);
+    if (!cli_parse.error.empty()) {
+        fprintf(stderr, "[CONFIG] %s\n\n", cli_parse.error.c_str());
+        lod_print_command_line_usage(argc > 0 ? argv[0] : nullptr, stderr);
+        return EXIT_FAILURE;
+    }
+    if (cli_parse.help_requested) {
+        lod_print_command_line_usage(argc > 0 ? argv[0] : nullptr, stdout);
+        return EXIT_SUCCESS;
+    }
+    g_cli_options = std::move(cli_parse.options);
 
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
@@ -2867,7 +3047,19 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "[CONFIG] Config path: %s\n", config_path.string().c_str());
     }
+    if (lod_infinite_health_cheat_enabled()) {
+        fprintf(stderr, "[CHEAT] Infinite health enabled: writing 0x2AF8 to 0x801CAB3A each VI\n");
+    }
     recomp::register_config_path(config_path);
+    if (g_cli_options.save_path.has_value()) {
+        ultramodern::set_save_file_path_override(*g_cli_options.save_path);
+        fprintf(stderr, "[CONFIG] Save path override: %s\n",
+                g_cli_options.save_path->string().c_str());
+    } else if (g_cli_options.save_dir.has_value()) {
+        ultramodern::set_save_directory_override(*g_cli_options.save_dir);
+        fprintf(stderr, "[CONFIG] Save directory override: %s\n",
+                g_cli_options.save_dir->string().c_str());
+    }
     g_config_path = config_path;
     lod::ui::set_config_path_display(g_config_path.string());
 
@@ -2916,7 +3108,7 @@ int main(int argc, char** argv) {
 
     // Find the ROM without blocking on a native picker. If discovery fails, boot
     // the renderer/UI into overlay-only ROM setup so users can choose a ROM.
-    std::filesystem::path rom_path = discover_rom_path(argc, argv, config_path);
+    std::filesystem::path rom_path = discover_rom_path(config_path);
     if (rom_path.empty()) {
 #ifdef LOD_USE_ZELDA_MENU
         if (zelda_wait_for_start) {
@@ -2985,7 +3177,7 @@ int main(int argc, char** argv) {
     };
 
     ultramodern::events::callbacks_t events_callbacks{
-        .vi_callback = nullptr,
+        .vi_callback = lod_debug_cheats_vi_callback,
         .gfx_init_callback = nullptr,
     };
 

@@ -114,6 +114,17 @@ Fresh configs default to `Original2x` internal resolution; existing configs are 
 
 To use portable mode, create an empty `portable.txt` beside `LodRecomp`/`LodRecomp.app`. Config files and saves will be stored in that same folder.
 
+For repro/debug builds, you can override only the save location without moving configs:
+
+```sh
+./LodRecomp --save-path /path/to/castlevania2.n64.us.bin
+./LodRecomp --save-dir /path/to/saves
+```
+
+`--save-path` uses the exact file. `--save-dir` uses `<dir>/castlevania2.n64.us.bin`. Do not pass both.
+
+For boss/crash repros where survival is the only goal, `LOD_CHEAT_INFINITE_HEALTH=1` enables a default-off infinite-health GameShark-equivalent runtime poke.
+
 The overlay starts hidden. Press `F1` to show/hide the in-game RmlUi settings overlay. The current overlay includes General, Graphics, Controls, and Audio tabs. Graphics options are clickable and staged until **Apply** writes `graphics.json`; **Discard** restores the active renderer values. Esc / controller B closes the overlay, prompting first if graphics changes are pending.
 
 Release packages include the RmlUi assets required by the Zelda-style launcher and settings UI. CI runs short packaged-app smoke tests where the hosted runner graphics stack supports it, plus packaged asset checks for the macOS app bundle.
