@@ -26,6 +26,7 @@ AudioConfig default_audio_config();
 AudioConfig get_audio_config();
 void apply_and_save_audio_config(const AudioConfig& config, const char* reason);
 std::string normalize_audio_driver_setting(std::string driver);
+bool audio_driver_setting_supported(std::string driver);
 AudioStatus audio_status();
 
 } // namespace lod::settings

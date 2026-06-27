@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <cmath>
 #include <string>
+#include <string_view>
 #include <atomic>
 #include <mutex>
 #include <initializer_list>
@@ -160,6 +161,46 @@ static std::string lod_trim_ascii(std::string value) {
     value.erase(value.begin(), std::find_if_not(value.begin(), value.end(), is_space));
     value.erase(std::find_if_not(value.rbegin(), value.rend(), is_space).base(), value.end());
     return value;
+}
+
+static std::string lod_normalize_audio_driver_name(std::string driver) {
+    driver = lod_ascii_lower(lod_trim_ascii(std::move(driver)));
+    if (driver.empty() ||
+        driver == "auto" ||
+        driver == "recommended") {
+        return "auto";
+    }
+    if (driver == "default" ||
+        driver == "sdl_default" ||
+        driver == "system" ||
+        driver == "system_default") {
+        return "default";
+    }
+    if (driver == "pulse") {
+        return "pulseaudio";
+    }
+    if (driver == "dsound") {
+        return "directsound";
+    }
+    return driver;
+}
+
+static bool lod_audio_driver_supported_normalized(std::string_view driver) {
+    if (driver == "auto" ||
+        driver == "default" ||
+        driver == "dummy") {
+        return true;
+    }
+
+#if defined(_WIN32)
+    return driver == "wasapi" || driver == "directsound";
+#elif defined(__APPLE__)
+    return driver == "coreaudio";
+#elif defined(__linux__)
+    return driver == "pulseaudio" || driver == "pipewire" || driver == "alsa";
+#else
+    return false;
+#endif
 }
 
 static std::string lod_audio_platform_auto_driver() {
@@ -1418,39 +1459,17 @@ static lod::settings::AudioConfig default_audio_config() {
 }
 
 std::string lod::settings::normalize_audio_driver_setting(std::string driver) {
-    driver = lod_ascii_lower(lod_trim_ascii(std::move(driver)));
-    if (driver.empty() ||
-        driver == "auto" ||
-        driver == "recommended") {
-        return "auto";
-    }
-    if (driver == "default" ||
-        driver == "sdl_default" ||
-        driver == "system" ||
-        driver == "system_default") {
-        return "default";
-    }
-    if (driver == "pulse") {
-        return "pulseaudio";
-    }
-    if (driver == "dsound") {
-        return "directsound";
-    }
-
-    static const std::array<std::string_view, 7> kValidDrivers{
-        "wasapi",
-        "directsound",
-        "pulseaudio",
-        "pipewire",
-        "alsa",
-        "coreaudio",
-        "dummy",
-    };
-    if (std::find(kValidDrivers.begin(), kValidDrivers.end(), driver) != kValidDrivers.end()) {
+    driver = lod_normalize_audio_driver_name(std::move(driver));
+    if (lod_audio_driver_supported_normalized(driver)) {
         return driver;
     }
 
     return "auto";
+}
+
+bool lod::settings::audio_driver_setting_supported(std::string driver) {
+    driver = lod_normalize_audio_driver_name(std::move(driver));
+    return lod_audio_driver_supported_normalized(driver);
 }
 
 static nlohmann::json audio_config_to_json(const lod::settings::AudioConfig& config) {

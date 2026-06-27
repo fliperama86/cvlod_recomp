@@ -217,12 +217,12 @@ Display refresh: {{display_refresh_rate}}Hz
                                             <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="width:420dp; flex:0 0 auto; nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
                                                 <option value="auto">Auto</option>
                                                 <option value="default">SDL Default</option>
-                                                <option value="wasapi">WASAPI</option>
-                                                <option value="directsound">DirectSound</option>
-                                                <option value="pulseaudio">PulseAudio</option>
-                                                <option value="pipewire">PipeWire</option>
-                                                <option value="alsa">ALSA</option>
-                                                <option value="coreaudio">CoreAudio</option>
+                                                <option data-if="audio_driver_wasapi_supported" value="wasapi">WASAPI</option>
+                                                <option data-if="audio_driver_directsound_supported" value="directsound">DirectSound</option>
+                                                <option data-if="audio_driver_pulseaudio_supported" value="pulseaudio">PulseAudio</option>
+                                                <option data-if="audio_driver_pipewire_supported" value="pipewire">PipeWire</option>
+                                                <option data-if="audio_driver_alsa_supported" value="alsa">ALSA</option>
+                                                <option data-if="audio_driver_coreaudio_supported" value="coreaudio">CoreAudio</option>
                                                 <option value="dummy">Dummy</option>
                                             </select>
                                         </div>

@@ -83,7 +83,7 @@ std::string g_version_string;
 ultramodern::renderer::GraphicsConfig g_pending_graphics{};
 lod::settings::AudioConfig g_audio_config{};
 std::string g_config_status = "Graphics changes are staged until Apply.";
-std::string g_audio_status = "Audio changes apply immediately and save to audio.json.";
+std::string g_audio_status = "Volume and mute apply immediately. Audio driver changes require restarting LodRecomp.";
 std::string g_config_path_display;
 
 std::u8string lod_game_id() {
@@ -691,7 +691,7 @@ void reset_pending_graphics_from_active() {
         ? std::string{"Registered at startup"}
         : lod::settings::config_path().string();
     g_config_status = "Graphics changes are staged until Apply.";
-    g_audio_status = "Audio changes apply immediately and save to audio.json.";
+    g_audio_status = "Volume and mute apply immediately. Audio driver changes require restarting LodRecomp.";
     dirty_config();
 }
 
@@ -1515,6 +1515,24 @@ public:
                 g_audio_status = "Audio driver saved. Restart LodRecomp for the new backend to take effect.";
                 dirty_config();
             });
+        constructor.BindFunc("audio_driver_wasapi_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("wasapi");
+        });
+        constructor.BindFunc("audio_driver_directsound_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("directsound");
+        });
+        constructor.BindFunc("audio_driver_pulseaudio_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("pulseaudio");
+        });
+        constructor.BindFunc("audio_driver_pipewire_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("pipewire");
+        });
+        constructor.BindFunc("audio_driver_alsa_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("alsa");
+        });
+        constructor.BindFunc("audio_driver_coreaudio_supported", [](Rml::Variant& out) {
+            out = lod::settings::audio_driver_setting_supported("coreaudio");
+        });
         constructor.BindFunc("audio_backend_status", [](Rml::Variant& out) {
             out = audio_backend_status();
         });
