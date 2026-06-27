@@ -604,6 +604,7 @@ const char* config_tab_name(recompui::ConfigTab tab) {
         case recompui::ConfigTab::Controls: return "Controls";
         case recompui::ConfigTab::Graphics: return "Graphics";
         case recompui::ConfigTab::Sound: return "Audio";
+        case recompui::ConfigTab::Advanced: return "Advanced";
         case recompui::ConfigTab::Mods: return "Mods";
         case recompui::ConfigTab::Debug: return "Debug";
     }
@@ -1126,6 +1127,9 @@ public:
         recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::Sound);
         });
+        recompui::register_event(listener, "show_advanced_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::Advanced);
+        });
         recompui::register_event(listener, "show_debug_tab", [](const std::string&, Rml::Event&) {
             if (show_debug_tab()) {
                 recompui::set_config_tab(recompui::ConfigTab::Debug);
@@ -1500,6 +1504,21 @@ public:
                 }
                 apply_audio_config_from_ui("Zelda menu audio mute");
             });
+        constructor.BindFunc("audio_driver_mode",
+            [](Rml::Variant& out) {
+                out = lod::settings::normalize_audio_driver_setting(g_audio_config.sdl_driver);
+            },
+            [](const Rml::Variant& in) {
+                const std::string old_driver = lod::settings::normalize_audio_driver_setting(g_audio_config.sdl_driver);
+                const std::string new_driver = lod::settings::normalize_audio_driver_setting(in.Get<std::string>());
+                if (old_driver == new_driver) {
+                    return;
+                }
+                g_audio_config.sdl_driver = new_driver;
+                apply_audio_config_from_ui("Zelda menu audio driver");
+                g_audio_status = "Audio driver saved. Restart LodRecomp for the new backend to take effect.";
+                dirty_config();
+            });
         constructor.BindFunc("audio_backend_status", [](Rml::Variant& out) {
             out = audio_backend_status();
         });
@@ -1866,8 +1885,9 @@ int recompui::config_tab_to_index(ConfigTab tab) {
         case ConfigTab::Controls: return 1;
         case ConfigTab::Graphics: return 2;
         case ConfigTab::Sound: return 3;
+        case ConfigTab::Advanced: return 4;
         case ConfigTab::Mods: return 0;
-        case ConfigTab::Debug: return 4;
+        case ConfigTab::Debug: return 5;
     }
     return 0;
 }

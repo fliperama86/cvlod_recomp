@@ -146,7 +146,6 @@ static LodCommandLineOptions g_cli_options;
 
 namespace {
 
-#ifdef _WIN32
 static std::string lod_ascii_lower(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -163,27 +162,70 @@ static std::string lod_trim_ascii(std::string value) {
     return value;
 }
 
-static void lod_configure_windows_audio_driver() {
-    // SDL queued audio can crackle with DirectSound on affected Windows systems.
-    // Keep explicit non-DirectSound overrides for diagnostics, but recover the
-    // known bad/missing cases before any SDL subsystem has a chance to touch audio.
+static std::string lod_audio_platform_auto_driver() {
+#if defined(_WIN32)
+    return "wasapi";
+#elif defined(__linux__)
+    // SDL's PipeWire backend has caused crackle/distortion reports on some
+    // distros. PulseAudio is the safer default while still allowing overrides.
+    return "pulseaudio";
+#else
+    return "";
+#endif
+}
+
+static bool lod_audio_env_driver_is_known_bad(const std::string& driver) {
+#if defined(_WIN32)
+    return driver == "directsound";
+#else
+    (void)driver;
+    return false;
+#endif
+}
+
+static void lod_configure_sdl_audio_driver(const lod::settings::AudioConfig& config) {
+    const std::string setting = lod::settings::normalize_audio_driver_setting(config.sdl_driver);
     const char* raw_driver = SDL_getenv("SDL_AUDIODRIVER");
-    const std::string configured_driver = raw_driver != nullptr ? lod_trim_ascii(raw_driver) : "";
-    const std::string configured_driver_lower = lod_ascii_lower(configured_driver);
-    if (configured_driver.empty() || configured_driver_lower == "directsound") {
-        SDL_setenv("SDL_AUDIODRIVER", "wasapi", true);
-        const char* previous_driver =
-            raw_driver == nullptr ? "(unset)" : (configured_driver.empty() ? "(empty)" : configured_driver.c_str());
+    const std::string env_driver = raw_driver != nullptr ? lod_trim_ascii(raw_driver) : "";
+    const std::string env_driver_lower = lod_ascii_lower(env_driver);
+
+    if (!env_driver.empty() &&
+        setting != "default" &&
+        setting == "auto" &&
+        !lod_audio_env_driver_is_known_bad(env_driver_lower)) {
         fprintf(stderr,
-                "[AUDIO] Windows SDL audio driver default: %s -> wasapi\n",
-                previous_driver);
+                "[AUDIO] SDL audio driver env override: %s (audio.json=%s)\n",
+                env_driver.c_str(), setting.c_str());
+        return;
+    }
+
+    if (setting == "default") {
+        fprintf(stderr,
+                "[AUDIO] SDL audio driver selection: SDL default%s%s\n",
+                env_driver.empty() ? "" : " with env override ",
+                env_driver.empty() ? "" : env_driver.c_str());
+        return;
+    }
+
+    std::string target_driver = setting == "auto" ? lod_audio_platform_auto_driver() : setting;
+    if (target_driver.empty()) {
+        fprintf(stderr, "[AUDIO] SDL audio driver selection: platform default\n");
+        return;
+    }
+
+    SDL_setenv("SDL_AUDIODRIVER", target_driver.c_str(), true);
+    if (env_driver.empty()) {
+        fprintf(stderr,
+                "[AUDIO] SDL audio driver selection: %s -> %s\n",
+                setting.c_str(), target_driver.c_str());
     } else {
         fprintf(stderr,
-                "[AUDIO] Windows SDL audio driver override: %s\n",
-                configured_driver.c_str());
+                "[AUDIO] SDL audio driver selection: %s env %s -> %s\n",
+                setting.c_str(), env_driver.c_str(), target_driver.c_str());
     }
 }
 
+#ifdef _WIN32
 using lod_fd_t = int;
 static constexpr lod_fd_t kInvalidFd = -1;
 static int lod_pipe(lod_fd_t fds[2]) { return _pipe(fds, 64 * 1024, _O_BINARY); }
@@ -1375,11 +1417,48 @@ static lod::settings::AudioConfig default_audio_config() {
     return {};
 }
 
+std::string lod::settings::normalize_audio_driver_setting(std::string driver) {
+    driver = lod_ascii_lower(lod_trim_ascii(std::move(driver)));
+    if (driver.empty() ||
+        driver == "auto" ||
+        driver == "recommended") {
+        return "auto";
+    }
+    if (driver == "default" ||
+        driver == "sdl_default" ||
+        driver == "system" ||
+        driver == "system_default") {
+        return "default";
+    }
+    if (driver == "pulse") {
+        return "pulseaudio";
+    }
+    if (driver == "dsound") {
+        return "directsound";
+    }
+
+    static const std::array<std::string_view, 7> kValidDrivers{
+        "wasapi",
+        "directsound",
+        "pulseaudio",
+        "pipewire",
+        "alsa",
+        "coreaudio",
+        "dummy",
+    };
+    if (std::find(kValidDrivers.begin(), kValidDrivers.end(), driver) != kValidDrivers.end()) {
+        return driver;
+    }
+
+    return "auto";
+}
+
 static nlohmann::json audio_config_to_json(const lod::settings::AudioConfig& config) {
     return nlohmann::json{
         {"version", 1},
         {"master_volume", std::clamp(config.master_volume, 0, 100)},
         {"mute", config.mute},
+        {"sdl_driver", lod::settings::normalize_audio_driver_setting(config.sdl_driver)},
     };
 }
 
@@ -1392,6 +1471,9 @@ static lod::settings::AudioConfig audio_config_from_json(const nlohmann::json& j
     if (auto it = json.find("mute"); it != json.end() && it->is_boolean()) {
         config.mute = it->get<bool>();
     }
+    if (auto it = json.find("sdl_driver"); it != json.end() && it->is_string()) {
+        config.sdl_driver = lod::settings::normalize_audio_driver_setting(it->get<std::string>());
+    }
 
     return config;
 }
@@ -1399,6 +1481,7 @@ static lod::settings::AudioConfig audio_config_from_json(const nlohmann::json& j
 static void set_audio_runtime_config(const lod::settings::AudioConfig& raw_config) {
     lod::settings::AudioConfig config = raw_config;
     config.master_volume = std::clamp(config.master_volume, 0, 100);
+    config.sdl_driver = lod::settings::normalize_audio_driver_setting(config.sdl_driver);
 
     {
         std::lock_guard<std::mutex> lock(g_audio_config_mutex);
@@ -1455,10 +1538,11 @@ static void apply_and_save_audio_config(const lod::settings::AudioConfig& config
     set_audio_runtime_config(config);
     lod::settings::AudioConfig saved = lod::settings::get_audio_config();
     save_audio_config(saved);
-    fprintf(stderr, "[CONFIG] %s: audio master=%d mute=%s\n",
+    fprintf(stderr, "[CONFIG] %s: audio master=%d mute=%s sdl_driver=%s\n",
             reason,
             saved.master_volume,
-            saved.mute ? "on" : "off");
+            saved.mute ? "on" : "off",
+            saved.sdl_driver.c_str());
 }
 
 std::filesystem::path lod::settings::audio_config_path() {
@@ -3019,10 +3103,6 @@ static std::optional<std::filesystem::path> find_portable_config_path(int argc, 
 }
 
 int main(int argc, char** argv) {
-#ifdef _WIN32
-    lod_configure_windows_audio_driver();
-#endif
-
     LodCommandLineParseResult cli_parse = lod_parse_command_line(argc, argv);
     if (!cli_parse.error.empty()) {
         fprintf(stderr, "[CONFIG] %s\n\n", cli_parse.error.c_str());
@@ -3122,11 +3202,13 @@ int main(int argc, char** argv) {
             controls_config_path().string().c_str());
 
     auto audio_config = load_audio_config();
-    fprintf(stderr, "[CONFIG] Loaded audio config: master=%d mute=%s path=%s\n",
+    fprintf(stderr, "[CONFIG] Loaded audio config: master=%d mute=%s sdl_driver=%s path=%s\n",
             audio_config.master_volume,
             audio_config.mute ? "on" : "off",
+            audio_config.sdl_driver.c_str(),
             audio_config_path().string().c_str());
 
+    lod_configure_sdl_audio_driver(audio_config);
     SDL_InitSubSystem(SDL_INIT_AUDIO);
     reset_audio(48000);
 
