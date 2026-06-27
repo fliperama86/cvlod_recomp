@@ -41,12 +41,27 @@
 #define LOD_ENABLE_B2_ASSET_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_ISSUE23_TRACE
+#define LOD_ENABLE_ISSUE23_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE23_FORCE_ROLLOVER
+#define LOD_ENABLE_ISSUE23_FORCE_ROLLOVER 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE23_FORCE_DIRECT_285E
+#define LOD_ENABLE_ISSUE23_FORCE_DIRECT_285E 0
+#endif
+#ifndef LOD_ENABLE_ISSUE23_FORCE_CHILD_FLAGS
+#define LOD_ENABLE_ISSUE23_FORCE_CHILD_FLAGS 0
+#endif
+
 #ifndef LOD_ENABLE_TOWER_NI126_TRACE
 #define LOD_ENABLE_TOWER_NI126_TRACE 0
 #endif
 
-#ifndef LOD_FIX_TOWER_INPUT_RELEASE
-#define LOD_FIX_TOWER_INPUT_RELEASE 0
+#ifndef LOD_FIX_PAIR126_INPUT_RELEASE
+#define LOD_FIX_PAIR126_INPUT_RELEASE 0
 #endif
 
 #ifndef LOD_ENABLE_NI99_MAP76_TRACE
@@ -188,6 +203,335 @@ static uint32_t lod_ni_telemetry_ni_sys_ptr(uint8_t* rdram) {
     constexpr uint32_t NI_SYS_PTR_PHYS = 0x001CAC1C;
     return lod_ni_telemetry_u32(rdram, NI_SYS_PTR_PHYS);
 }
+
+#if LOD_ENABLE_ISSUE23_TRACE
+static constexpr uint32_t LOD_ISSUE23_DEST_MAP_ROM = 0x0082E330;
+static constexpr int LOD_ISSUE23_NI_PAIR = 129;
+
+static bool lod_issue23_ni_focus(int pair_index, uint32_t vram) {
+    return pair_index == LOD_ISSUE23_NI_PAIR &&
+           vram == 0x0F000000 &&
+           lod_current_map_overlay_rom() == LOD_ISSUE23_DEST_MAP_ROM;
+}
+
+static void lod_issue23_log_ni(uint8_t* rdram, const char* phase,
+                               int pair_index, uint32_t vram, uint32_t mapped_vaddr) {
+    if (!lod_issue23_ni_focus(pair_index, vram)) {
+        return;
+    }
+
+    static int log_count = 0;
+    log_count++;
+    if (log_count > 80 && (log_count % 30) != 0) {
+        return;
+    }
+
+    const NiOvlData& data = ni_ovl_data[pair_index];
+    fprintf(stderr,
+            "[ISSUE23_NI129] #%d phase=%s gs=%d exec=0x%08X ni=0x%08X "
+            "map#%d map=0x%08X pair=%d vram=0x%08X mapped=0x%08X "
+            "loaded0f=%d loaded0e=%d rom=0x%08X size=0x%X\n",
+            log_count, phase, lod_ni_telemetry_gamestate(rdram),
+            lod_ni_telemetry_exec_flags(rdram), lod_ni_telemetry_ni_sys_ptr(rdram),
+            lod_current_map_overlay_load_count(), lod_current_map_overlay_rom(),
+            pair_index, vram, mapped_vaddr, loaded_0f_pair, loaded_0e_pair,
+            data.rom_offset, data.full_size);
+}
+
+static recomp_func_t* lod_orig_issue23_ni129_entry = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_0070 = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_00C8 = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_0244 = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_04A8 = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_068C = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_07FC = nullptr;
+static recomp_func_t* lod_orig_issue23_ni129_0938 = nullptr;
+
+static uint32_t lod_issue23_ni_u32(uint8_t* rdram, uint32_t base, int32_t off) {
+    (void)rdram;
+    return (uint32_t)MEM_W(off, lod_ni_canonical_gpr(base));
+}
+
+static int16_t lod_issue23_ni_s16(uint8_t* rdram, uint32_t base, int32_t off) {
+    (void)rdram;
+    return (int16_t)MEM_H(off, lod_ni_canonical_gpr(base));
+}
+
+static uint8_t lod_issue23_ni_u8(uint8_t* rdram, uint32_t base, int32_t off) {
+    (void)rdram;
+    return (uint8_t)MEM_BU(off, lod_ni_canonical_gpr(base));
+}
+
+static float lod_issue23_ni_float_bits(uint32_t bits) {
+    float value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static uint32_t lod_issue23_ni_dispatch_target(uint8_t* rdram, uint8_t index) {
+    return lod_issue23_ni_u32(rdram, 0x0F000D88, (int32_t)index * 4);
+}
+
+static bool lod_issue23_ni_should_log(uint32_t count) {
+    return count <= 160 || (count % 120) == 0;
+}
+
+static void lod_issue23_log_ni_state(uint8_t* rdram, const char* tag, uint32_t count,
+                                     const char* func, uint32_t obj, uint32_t ra) {
+    if (lod_current_map_overlay_rom() != LOD_ISSUE23_DEST_MAP_ROM ||
+        !lod_issue23_ni_should_log(count)) {
+        return;
+    }
+
+    const int16_t depth = lod_issue23_ni_s16(rdram, obj, 0x0E);
+    const int next_depth = (int)depth + 1;
+    const uint32_t next_off = next_depth >= 0 && next_depth < 8 ? (uint32_t)(next_depth * 2) : 0;
+    const uint8_t next_count = next_depth >= 0 && next_depth < 8
+        ? lod_issue23_ni_u8(rdram, obj, 0x08 + next_off)
+        : 0;
+    const uint8_t next_index = next_depth >= 0 && next_depth < 8
+        ? lod_issue23_ni_u8(rdram, obj, 0x09 + next_off)
+        : 0;
+    const uint32_t target = lod_issue23_ni_dispatch_target(rdram, next_index);
+
+    const uint32_t data = lod_issue23_ni_u32(rdram, obj, 0x38);
+    const uint32_t data0 = data != 0 ? lod_issue23_ni_u32(rdram, data, 0x00) : 0;
+    const uint32_t data4 = data != 0 ? lod_issue23_ni_u32(rdram, data, 0x04) : 0;
+    const uint32_t data8 = data != 0 ? lod_issue23_ni_u32(rdram, data, 0x08) : 0;
+    const uint16_t data_c = data != 0 ? (uint16_t)lod_issue23_ni_s16(rdram, data, 0x0C) : 0;
+
+    const uint32_t focus = lod_ni_telemetry_u32(rdram, 0x001CAC20);
+    const uint32_t focus24 = lod_ni_telemetry_u32(rdram, 0x001CAC24);
+    const uint32_t focus28 = lod_ni_telemetry_u32(rdram, 0x001CAC28);
+    const int16_t global_285c = (int16_t)lod_issue23_ni_s16(rdram, 0x801C82C0, 0x285C);
+    const int16_t global_285e = (int16_t)lod_issue23_ni_s16(rdram, 0x801C82C0, 0x285E);
+    const int16_t global_28d0 = (int16_t)lod_issue23_ni_s16(rdram, 0x801C82C0, 0x28D0);
+    const int16_t global_2b4e = (int16_t)lod_issue23_ni_s16(rdram, 0x801C82C0, 0x2B4E);
+    const uint32_t global_2bc8 = lod_issue23_ni_u32(rdram, 0x801C82C0, 0x2BC8);
+
+    fprintf(stderr,
+            "[ISSUE23_NI129_STATE] %s#%u func=%s gs=%d exec=0x%08X ni=0x%08X "
+            "map#%d obj=0x%08X ra=0x%08X depth=%d next={count=%u idx=%u target=0x%08X} "
+            "levels=%u/%u,%u/%u,%u/%u,%u/%u fields={child=0x%08X data=0x%08X "
+            "entry=%u func=0x%08X aux44=0x%08X} data={%08X,%08X,%08X,c=%04X} "
+            "globals={285c=%d 285e=%d 28d0=%d 2b4e=%d 2bc8=0x%08X focus=0x%08X "
+            "focus24=0x%08X focus28=0x%08X loaded0f=%d loaded0e=%d}\n",
+            tag, count, func, lod_ni_telemetry_gamestate(rdram),
+            lod_ni_telemetry_exec_flags(rdram), lod_ni_telemetry_ni_sys_ptr(rdram),
+            lod_current_map_overlay_load_count(), obj, ra, (int)depth,
+            next_count, next_index, target,
+            lod_issue23_ni_u8(rdram, obj, 0x08), lod_issue23_ni_u8(rdram, obj, 0x09),
+            lod_issue23_ni_u8(rdram, obj, 0x0A), lod_issue23_ni_u8(rdram, obj, 0x0B),
+            lod_issue23_ni_u8(rdram, obj, 0x0C), lod_issue23_ni_u8(rdram, obj, 0x0D),
+            lod_issue23_ni_u8(rdram, obj, 0x10), lod_issue23_ni_u8(rdram, obj, 0x11),
+            lod_issue23_ni_u32(rdram, obj, 0x24), data,
+            lod_issue23_ni_u32(rdram, obj, 0x3C),
+            lod_issue23_ni_u32(rdram, obj, 0x40),
+            lod_issue23_ni_u32(rdram, obj, 0x44),
+            data0, data4, data8, data_c,
+            global_285c, global_285e, global_28d0, global_2b4e, global_2bc8,
+            focus, focus24, focus28, loaded_0f_pair, loaded_0e_pair);
+}
+
+static void lod_issue23_force_rollover_if_enabled(uint8_t* rdram, const char* func,
+                                                  uint32_t count, uint32_t obj,
+                                                  uint32_t ra) {
+#if LOD_ENABLE_ISSUE23_FORCE_DIRECT_285E
+    static bool forced = false;
+    if (forced ||
+        lod_current_map_overlay_rom() != LOD_ISSUE23_DEST_MAP_ROM ||
+        std::strcmp(func, "state_0F0000C8") != 0 ||
+        count < 120) {
+        return;
+    }
+
+    const int16_t global_285c = lod_issue23_ni_s16(rdram, 0x801C82C0, 0x285C);
+    const int16_t global_285e = lod_issue23_ni_s16(rdram, 0x801C82C0, 0x285E);
+    const uint32_t obj_3c = lod_issue23_ni_u32(rdram, obj, 0x3C);
+    if (global_285c != 0 || (uint32_t)(int32_t)global_285e != obj_3c) {
+        return;
+    }
+
+    const int16_t forced_285e = (int16_t)(global_285e + 1);
+    MEM_H(0x285E, lod_ni_canonical_gpr(0x801C82C0)) = forced_285e;
+    forced = true;
+    fprintf(stderr,
+            "[ISSUE23_FORCE] forced 285E %d->%d at stuck gate func=%s "
+            "count=%u map#%d map=0x%08X obj=0x%08X obj3c=0x%08X ra=0x%08X "
+            "gs=%d exec=0x%08X ni=0x%08X loaded0f=%d loaded0e=%d\n",
+            global_285e, forced_285e, func, count,
+            lod_current_map_overlay_load_count(), lod_current_map_overlay_rom(),
+            obj, obj_3c, ra, lod_ni_telemetry_gamestate(rdram),
+            lod_ni_telemetry_exec_flags(rdram), lod_ni_telemetry_ni_sys_ptr(rdram),
+            loaded_0f_pair, loaded_0e_pair);
+#else
+    (void)rdram;
+    (void)func;
+    (void)count;
+    (void)obj;
+    (void)ra;
+#endif
+}
+
+static void lod_issue23_force_child_flags_if_enabled(uint8_t* rdram, const char* func,
+                                                     uint32_t count, uint32_t obj,
+                                                     uint32_t ra) {
+#if LOD_ENABLE_ISSUE23_FORCE_CHILD_FLAGS
+    static bool forced = false;
+    if (forced ||
+        lod_current_map_overlay_rom() != LOD_ISSUE23_DEST_MAP_ROM ||
+        std::strcmp(func, "state_0F0000C8") != 0) {
+        return;
+    }
+
+    constexpr gpr flag_base = (gpr)(int32_t)0x801CAA60;
+    constexpr int32_t child_flag_word_off = (0x2A0 >> 5) * 4;
+    constexpr uint32_t child_flags_mask =
+        (0x80000000u >> (0x2A4 & 0x1F)) |
+        (0x80000000u >> (0x2A5 & 0x1F)) |
+        (0x80000000u >> (0x2A6 & 0x1F)) |
+        (0x80000000u >> (0x2A7 & 0x1F)) |
+        (0x80000000u >> (0x2A8 & 0x1F)) |
+        (0x80000000u >> (0x2A9 & 0x1F));
+    const uint32_t before_word = (uint32_t)MEM_W(child_flag_word_off, flag_base);
+    const uint32_t after_word = before_word | child_flags_mask;
+    MEM_W(child_flag_word_off, flag_base) = (int32_t)after_word;
+    forced = true;
+
+    fprintf(stderr,
+            "[ISSUE23_FORCE] forced child flags 0x2A4..0x2A9 at %s "
+            "count=%u map#%d map=0x%08X obj=0x%08X ra=0x%08X "
+            "wordOff=0x%X mask=0x%08X before=0x%08X after=0x%08X "
+            "gs=%d exec=0x%08X ni=0x%08X loaded0f=%d loaded0e=%d\n",
+            func, count, lod_current_map_overlay_load_count(),
+            lod_current_map_overlay_rom(), obj, ra, child_flag_word_off,
+            child_flags_mask, before_word, after_word,
+            lod_ni_telemetry_gamestate(rdram),
+            lod_ni_telemetry_exec_flags(rdram),
+            lod_ni_telemetry_ni_sys_ptr(rdram),
+            loaded_0f_pair, loaded_0e_pair);
+#else
+    (void)rdram;
+    (void)func;
+    (void)count;
+    (void)obj;
+    (void)ra;
+#endif
+}
+
+static void lod_issue23_ni_trace_call(uint8_t* rdram, recomp_context* ctx,
+                                      const char* func, recomp_func_t* original,
+                                      uint32_t* counter) {
+    (*counter)++;
+    const uint32_t count = *counter;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t ra = (uint32_t)ctx->r31;
+    lod_issue23_log_ni_state(rdram, "pre", count, func, obj, ra);
+    lod_issue23_force_rollover_if_enabled(rdram, func, count, obj, ra);
+    lod_issue23_force_child_flags_if_enabled(rdram, func, count, obj, ra);
+    if (original != nullptr) {
+        original(rdram, ctx);
+    }
+    lod_issue23_log_ni_state(rdram, "post", count, func, obj, ra);
+}
+
+static void lod_trace_issue23_ni129_entry(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "entry_0F000000",
+        lod_orig_issue23_ni129_entry, &counter);
+}
+
+static void lod_trace_issue23_ni129_0070(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F000070",
+        lod_orig_issue23_ni129_0070, &counter);
+}
+
+static void lod_trace_issue23_ni129_00C8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F0000C8",
+        lod_orig_issue23_ni129_00C8, &counter);
+}
+
+static void lod_trace_issue23_ni129_0244(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F000244",
+        lod_orig_issue23_ni129_0244, &counter);
+}
+
+static void lod_trace_issue23_ni129_04A8(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F0004A8",
+        lod_orig_issue23_ni129_04A8, &counter);
+}
+
+static void lod_trace_issue23_ni129_068C(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F00068C",
+        lod_orig_issue23_ni129_068C, &counter);
+}
+
+static void lod_trace_issue23_ni129_07FC(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "state_0F0007FC",
+        lod_orig_issue23_ni129_07FC, &counter);
+}
+
+static void lod_trace_issue23_ni129_0938(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t counter = 0;
+    lod_issue23_ni_trace_call(rdram, ctx, "helper_0F000938",
+        lod_orig_issue23_ni129_0938, &counter);
+}
+
+static void lod_install_issue23_ni129_trace_wrapper(uint32_t func_vram,
+                                                    recomp_func_t* wrapper,
+                                                    recomp_func_t** original_out,
+                                                    const char* name,
+                                                    const char* reason) {
+    recomp_func_t* current = get_function((int32_t)func_vram);
+    if (current == wrapper) {
+        return;
+    }
+
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)func_vram, wrapper);
+    fprintf(stderr,
+            "[ISSUE23_NI129_STATE] installed %s wrapper vram=0x%08X reason=%s original=%p wrapper=%p\n",
+            name, func_vram, reason, (void*)current, (void*)wrapper);
+}
+
+static void lod_install_issue23_ni129_trace_wrappers(int pair_index, uint32_t vram,
+                                                     const char* reason) {
+    if (!lod_issue23_ni_focus(pair_index, vram)) {
+        return;
+    }
+
+    lod_install_issue23_ni129_trace_wrapper(0x0F000000,
+        lod_trace_issue23_ni129_entry, &lod_orig_issue23_ni129_entry,
+        "entry", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F000070,
+        lod_trace_issue23_ni129_0070, &lod_orig_issue23_ni129_0070,
+        "0F000070", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F0000C8,
+        lod_trace_issue23_ni129_00C8, &lod_orig_issue23_ni129_00C8,
+        "0F0000C8", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F000244,
+        lod_trace_issue23_ni129_0244, &lod_orig_issue23_ni129_0244,
+        "0F000244", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F0004A8,
+        lod_trace_issue23_ni129_04A8, &lod_orig_issue23_ni129_04A8,
+        "0F0004A8", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F00068C,
+        lod_trace_issue23_ni129_068C, &lod_orig_issue23_ni129_068C,
+        "0F00068C", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F0007FC,
+        lod_trace_issue23_ni129_07FC, &lod_orig_issue23_ni129_07FC,
+        "0F0007FC", reason);
+    lod_install_issue23_ni129_trace_wrapper(0x0F000938,
+        lod_trace_issue23_ni129_0938, &lod_orig_issue23_ni129_0938,
+        "0F000938", reason);
+}
+#endif
 
 static uint32_t ni_overlay_cpu_mirror(uint32_t vram) {
     if (vram == 0x0F000000) return 0x8F000000;
@@ -2098,7 +2442,8 @@ static recomp_func_t* lod_orig_tower_ni126_state_destroy = nullptr;
 static recomp_func_t* lod_orig_tower_ni18_entry = nullptr;
 
 static bool lod_tower_ni_trace_enabled() {
-    return lod_current_map_overlay_rom() == 0x007D9790;
+    const uint32_t map_rom = lod_current_map_overlay_rom();
+    return map_rom == 0x007D9790 || map_rom == 0x0082E330;
 }
 
 static uint32_t lod_tower_ni_u32(uint8_t* rdram, uint32_t base, int32_t off) {
@@ -2294,58 +2639,58 @@ static void lod_install_tower_ni_trace_wrappers(int pair_index, uint32_t vram,
 }
 #endif
 
-#if LOD_FIX_TOWER_INPUT_RELEASE
-static recomp_func_t* lod_orig_tower_input_release_state_init = nullptr;
-static recomp_func_t* lod_orig_tower_input_release_state_destroy = nullptr;
+#if LOD_FIX_PAIR126_INPUT_RELEASE
+static recomp_func_t* lod_orig_pair126_input_release_state_init = nullptr;
+static recomp_func_t* lod_orig_pair126_input_release_state_destroy = nullptr;
 
-static uint32_t lod_tower_input_phys(uint32_t base, int32_t off) {
+static uint32_t lod_pair126_input_phys(uint32_t base, int32_t off) {
     return ((uint32_t)((int32_t)base + off)) & 0x1FFFFFFF;
 }
 
-static uint32_t lod_tower_input_u32(uint8_t* rdram, uint32_t base, int32_t off) {
-    uint32_t phys = lod_tower_input_phys(base, off);
+static uint32_t lod_pair126_input_u32(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_pair126_input_phys(base, off);
     return lod_ni_telemetry_range_ok(phys, 4) ? *(uint32_t*)(rdram + phys) : 0;
 }
 
-static int16_t lod_tower_input_s16(uint8_t* rdram, uint32_t base, int32_t off) {
-    uint32_t phys = lod_tower_input_phys(base, off);
+static int16_t lod_pair126_input_s16(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_pair126_input_phys(base, off);
     return lod_ni_telemetry_range_ok(phys, 2) ? *(int16_t*)(rdram + (phys ^ 2)) : 0;
 }
 
-static uint8_t lod_tower_input_u8(uint8_t* rdram, uint32_t base, int32_t off) {
-    uint32_t phys = lod_tower_input_phys(base, off);
+static uint8_t lod_pair126_input_u8(uint8_t* rdram, uint32_t base, int32_t off) {
+    uint32_t phys = lod_pair126_input_phys(base, off);
     return lod_ni_telemetry_range_ok(phys, 1) ? rdram[phys ^ 3] : 0;
 }
 
-static void lod_tower_release_input_flags_if_stuck(uint8_t* rdram, const char* reason) {
+static void lod_pair126_release_input_flags_if_stuck(uint8_t* rdram, const char* reason) {
     constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
-    constexpr uint32_t TOWER_TRANSITION_LOCKED_FLAGS = 0x20000000;
-    constexpr uint32_t TOWER_CONTROLLABLE_FLAGS = 0x38000000;
-    constexpr uint32_t TOWER_MISSING_GAMEPLAY_FLAGS =
-        TOWER_CONTROLLABLE_FLAGS & ~TOWER_TRANSITION_LOCKED_FLAGS;
+    constexpr uint32_t PAIR126_TRANSITION_LOCKED_FLAGS = 0x20000000;
+    constexpr uint32_t PAIR126_CONTROLLABLE_FLAGS = 0x38000000;
+    constexpr uint32_t PAIR126_MISSING_GAMEPLAY_FLAGS =
+        PAIR126_CONTROLLABLE_FLAGS & ~PAIR126_TRANSITION_LOCKED_FLAGS;
 
-    if (lod_current_map_overlay_rom() != 0x007D9790 ||
-        lod_ni_telemetry_gamestate(rdram) != 3 ||
+    if (lod_ni_telemetry_gamestate(rdram) != 3 ||
         !lod_ni_telemetry_range_ok(EXEC_FLAGS_PHYS, 4)) {
         return;
     }
 
     uint32_t* exec_flags = (uint32_t*)(rdram + EXEC_FLAGS_PHYS);
     const uint32_t before = *exec_flags;
-    if ((before & TOWER_CONTROLLABLE_FLAGS) != TOWER_TRANSITION_LOCKED_FLAGS) {
+    if ((before & PAIR126_CONTROLLABLE_FLAGS) != PAIR126_TRANSITION_LOCKED_FLAGS) {
         return;
     }
 
-    const uint32_t after = before | TOWER_MISSING_GAMEPLAY_FLAGS;
+    const uint32_t after = before | PAIR126_MISSING_GAMEPLAY_FLAGS;
     *exec_flags = after;
 
     static int release_log_count = 0;
     release_log_count++;
     if (release_log_count <= 8 || (release_log_count % 120) == 0) {
         fprintf(stderr,
-                "[TOWER_INPUT_RELEASE_FIX] %s #%d exec 0x%08X -> 0x%08X map#%d\n",
+                "[PAIR126_INPUT_RELEASE_FIX] %s #%d exec 0x%08X -> 0x%08X map#%d map=0x%08X\n",
                 reason, release_log_count, before, after,
-                lod_current_map_overlay_load_count());
+                lod_current_map_overlay_load_count(),
+                lod_current_map_overlay_rom());
     }
 }
 
@@ -2357,14 +2702,18 @@ static bool lod_tower_pair126_restart_init_without_fade(uint8_t* rdram, uint32_t
     // Normal Tower entry creates a fade child and reaches state_destroy.
     // Restart-from-save/death can enter with a nonzero stage, table entry 9,
     // no fade child/link, and never reaches destroy, leaving exec flags locked.
-    int16_t stage_global = lod_tower_input_s16(rdram, 0x801D0000, -0x546E);
-    uint8_t state0_count = lod_tower_input_u8(rdram, obj, 0x08);
-    uint8_t state0_index = lod_tower_input_u8(rdram, obj, 0x09);
-    uint32_t child = lod_tower_input_u32(rdram, obj, 0x24);
-    uint32_t entry_index = lod_tower_input_u32(rdram, obj, 0x34);
-    uint32_t limit = lod_tower_input_u32(rdram, obj, 0x48);
-    uint32_t frame = lod_tower_input_u32(rdram, obj, 0x4C);
-    uint32_t linked = lod_tower_input_u32(rdram, obj, 0x54);
+    if (lod_current_map_overlay_rom() != 0x007D9790) {
+        return false;
+    }
+
+    int16_t stage_global = lod_pair126_input_s16(rdram, 0x801D0000, -0x546E);
+    uint8_t state0_count = lod_pair126_input_u8(rdram, obj, 0x08);
+    uint8_t state0_index = lod_pair126_input_u8(rdram, obj, 0x09);
+    uint32_t child = lod_pair126_input_u32(rdram, obj, 0x24);
+    uint32_t entry_index = lod_pair126_input_u32(rdram, obj, 0x34);
+    uint32_t limit = lod_pair126_input_u32(rdram, obj, 0x48);
+    uint32_t frame = lod_pair126_input_u32(rdram, obj, 0x4C);
+    uint32_t linked = lod_pair126_input_u32(rdram, obj, 0x54);
 
     return stage_global != 0 &&
         state0_count == 1 &&
@@ -2376,24 +2725,24 @@ static bool lod_tower_pair126_restart_init_without_fade(uint8_t* rdram, uint32_t
         frame == 0;
 }
 
-static void lod_fix_tower_input_release_state_init(uint8_t* rdram, recomp_context* ctx) {
+static void lod_fix_pair126_input_release_state_init(uint8_t* rdram, recomp_context* ctx) {
     uint32_t obj = (uint32_t)ctx->r4;
-    if (lod_orig_tower_input_release_state_init != nullptr) {
-        lod_orig_tower_input_release_state_init(rdram, ctx);
+    if (lod_orig_pair126_input_release_state_init != nullptr) {
+        lod_orig_pair126_input_release_state_init(rdram, ctx);
     }
     if (lod_tower_pair126_restart_init_without_fade(rdram, obj)) {
-        lod_tower_release_input_flags_if_stuck(rdram, "pair126.init-restart");
+        lod_pair126_release_input_flags_if_stuck(rdram, "pair126.init-restart");
     }
 }
 
-static void lod_fix_tower_input_release_state_destroy(uint8_t* rdram, recomp_context* ctx) {
-    if (lod_orig_tower_input_release_state_destroy != nullptr) {
-        lod_orig_tower_input_release_state_destroy(rdram, ctx);
+static void lod_fix_pair126_input_release_state_destroy(uint8_t* rdram, recomp_context* ctx) {
+    if (lod_orig_pair126_input_release_state_destroy != nullptr) {
+        lod_orig_pair126_input_release_state_destroy(rdram, ctx);
     }
-    lod_tower_release_input_flags_if_stuck(rdram, "pair126.destroy");
+    lod_pair126_release_input_flags_if_stuck(rdram, "pair126.destroy");
 }
 
-static void lod_install_tower_input_release_single(uint32_t func_vram,
+static void lod_install_pair126_input_release_single(uint32_t func_vram,
                                                    recomp_func_t* wrapper,
                                                    recomp_func_t** original_out,
                                                    const char* name,
@@ -2410,26 +2759,26 @@ static void lod_install_tower_input_release_single(uint32_t func_vram,
     install_count++;
     if (install_count <= 6 || (install_count % 120) == 0) {
         fprintf(stderr,
-                "[TOWER_INPUT_RELEASE_FIX] installed %s wrapper #%d "
-                "reason=%s original=%p\n",
-                name, install_count, reason, (void*)current);
+                "[PAIR126_INPUT_RELEASE_FIX] installed %s wrapper #%d "
+                "reason=%s original=%p map=0x%08X\n",
+                name, install_count, reason, (void*)current,
+                lod_current_map_overlay_rom());
     }
 }
 
-static void lod_install_tower_input_release_wrapper(int pair_index, uint32_t vram,
+static void lod_install_pair126_input_release_wrapper(int pair_index, uint32_t vram,
                                                     const char* reason) {
-    if (pair_index != 126 || vram != 0x0F000000 ||
-        lod_current_map_overlay_rom() != 0x007D9790) {
+    if (pair_index != 126 || vram != 0x0F000000) {
         return;
     }
 
-    lod_install_tower_input_release_single(0x0F000070,
-        lod_fix_tower_input_release_state_init,
-        &lod_orig_tower_input_release_state_init,
+    lod_install_pair126_input_release_single(0x0F000070,
+        lod_fix_pair126_input_release_state_init,
+        &lod_orig_pair126_input_release_state_init,
         "pair126.init", reason);
-    lod_install_tower_input_release_single(0x0F00064C,
-        lod_fix_tower_input_release_state_destroy,
-        &lod_orig_tower_input_release_state_destroy,
+    lod_install_pair126_input_release_single(0x0F00064C,
+        lod_fix_pair126_input_release_state_destroy,
+        &lod_orig_pair126_input_release_state_destroy,
         "pair126.destroy", reason);
 }
 #endif
@@ -2866,6 +3215,10 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
         ni_stale_mark_recent(vram, pair_index);
 #endif
+#if LOD_ENABLE_ISSUE23_TRACE
+        lod_issue23_log_ni(rdram, "same-pair", pair_index, vram, mapped_vaddr);
+        lod_install_issue23_ni129_trace_wrappers(pair_index, vram, "same-pair");
+#endif
         return;
     }
 #endif
@@ -2920,6 +3273,10 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
 #if LOD_FIX_RUN_DL_STALE_NI_FALLBACK
     ni_stale_mark_recent(vram, pair_index);
 #endif
+#if LOD_ENABLE_ISSUE23_TRACE
+    lod_issue23_log_ni(rdram, "load", pair_index, vram, mapped_vaddr);
+    lod_install_issue23_ni129_trace_wrappers(pair_index, vram, "load");
+#endif
 
 #if LOD_FIX_NI_PAIR120_RESULT_LABELS
     if (pair_index == 120) {
@@ -2961,9 +3318,9 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
         lod_install_tower_ni_trace_wrappers(pair_index, vram, "tower-pair-load");
     }
 #endif
-#if LOD_FIX_TOWER_INPUT_RELEASE
+#if LOD_FIX_PAIR126_INPUT_RELEASE
     if (pair_index == 126 && vram == 0x0F000000) {
-        lod_install_tower_input_release_wrapper(pair_index, vram, "tower-pair-load");
+        lod_install_pair126_input_release_wrapper(pair_index, vram, "pair126-load");
     }
 #endif
 

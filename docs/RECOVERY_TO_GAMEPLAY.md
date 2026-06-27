@@ -179,7 +179,7 @@ What changed:
 - Added and then removed a `LOD_FIX_TOWER_DISTANCE_CUTOFF` experiment after user validation showed the same black screen. Do not keep or release that cutoff widening unless new evidence reopens this path.
 - Added default-off `LOD_ENABLE_TOWER_NI126_TRACE` instrumentation to wrap Tower NI pair `126` and no-op pair `18` entry/state handlers when the Tower map overlay is loaded.
 - Combined `LOD_ENABLE_TOWER_NI126_TRACE=ON` with `LOD_ENABLE_CFB_SNAPSHOT=ON` in `build-tower-cfb` to snapshot the internal game framebuffer around the Tower transition.
-- Added `LOD_FIX_TOWER_INPUT_RELEASE`, default ON, to release Tower pair-126 restart paths from the temporary `0x20000000` execution-lock flags when the state-init route skips the normal fade/destroy cleanup.
+- Added `LOD_FIX_PAIR126_INPUT_RELEASE`, default ON, to release NI pair-126 transition paths from the temporary `0x20000000` execution-lock flags when the state-init route skips the normal fade/destroy cleanup or when the destroy route leaves only the transition lock set. The restart-init special case remains Tower-only.
 - Added `tools/audit_map_hidden_boundaries.py` and wired it into `tools/regen_recomp.sh` as a pre-regeneration gate. The audit catches conservative map-overlay hidden function boundaries before they can become runtime range-fallback bugs.
 - Split twenty-one hidden `map_ovl_29` function boundaries from `0x802E6750` through `0x802E8738`; many have direct Tower data-table references at `0x802E8F20..0x802E8F98`.
 - Enabled `LOD_FIX_NI_SEG6_CPU_ALIAS` by default after user validation showed it fixed the later Tower crash from a CPU-side KSEG0-mirrored segment-6 pointer.
@@ -238,6 +238,29 @@ Regression checks:
 - Watch the intro lantern/table section: the lantern vampire should be visible during the target shot, the table should render, and nearby characters should not flicker black.
 - If a future intro/model render regression appears, first compare `LOD_FIX_RUN_DL_STALE_NI_FALLBACK=0/1` and `LOD_FIX_INTRO_6C_MODEL38_TLB=0/1` before adding one-off asset remaps.
 - For issue #20-style regressions, inspect `G_DL` caller, target, current pair, and fallback pair first. A target can be inside the current loaded NI span and still be wrong if the display task refers to a previous pair at the same `0x0E/0x0F` offset.
+
+## Issue #23 Henry Coffin Black Screen / Pair-126 Transition Lock (2026-06-27)
+
+Status: user-validated for the reported black screen. Keep the current fix as a compatibility shim while investigating the more correct upstream transition-state cleanup.
+
+What changed:
+
+- Added default-off Issue #23 diagnostics for map, flag, clock, VI, CFB, and render evidence around source map `0x007D4420`, destination map `0x0082E330`, and NI pair `129`.
+- Generalized the previous Tower-only input-release shim into `LOD_FIX_PAIR126_INPUT_RELEASE`, default ON.
+- The shim now applies to NI pair `126` on any map, but only after game state is `3` and the execution flags match the stuck transition pattern exactly: `(exec & 0x38000000) == 0x20000000`. It restores the missing controllable bits by writing `0x20000000 -> 0x38000000`.
+- Diagnostic-only forced rollover and forced child-completion flags remain compile-time gated and default OFF. Do not use them as gameplay fixes.
+
+Evidence:
+
+- Reporter save reproduced the symptom: music continued, framebuffer stayed black, and the pair-126 transition completed but left execution flags at `0x20000000`.
+- `pair126.destroy` fired and cleared its child pointer, but did not restore the normal `0x38000000` gameplay/control flags.
+- Clean validation log `/tmp/lod_recomp_logs/issue23_clean_pair126_release_20260627_173456.log` shows `[PAIR126_INPUT_RELEASE_FIX] pair126.destroy #1 exec 0x20000000 -> 0x38000000 map#5 map=0x0082E330`.
+- User validation with forced child flags OFF: the black screen no longer remained. The save progressed to the next stage instead of the ending cutscene because the clean save has ending flag `0x2A9` unset; the forced-flag diagnostic proved the ending route separately, but is not part of the fix.
+
+Next investigation:
+
+- Find why pair-126 destroy/init can leave only the transition lock set in the recompiled build.
+- Prefer a general state-machine or function-boundary fix over broader flag patching. Keep the current shim narrow and flag-gated while the root cause is investigated.
 
 ## Pause Item Menu Rendering Fix (2026-06-06)
 

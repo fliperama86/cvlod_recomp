@@ -15,11 +15,15 @@
 #define LOD_ENABLE_TOWER_RENDER_SUMMARY 0
 #endif
 
+#ifndef LOD_ENABLE_ISSUE23_TRACE
+#define LOD_ENABLE_ISSUE23_TRACE 0
+#endif
+
 #ifndef LOD_FIX_TOWER_BLACK_OVERLAY
 #define LOD_FIX_TOWER_BLACK_OVERLAY 1
 #endif
 
-#if LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_FIX_TOWER_BLACK_OVERLAY
+#if LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_FIX_TOWER_BLACK_OVERLAY || LOD_ENABLE_ISSUE23_TRACE
 #include "hle/rt64_workload_queue.h"
 #endif
 
@@ -302,7 +306,7 @@ static int g_dl_n = 0;
 #define LOD_ENABLE_CFB_SNAPSHOT 0
 #endif
 
-#if LOD_ENABLE_CFB_SNAPSHOT || LOD_ENABLE_TOWER_RENDER_SUMMARY
+#if LOD_ENABLE_CFB_SNAPSHOT || LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_ENABLE_ISSUE23_TRACE
 static int32_t lod_render_current_gamestate(uint8_t* rdram) {
     uint32_t gsm_addr = *(uint32_t*)(rdram + 0x0C1520);
     if (gsm_addr == 0) {
@@ -318,12 +322,14 @@ static int32_t lod_render_current_gamestate(uint8_t* rdram) {
 }
 #endif
 
-#if LOD_ENABLE_CFB_SNAPSHOT
+#if LOD_ENABLE_CFB_SNAPSHOT || LOD_ENABLE_ISSUE23_TRACE
 static uint16_t lod_rdram_be16(uint8_t* rdram, uint32_t phys) {
     return ((uint16_t)rdram[(phys + 0) ^ 3] << 8) |
            ((uint16_t)rdram[(phys + 1) ^ 3] << 0);
 }
+#endif
 
+#if LOD_ENABLE_CFB_SNAPSHOT
 static void lod_dump_cfb_ppm(uint8_t* rdram, int32_t gs, int dl_n, int us_n, uint32_t cfb, uint32_t width) {
     if (width == 0) {
         width = 320;
@@ -380,6 +386,56 @@ static void lod_dump_cfb_ppm(uint8_t* rdram, int32_t gs, int dl_n, int us_n, uin
         (unsigned long long)(sum_r / pixels),
         (unsigned long long)(sum_g / pixels),
         (unsigned long long)(sum_b / pixels));
+}
+#endif
+
+#if LOD_ENABLE_ISSUE23_TRACE
+static uint32_t lod_render_phys_u32(uint8_t* rdram, uint32_t phys) {
+    return phys <= 0x800000 - 4 ? *(uint32_t*)(rdram + phys) : 0;
+}
+
+static void lod_issue23_log_cfb_probe(uint8_t* rdram, int32_t gs, int dl_n, int us_n,
+                                      uint32_t cfb, uint32_t width, uint32_t vi_origin) {
+    if (width == 0) {
+        width = 320;
+    }
+
+    const uint32_t height = (width >= 640) ? 480 : 240;
+    const uint64_t pixels = (uint64_t)width * (uint64_t)height;
+    const uint64_t bytes = pixels * 2ULL;
+    if (cfb == 0 || cfb >= 0x800000 || bytes > 0x800000ULL || cfb + bytes > 0x800000ULL) {
+        fprintf(stderr,
+                "[ISSUE23_CFB] us=%d DL#%d gs=%d map#%d cfb=0x%06X vi=0x%06X width=%u "
+                "height=%u invalid=1\n",
+                us_n, dl_n, gs, lod_current_map_overlay_load_count(), cfb, vi_origin,
+                width, height);
+        return;
+    }
+
+    const uint64_t step = std::max<uint64_t>(1, pixels / 4096);
+    uint64_t samples = 0;
+    uint64_t nonzero = 0;
+    uint64_t sum = 0;
+    uint16_t max_px = 0;
+    for (uint64_t i = 0; i < pixels; i += step) {
+        const uint32_t phys = cfb + (uint32_t)(i * 2ULL);
+        const uint16_t px = lod_rdram_be16(rdram, phys);
+        samples++;
+        if (px != 0) {
+            nonzero++;
+        }
+        sum += px;
+        if (px > max_px) {
+            max_px = px;
+        }
+    }
+
+    fprintf(stderr,
+            "[ISSUE23_CFB] us=%d DL#%d gs=%d map#%d cfb=0x%06X vi=0x%06X width=%u height=%u "
+            "samples=%llu nonzero=%llu max=0x%04X mean=0x%04llX\n",
+            us_n, dl_n, gs, lod_current_map_overlay_load_count(), cfb, vi_origin,
+            width, height, (unsigned long long)samples, (unsigned long long)nonzero,
+            max_px, (unsigned long long)(samples != 0 ? (sum / samples) : 0));
 }
 #endif
 
@@ -461,7 +517,7 @@ static bool lod_tower_remove_stuck_black_overlay(RT64::Workload& workload, int d
 }
 #endif
 
-#if LOD_ENABLE_TOWER_RENDER_SUMMARY
+#if LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_ENABLE_ISSUE23_TRACE
 struct LodTowerTopDlStats {
     uint32_t cmds = 0;
     uint32_t end_seen = 0;
@@ -775,6 +831,78 @@ static void lod_tower_log_workload_summary(const char* tag, int tower_task, int 
 }
 #endif
 
+#if LOD_ENABLE_ISSUE23_TRACE
+static void lod_issue23_log_workload_summary(const char* tag, int issue_task, int dl_n,
+                                             uint32_t cursor, const RT64::Workload& workload) {
+    const uint32_t face_tri = (uint32_t)(workload.drawData.faceIndices.size() / 3);
+    const uint32_t raw_tri = (uint32_t)(workload.drawData.rawTriVertexCount() / 3);
+    uint32_t proj_counts[5] = {};
+    uint32_t cycle_1 = 0;
+    uint32_t cycle_2 = 0;
+    uint32_t cycle_copy = 0;
+    uint32_t cycle_fill = 0;
+    uint32_t rect_calls = 0;
+    uint32_t persp_calls = 0;
+    uint32_t large_rect_calls = 0;
+    uint32_t black_rgb_calls = 0;
+    for (uint32_t f = 0; f < workload.fbPairCount; f++) {
+        const RT64::FramebufferPair& fb = workload.fbPairs[f];
+        for (uint32_t p = 0; p < fb.projectionCount; p++) {
+            const RT64::Projection& proj = fb.projections[p];
+            const uint32_t type_index = std::min<uint32_t>((uint32_t)proj.type, 4);
+            proj_counts[type_index]++;
+            for (uint32_t c = 0; c < proj.gameCallCount; c++) {
+                const RT64::GameCall& call = proj.gameCalls[c];
+                const RT64::DrawCall& d = call.callDesc;
+                const uint32_t cycle = d.otherMode.cycleType();
+                if (cycle == G_CYC_1CYCLE) { cycle_1++; }
+                else if (cycle == G_CYC_2CYCLE) { cycle_2++; }
+                else if (cycle == G_CYC_COPY) { cycle_copy++; }
+                else if (cycle == G_CYC_FILL) { cycle_fill++; }
+                if (proj.type == RT64::Projection::Type::Rectangle) { rect_calls++; }
+                if (proj.type == RT64::Projection::Type::Perspective) { persp_calls++; }
+                if (lod_tower_rect_large(d.rect) || lod_tower_rect_large(d.scissorRect)) { large_rect_calls++; }
+                if (lod_tower_color_rgb_black(d.rdpParams.primColor) &&
+                    lod_tower_color_rgb_black(d.rdpParams.envColor) &&
+                    lod_tower_color_rgb_black(d.rdpParams.fogColor)) {
+                    black_rgb_calls++;
+                }
+            }
+        }
+    }
+
+    fprintf(stderr,
+            "[ISSUE23_RENDER] %s task=%d DL#%d cursor=%u wid=%llu calls=%u fbPairs=%u submitted=%u "
+            "faceTri=%u rawTri=%u vertices=%u loads=%zu warnings=%zu cfb=0x%06X "
+            "proj(n/p/o/r/t)=%u/%u/%u/%u/%u cycles(1/2/copy/fill)=%u/%u/%u/%u "
+            "calls(rect/persp/large/blackRGB)=%u/%u/%u/%u\n",
+            tag, issue_task, dl_n, cursor, (unsigned long long)workload.workloadId,
+            workload.gameCallCount, workload.fbPairCount, workload.fbPairSubmitted,
+            face_tri, raw_tri, workload.drawData.vertexCount(),
+            workload.drawData.loadOperations.size(), workload.commandWarnings.size(),
+            last_displayed_cfb,
+            proj_counts[0], proj_counts[1], proj_counts[2], proj_counts[3], proj_counts[4],
+            cycle_1, cycle_2, cycle_copy, cycle_fill,
+            rect_calls, persp_calls, large_rect_calls, black_rgb_calls);
+
+    const uint32_t fb_count = std::min<uint32_t>(workload.fbPairCount, 2);
+    for (uint32_t i = 0; i < fb_count; i++) {
+        const RT64::FramebufferPair& fb = workload.fbPairs[i];
+        fprintf(stderr,
+                "[ISSUE23_RENDER_FB] %s task=%d DL#%d fb=%u color=0x%06X fmt=%u siz=%u width=%u "
+                "depth=0x%06X calls=%u proj=%u fillOnly=%u flush=%s "
+                "draw=(%d,%d,%d,%d) scissor=(%d,%d,%d,%d)\n",
+                tag, issue_task, dl_n, i,
+                fb.colorImage.address, fb.colorImage.fmt, fb.colorImage.siz, fb.colorImage.width,
+                fb.depthImage.address, fb.gameCallCount, fb.projectionCount,
+                fb.fillRectOnly ? 1U : 0U,
+                lod_tower_fb_flush_reason_name(fb.flushReason),
+                fb.drawColorRect.ulx, fb.drawColorRect.uly, fb.drawColorRect.lrx, fb.drawColorRect.lry,
+                fb.scissorRect.ulx, fb.scissorRect.uly, fb.scissorRect.lrx, fb.scissorRect.lry);
+    }
+}
+#endif
+
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
     uint8_t* rdram = app->core.RDRAM;
@@ -782,6 +910,42 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
 
 #if LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_FIX_TOWER_BLACK_OVERLAY
     const bool tower_render_active = (lod_current_map_overlay_rom() == 0x007D9790);
+#endif
+#if LOD_ENABLE_ISSUE23_TRACE
+    const bool issue23_render_active = (lod_current_map_overlay_rom() == 0x0082E330);
+    static int issue23_render_task_count = 0;
+    int issue23_render_task = 0;
+    bool issue23_render_log = false;
+    if (issue23_render_active) {
+        issue23_render_task = ++issue23_render_task_count;
+        issue23_render_log = (issue23_render_task <= 80) || ((issue23_render_task % 60) == 0);
+        if (issue23_render_log) {
+            const int32_t gs = lod_render_current_gamestate(rdram);
+            const uint32_t exec_flags = lod_render_phys_u32(rdram, 0x001CABC8);
+            const uint32_t ni_sys_ptr = lod_render_phys_u32(rdram, 0x001CAC1C);
+            const LodTowerTopDlStats top_stats = lod_tower_scan_top_dl(rdram, data_addr);
+            char top_ops[128];
+            lod_tower_format_top_ops(top_stats, top_ops, sizeof(top_ops));
+            fprintf(stderr,
+                    "[ISSUE23_RENDER_TASK] pre task=%d DL#%d gs=%d exec=0x%08X ni=0x%08X "
+                    "map#%d map=0x%08X type=%u flags=0x%X data=0x%06X size=0x%X "
+                    "ucode=0x%06X/%u udata=0x%06X/%u top_cmds=%u end=%u setcimg=%u "
+                    "fill=%u texrect=%u gdl=%u top_ops=%s first=",
+                    issue23_render_task, g_dl_n, gs, exec_flags, ni_sys_ptr,
+                    lod_current_map_overlay_load_count(), lod_current_map_overlay_rom(),
+                    task->t.type, task->t.flags, data_addr, task->t.data_size,
+                    task->t.ucode & 0x3FFFFFF, task->t.ucode_size,
+                    task->t.ucode_data & 0x3FFFFFF, task->t.ucode_data_size,
+                    top_stats.cmds, top_stats.end_seen, top_stats.set_cimg,
+                    top_stats.fill_rect, top_stats.tex_rect, top_stats.branch_dl,
+                    top_ops[0] != '\0' ? top_ops : "-");
+            for (uint32_t i = 0; i < top_stats.first_count; i++) {
+                fprintf(stderr, "%s%08X/%08X", (i == 0) ? "" : ",",
+                        top_stats.first_w0[i], top_stats.first_w1[i]);
+            }
+            fprintf(stderr, "\n");
+        }
+    }
 #endif
 #if LOD_ENABLE_TOWER_RENDER_SUMMARY
     static int tower_render_task_count = 0;
@@ -931,6 +1095,15 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
         lod_tower_log_workload_summary("prev", tower_render_task, g_dl_n, prev, queue->workloads[prev]);
     }
 #endif
+#if LOD_ENABLE_ISSUE23_TRACE
+    if (issue23_render_active && issue23_render_log && app->workloadQueue != nullptr) {
+        const RT64::WorkloadQueue* queue = app->workloadQueue.get();
+        const uint32_t cur = (uint32_t)queue->writeCursor;
+        const uint32_t prev = queue->previousWriteCursor();
+        lod_issue23_log_workload_summary("cur", issue23_render_task, g_dl_n, cur, queue->workloads[cur]);
+        lod_issue23_log_workload_summary("prev", issue23_render_task, g_dl_n, prev, queue->workloads[prev]);
+    }
+#endif
 }
 
 void lod::renderer::RT64Context::update_screen() {
@@ -999,6 +1172,17 @@ void lod::renderer::RT64Context::update_screen() {
     if (us_n <= 5 || us_n % 5000 == 0) {
         fprintf(stderr, "[VI#%d] game_origin=0x%06X displayed_cfb=0x%06X VI_ORIGIN=0x%06X width=%d\n",
                 us_n, game_origin, last_displayed_cfb, vi->VI_ORIGIN_REG, width);
+    }
+#endif
+
+#if LOD_ENABLE_ISSUE23_TRACE
+    if (lod_current_map_overlay_rom() == 0x0082E330) {
+        static int issue23_us_count = 0;
+        issue23_us_count++;
+        if (issue23_us_count <= 80 || (issue23_us_count % 60) == 0) {
+            lod_issue23_log_cfb_probe(app->core.RDRAM, lod_render_current_gamestate(app->core.RDRAM),
+                                      g_dl_n, us_n, last_displayed_cfb, width, vi->VI_ORIGIN_REG);
+        }
     }
 #endif
 

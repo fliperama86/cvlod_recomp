@@ -73,6 +73,14 @@
 #define LOD_ENABLE_B2_ASSET_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_ISSUE23_TRACE
+#define LOD_ENABLE_ISSUE23_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE23_FORCE_ROLLOVER
+#define LOD_ENABLE_ISSUE23_FORCE_ROLLOVER 0
+#endif
+
 #ifndef LOD_MAP76_TRACE_SI_INTERVAL
 #define LOD_MAP76_TRACE_SI_INTERVAL 6
 #endif
@@ -235,6 +243,23 @@ static constexpr uint32_t LOD_B2_TRACE_RAM = 0x802A3B70;
 static constexpr uint32_t LOD_B2_TRACE_SIZE = 0x0000F3B2;
 static constexpr uint32_t LOD_B2_TRACE_FILE = 0x000000B2;
 #endif
+#if LOD_ENABLE_ISSUE23_TRACE
+static constexpr uint32_t LOD_ISSUE23_SOURCE_MAP_ROM = 0x007D4420;
+static constexpr uint32_t LOD_ISSUE23_DEST_MAP_ROM = 0x0082E330;
+static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size);
+static inline uint8_t lod_rdram_u8(uint8_t* rdram, uint32_t phys);
+static inline int16_t lod_rdram_s16(uint8_t* rdram, uint32_t phys);
+static inline uint32_t lod_rdram_u32(uint8_t* rdram, uint32_t phys);
+static int32_t lod_current_gamestate(uint8_t* rdram);
+static uint32_t lod_current_exec_flags(uint8_t* rdram);
+static uint32_t lod_current_ni_sys_ptr(uint8_t* rdram);
+static void lod_install_issue23_map_trace_wrappers(const char* reason);
+static void lod_install_issue23_progression_trace_wrappers(const char* reason);
+
+static bool lod_issue23_map_rom(uint32_t rom) {
+    return rom == LOD_ISSUE23_SOURCE_MAP_ROM || rom == LOD_ISSUE23_DEST_MAP_ROM;
+}
+#endif
 static uint32_t lod_current_map_ovl_rom = 0;
 static uint32_t lod_current_map_ovl_size = 0;
 static int lod_map_ovl_load_count = 0;
@@ -250,6 +275,522 @@ extern "C" uint32_t lod_current_map_overlay_size() {
 extern "C" int lod_current_map_overlay_load_count() {
     return lod_map_ovl_load_count;
 }
+
+#if LOD_ENABLE_ISSUE23_TRACE
+static recomp_func_t* lod_orig_issue23_map_dispatch = nullptr; // 0x802E3B70
+static recomp_func_t* lod_orig_issue23_map_camera = nullptr;   // 0x802E7F78
+
+static uint32_t lod_issue23_phys(uint32_t addr) {
+    return addr & 0x1FFFFFFF;
+}
+
+static uint8_t lod_issue23_u8(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_issue23_phys(addr) + off;
+    return addr != 0 && lod_rdram_range_ok(phys, 1) ? lod_rdram_u8(rdram, phys) : 0;
+}
+
+static int16_t lod_issue23_s16(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_issue23_phys(addr) + off;
+    return addr != 0 && lod_rdram_range_ok(phys, 2) ? lod_rdram_s16(rdram, phys) : 0;
+}
+
+static uint16_t lod_issue23_u16(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    return (uint16_t)lod_issue23_s16(rdram, addr, off);
+}
+
+static uint32_t lod_issue23_u32(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    const uint32_t phys = lod_issue23_phys(addr) + off;
+    return addr != 0 && lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static float lod_issue23_float_bits(uint32_t bits) {
+    float value;
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static float lod_issue23_f32(uint8_t* rdram, uint32_t addr, uint32_t off) {
+    return lod_issue23_float_bits(lod_issue23_u32(rdram, addr, off));
+}
+
+extern "C" int lod_ni_overlay_loaded_0f_pair();
+extern "C" int lod_ni_overlay_loaded_0e_pair();
+
+static recomp_func_t* lod_orig_issue23_flag_test = nullptr;  // 0x800048A0
+static recomp_func_t* lod_orig_issue23_flag_set = nullptr;   // 0x800048C4
+static recomp_func_t* lod_orig_issue23_flag_clear = nullptr; // 0x800048EC
+static recomp_func_t* lod_orig_issue23_flag_toggle = nullptr;// 0x80004918
+static recomp_func_t* lod_orig_issue23_clock_step = nullptr; // 0x8001BB3C
+static recomp_func_t* lod_orig_issue23_clock_reset = nullptr;// 0x800900C4
+
+struct LodIssue23ClockSnapshot {
+    int16_t h285c;
+    int16_t h285e;
+    int16_t h2860;
+    int16_t h2862;
+    int16_t h2864;
+    int16_t h2866;
+    uint32_t w2868;
+    uint32_t w2908;
+    uint32_t w2bc8;
+};
+
+static LodIssue23ClockSnapshot lod_issue23_clock_snapshot(uint8_t* rdram) {
+    constexpr uint32_t sys = 0x801C82C0;
+    return {
+        lod_issue23_s16(rdram, sys, 0x285C),
+        lod_issue23_s16(rdram, sys, 0x285E),
+        lod_issue23_s16(rdram, sys, 0x2860),
+        lod_issue23_s16(rdram, sys, 0x2862),
+        lod_issue23_s16(rdram, sys, 0x2864),
+        lod_issue23_s16(rdram, sys, 0x2866),
+        lod_issue23_u32(rdram, sys, 0x2868),
+        lod_issue23_u32(rdram, sys, 0x2908),
+        lod_issue23_u32(rdram, sys, 0x2BC8),
+    };
+}
+
+static bool lod_issue23_clock_same(const LodIssue23ClockSnapshot& a,
+                                   const LodIssue23ClockSnapshot& b) {
+    return a.h285c == b.h285c &&
+           a.h285e == b.h285e &&
+           a.h2860 == b.h2860 &&
+           a.h2862 == b.h2862 &&
+           a.h2864 == b.h2864 &&
+           a.h2866 == b.h2866 &&
+           a.w2868 == b.w2868 &&
+           a.w2908 == b.w2908 &&
+           a.w2bc8 == b.w2bc8;
+}
+
+static bool lod_issue23_trace_map_active() {
+    return lod_issue23_map_rom(lod_current_map_ovl_rom);
+}
+
+static bool lod_issue23_progress_log_sample(uint32_t count) {
+    return count <= 80 || (count % 120) == 0;
+}
+
+static bool lod_issue23_flag_interest(uint32_t base, uint32_t index) {
+    return base == 0x801CAA60 &&
+           index >= 0x2A0 && index <= 0x2A9;
+}
+
+static uint32_t lod_issue23_flag_mask(uint32_t index) {
+    return 0x80000000u >> (index & 0x1Fu);
+}
+
+static uint32_t lod_issue23_flag_word(uint8_t* rdram, uint32_t base, uint32_t index) {
+    const uint32_t phys = (base & 0x1FFFFFFFu) + ((index >> 5) * 4);
+    return lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static void lod_issue23_decode_host_caller(void* host_caller,
+                                           const char** symbol_out,
+                                           uintptr_t* offset_out) {
+    const char* symbol = "(unknown)";
+    uintptr_t offset = 0;
+#if defined(__APPLE__) || defined(__linux__)
+    Dl_info info = {};
+    if (host_caller != nullptr && dladdr(host_caller, &info) != 0 &&
+        info.dli_sname != nullptr) {
+        symbol = info.dli_sname;
+        uintptr_t sym_base = (uintptr_t)info.dli_saddr;
+        uintptr_t addr = (uintptr_t)host_caller;
+        if (sym_base != 0 && addr >= sym_base) {
+            offset = addr - sym_base;
+        }
+    }
+#else
+    (void)host_caller;
+#endif
+    *symbol_out = symbol;
+    *offset_out = offset;
+}
+
+static void lod_issue23_log_clock(const char* tag, uint32_t count, uint8_t* rdram,
+                                  uint32_t ra, const LodIssue23ClockSnapshot& before,
+                                  const LodIssue23ClockSnapshot& after) {
+    fprintf(stderr,
+            "[ISSUE23_PROGRESS] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "ni=0x%08X loaded0f=%d loaded0e=%d ra=0x%08X "
+            "before={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
+            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X} "
+            "after={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
+            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            tag, count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+            lod_current_ni_sys_ptr(rdram),
+            lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair(), ra,
+            before.h285c, before.h285e, before.h2860, before.h2862,
+            before.h2864, before.h2866, before.w2868, before.w2908, before.w2bc8,
+            after.h285c, after.h285e, after.h2860, after.h2862,
+            after.h2864, after.h2866, after.w2868, after.w2908, after.w2bc8);
+}
+
+static void lod_issue23_force_clock_rollover_if_enabled(uint8_t* rdram,
+                                                        uint32_t count,
+                                                        const LodIssue23ClockSnapshot& before) {
+#if LOD_ENABLE_ISSUE23_FORCE_ROLLOVER
+    static bool forced = false;
+    if (forced ||
+        lod_current_map_ovl_rom != LOD_ISSUE23_DEST_MAP_ROM ||
+        count < 120 ||
+        before.h285c != 0 ||
+        before.h285e != 0 ||
+        before.h2860 < 20) {
+        return;
+    }
+
+    constexpr gpr sys = (gpr)(int32_t)0x801C82C0;
+    MEM_H(0x2860, sys) = 23;
+    MEM_H(0x2862, sys) = 59;
+    MEM_H(0x2864, sys) = 59;
+    MEM_H(0x2866, sys) = 0;
+    forced = true;
+    fprintf(stderr,
+            "[ISSUE23_FORCE] fast-forwarded clock before real rollover step "
+            "count=%u map#%d map=0x%08X before={285c=%d 285e=%d 2860=%d "
+            "2862=%d 2864=%d 2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            before.h285c, before.h285e, before.h2860, before.h2862,
+            before.h2864, before.h2866, before.w2868, before.w2908, before.w2bc8);
+#else
+    (void)rdram;
+    (void)count;
+    (void)before;
+#endif
+}
+
+static void lod_issue23_log_flag(const char* op, uint32_t count, uint8_t* rdram,
+                                 uint32_t base, uint32_t index, uint32_t before_word,
+                                 uint32_t after_word, uint32_t result, uint32_t ra,
+                                 const char* caller_symbol, uintptr_t caller_offset) {
+    const LodIssue23ClockSnapshot clock = lod_issue23_clock_snapshot(rdram);
+    const uint32_t mask = lod_issue23_flag_mask(index);
+    fprintf(stderr,
+            "[ISSUE23_FLAG] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "ni=0x%08X loaded0f=%d loaded0e=%d base=0x%08X flag=0x%03X "
+            "wordOff=0x%X mask=0x%08X before=0x%08X after=0x%08X result=0x%08X "
+            "ra=0x%08X caller=%s+0x%lX clock={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d "
+            "2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            op, count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+            lod_current_ni_sys_ptr(rdram),
+            lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair(),
+            base, index, (index >> 5) * 4, mask, before_word, after_word,
+            result, ra, caller_symbol, (unsigned long)caller_offset,
+            clock.h285c, clock.h285e, clock.h2860, clock.h2862,
+            clock.h2864, clock.h2866, clock.w2868, clock.w2908, clock.w2bc8);
+}
+
+static void lod_trace_issue23_flag_test(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const uint32_t base = (uint32_t)ctx->r4;
+    const uint32_t index = (uint32_t)ctx->r5;
+    const bool trace = lod_issue23_trace_map_active() &&
+                       lod_issue23_flag_interest(base, index);
+    const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
+    const uint32_t ra = (uint32_t)ctx->r31;
+
+    if (lod_orig_issue23_flag_test != nullptr) {
+        lod_orig_issue23_flag_test(rdram, ctx);
+    }
+
+    if (trace) {
+        count++;
+        if ((index >= 0x2A1 && index <= 0x2A3) ||
+            lod_issue23_progress_log_sample(count)) {
+            lod_issue23_log_flag("test", count, rdram, base, index, before_word,
+                                 before_word, (uint32_t)ctx->r2, ra,
+                                 caller_symbol, caller_offset);
+        }
+    }
+}
+
+static void lod_trace_issue23_flag_set(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const uint32_t base = (uint32_t)ctx->r4;
+    const uint32_t index = (uint32_t)ctx->r5;
+    const bool trace = lod_issue23_trace_map_active() &&
+                       lod_issue23_flag_interest(base, index);
+    const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
+    const uint32_t ra = (uint32_t)ctx->r31;
+
+    if (lod_orig_issue23_flag_set != nullptr) {
+        lod_orig_issue23_flag_set(rdram, ctx);
+    }
+
+    if (trace) {
+        count++;
+        const uint32_t after_word = lod_issue23_flag_word(rdram, base, index);
+        lod_issue23_log_flag("set", count, rdram, base, index, before_word,
+                             after_word, after_word & lod_issue23_flag_mask(index), ra,
+                             caller_symbol, caller_offset);
+    }
+}
+
+static void lod_trace_issue23_flag_clear(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const uint32_t base = (uint32_t)ctx->r4;
+    const uint32_t index = (uint32_t)ctx->r5;
+    const bool trace = lod_issue23_trace_map_active() &&
+                       lod_issue23_flag_interest(base, index);
+    const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
+    const uint32_t ra = (uint32_t)ctx->r31;
+
+    if (lod_orig_issue23_flag_clear != nullptr) {
+        lod_orig_issue23_flag_clear(rdram, ctx);
+    }
+
+    if (trace) {
+        count++;
+        const uint32_t after_word = lod_issue23_flag_word(rdram, base, index);
+        lod_issue23_log_flag("clear", count, rdram, base, index, before_word,
+                             after_word, after_word & lod_issue23_flag_mask(index), ra,
+                             caller_symbol, caller_offset);
+    }
+}
+
+static void lod_trace_issue23_flag_toggle(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const uint32_t base = (uint32_t)ctx->r4;
+    const uint32_t index = (uint32_t)ctx->r5;
+    const bool trace = lod_issue23_trace_map_active() &&
+                       lod_issue23_flag_interest(base, index);
+    const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
+    const uint32_t ra = (uint32_t)ctx->r31;
+
+    if (lod_orig_issue23_flag_toggle != nullptr) {
+        lod_orig_issue23_flag_toggle(rdram, ctx);
+    }
+
+    if (trace) {
+        count++;
+        const uint32_t after_word = lod_issue23_flag_word(rdram, base, index);
+        lod_issue23_log_flag("toggle", count, rdram, base, index, before_word,
+                             after_word, after_word & lod_issue23_flag_mask(index), ra,
+                             caller_symbol, caller_offset);
+    }
+}
+
+static void lod_trace_issue23_clock_step(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    const bool trace = lod_issue23_trace_map_active();
+    const uint32_t ra = (uint32_t)ctx->r31;
+    count++;
+    const LodIssue23ClockSnapshot before =
+        trace ? lod_issue23_clock_snapshot(rdram) : LodIssue23ClockSnapshot{};
+    if (trace) {
+        lod_issue23_force_clock_rollover_if_enabled(rdram, count, before);
+    }
+
+    if (lod_orig_issue23_clock_step != nullptr) {
+        lod_orig_issue23_clock_step(rdram, ctx);
+    }
+
+    if (trace) {
+        const LodIssue23ClockSnapshot after = lod_issue23_clock_snapshot(rdram);
+        const bool same = lod_issue23_clock_same(before, after);
+        if (!same || lod_issue23_progress_log_sample(count)) {
+            lod_issue23_log_clock(same ? "clock-same" : "clock-change",
+                                  count, rdram, ra, before, after);
+        }
+    }
+}
+
+static void lod_trace_issue23_clock_reset(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    const bool trace = lod_issue23_trace_map_active();
+    const uint32_t ra = (uint32_t)ctx->r31;
+    const LodIssue23ClockSnapshot before =
+        trace ? lod_issue23_clock_snapshot(rdram) : LodIssue23ClockSnapshot{};
+
+    if (lod_orig_issue23_clock_reset != nullptr) {
+        lod_orig_issue23_clock_reset(rdram, ctx);
+    }
+
+    if (trace) {
+        count++;
+        const LodIssue23ClockSnapshot after = lod_issue23_clock_snapshot(rdram);
+        lod_issue23_log_clock("clock-reset", count, rdram, ra, before, after);
+    }
+}
+
+static void lod_install_issue23_progression_trace_wrapper(uint32_t vram,
+                                                          recomp_func_t* wrapper,
+                                                          recomp_func_t** original_out,
+                                                          const char* name,
+                                                          const char* reason) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current == wrapper) {
+        return;
+    }
+
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    fprintf(stderr,
+            "[ISSUE23_PROGRESS] installed %s wrapper vram=0x%08X reason=%s original=%p wrapper=%p\n",
+            name, vram, reason, (void*)current, (void*)wrapper);
+}
+
+static void lod_install_issue23_progression_trace_wrappers(const char* reason) {
+    lod_install_issue23_progression_trace_wrapper(0x800048A0,
+        lod_trace_issue23_flag_test, &lod_orig_issue23_flag_test,
+        "flag.test", reason);
+    lod_install_issue23_progression_trace_wrapper(0x800048C4,
+        lod_trace_issue23_flag_set, &lod_orig_issue23_flag_set,
+        "flag.set", reason);
+    lod_install_issue23_progression_trace_wrapper(0x800048EC,
+        lod_trace_issue23_flag_clear, &lod_orig_issue23_flag_clear,
+        "flag.clear", reason);
+    lod_install_issue23_progression_trace_wrapper(0x80004918,
+        lod_trace_issue23_flag_toggle, &lod_orig_issue23_flag_toggle,
+        "flag.toggle", reason);
+    lod_install_issue23_progression_trace_wrapper(0x8001BB3C,
+        lod_trace_issue23_clock_step, &lod_orig_issue23_clock_step,
+        "clock.step", reason);
+    lod_install_issue23_progression_trace_wrapper(0x800900C4,
+        lod_trace_issue23_clock_reset, &lod_orig_issue23_clock_reset,
+        "clock.reset", reason);
+}
+
+static bool lod_issue23_log_sample(uint32_t count) {
+    return count <= 120 || (count % 60) == 0;
+}
+
+static uint32_t lod_issue23_map_dispatch_target(uint8_t* rdram, uint8_t index) {
+    const uint32_t table_phys = 0x002E8B7C + ((uint32_t)index * 4);
+    return lod_rdram_range_ok(table_phys, 4) ? lod_rdram_u32(rdram, table_phys) : 0;
+}
+
+static void lod_issue23_log_map_state(uint8_t* rdram, const char* tag, uint32_t count,
+                                      const char* func, uint32_t obj, uint32_t ra) {
+    if (lod_current_map_ovl_rom != LOD_ISSUE23_DEST_MAP_ROM || !lod_issue23_log_sample(count)) {
+        return;
+    }
+
+    const int16_t depth = lod_issue23_s16(rdram, obj, 0x0E);
+    const int next_depth = (int)depth + 1;
+    const uint32_t next_off = next_depth >= 0 && next_depth < 8 ? (uint32_t)(next_depth * 2) : 0;
+    const uint8_t next_count = next_depth >= 0 && next_depth < 8
+        ? lod_issue23_u8(rdram, obj, 0x08 + next_off)
+        : 0;
+    const uint8_t next_index = next_depth >= 0 && next_depth < 8
+        ? lod_issue23_u8(rdram, obj, 0x09 + next_off)
+        : 0;
+    const uint32_t target = lod_issue23_map_dispatch_target(rdram, next_index);
+
+    const uint32_t state_base = 0x802EB4E0;
+    const uint32_t state_obj = lod_issue23_u32(rdram, state_base, 0x00);
+    const uint16_t state_h04 = lod_issue23_u16(rdram, state_base, 0x04);
+    const uint16_t state_h06 = lod_issue23_u16(rdram, state_base, 0x06);
+    const float state_x = lod_issue23_f32(rdram, state_base, 0x14);
+    const float state_y = lod_issue23_f32(rdram, state_base, 0x18);
+    const float state_z = lod_issue23_f32(rdram, state_base, 0x1C);
+    const float state_floor = lod_issue23_f32(rdram, state_base, 0x20);
+    const float state_threshold = lod_issue23_f32(rdram, state_base, 0x24);
+    const uint32_t state_phase = lod_issue23_u32(rdram, state_base, 0x28);
+
+    const uint32_t obj34 = lod_issue23_u32(rdram, obj, 0x34);
+    const uint32_t obj38 = lod_issue23_u32(rdram, obj, 0x38);
+    const uint32_t obj3c = lod_issue23_u32(rdram, obj, 0x3C);
+    const uint32_t obj44 = lod_issue23_u32(rdram, obj, 0x44);
+    const uint32_t obj24 = lod_issue23_u32(rdram, obj, 0x24);
+    const uint32_t path_flags = obj34 != 0 ? lod_issue23_u32(rdram, obj34, 0x00) : 0;
+
+    fprintf(stderr,
+            "[ISSUE23_MAP42] %s#%u func=%s gs=%d exec=0x%08X ni=0x%08X map#%d "
+            "obj=0x%08X ra=0x%08X depth=%d next={count=%u idx=%u target=0x%08X} "
+            "levels=%u/%u,%u/%u,%u/%u,%u/%u obj24=0x%08X obj34=0x%08X pathFlags=0x%08X "
+            "obj38=0x%08X obj3c=0x%08X obj44=0x%08X globals={actor=0x%08X ptr24=0x%08X "
+            "ptr28=0x%08X} state={obj=0x%08X h04=0x%04X h06=0x%04X phase=%u "
+            "xyz=(%.2f,%.2f,%.2f) floor=%.2f thresh=%.2f}\n",
+            tag, count, func, lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+            lod_current_ni_sys_ptr(rdram), lod_map_ovl_load_count, obj, ra, (int)depth,
+            next_count, next_index, target,
+            lod_issue23_u8(rdram, obj, 0x08), lod_issue23_u8(rdram, obj, 0x09),
+            lod_issue23_u8(rdram, obj, 0x0A), lod_issue23_u8(rdram, obj, 0x0B),
+            lod_issue23_u8(rdram, obj, 0x0C), lod_issue23_u8(rdram, obj, 0x0D),
+            lod_issue23_u8(rdram, obj, 0x10), lod_issue23_u8(rdram, obj, 0x11),
+            obj24, obj34, path_flags, obj38, obj3c, obj44,
+            lod_issue23_u32(rdram, 0x801CAC20, 0),
+            lod_issue23_u32(rdram, 0x801CAC24, 0),
+            lod_issue23_u32(rdram, 0x801CAC28, 0),
+            state_obj, state_h04, state_h06, state_phase,
+            state_x, state_y, state_z, state_floor, state_threshold);
+}
+
+static void lod_trace_issue23_map_dispatch(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t ra = (uint32_t)ctx->r31;
+    lod_issue23_log_map_state(rdram, "pre", count, "dispatch_802E3B70", obj, ra);
+    if (lod_orig_issue23_map_dispatch != nullptr) {
+        lod_orig_issue23_map_dispatch(rdram, ctx);
+    }
+    lod_issue23_log_map_state(rdram, "post", count, "dispatch_802E3B70", obj, ra);
+}
+
+static void lod_trace_issue23_map_camera(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t ra = (uint32_t)ctx->r31;
+    lod_issue23_log_map_state(rdram, "pre", count, "camera_802E7F78", obj, ra);
+    if (lod_orig_issue23_map_camera != nullptr) {
+        lod_orig_issue23_map_camera(rdram, ctx);
+    }
+    lod_issue23_log_map_state(rdram, "post", count, "camera_802E7F78", obj, ra);
+}
+
+static void lod_install_issue23_map_trace_wrapper(uint32_t vram,
+                                                  recomp_func_t* wrapper,
+                                                  recomp_func_t** original_out,
+                                                  const char* name,
+                                                  const char* reason) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current == wrapper) {
+        return;
+    }
+
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    fprintf(stderr,
+            "[ISSUE23_MAP42] installed %s wrapper vram=0x%08X reason=%s original=%p wrapper=%p\n",
+            name, vram, reason, (void*)current, (void*)wrapper);
+}
+
+static void lod_install_issue23_map_trace_wrappers(const char* reason) {
+    if (lod_current_map_ovl_rom != LOD_ISSUE23_DEST_MAP_ROM) {
+        return;
+    }
+
+    lod_install_issue23_map_trace_wrapper(0x802E3B70,
+        lod_trace_issue23_map_dispatch, &lod_orig_issue23_map_dispatch,
+        "map42.dispatch", reason);
+    lod_install_issue23_map_trace_wrapper(0x802E7F78,
+        lod_trace_issue23_map_camera, &lod_orig_issue23_map_camera,
+        "map42.camera", reason);
+}
+#endif
 
 static bool lod_decode_rdram_phys_addr(uint32_t addr, uint32_t size, uint32_t* phys_out) {
     if (size > 0x800000) {
@@ -347,6 +888,20 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                 lod_map_ovl_load_count++;
                 lod_current_map_ovl_rom = rom_start;
                 lod_current_map_ovl_size = full_size;
+#if LOD_ENABLE_ISSUE23_TRACE
+                if (lod_issue23_map_rom(rom_start)) {
+                    fprintf(stderr,
+                            "[ISSUE23_MAP] map#%d rom=0x%08X dst=0x%08X full=0x%X requested=0x%X "
+                            "ctrl=0x%08X gs=%d exec=0x%08X ni=0x%08X\n",
+                            lod_map_ovl_load_count, rom_start, vram_dest, full_size, size,
+                            ctrl, lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+                            lod_current_ni_sys_ptr(rdram));
+                    lod_install_issue23_progression_trace_wrappers("issue23-map-load");
+                }
+                if (rom_start == LOD_ISSUE23_DEST_MAP_ROM) {
+                    lod_install_issue23_map_trace_wrappers("map42-load");
+                }
+#endif
 #if LOD_ENABLE_B2_ASSET_TRACE
                 if (rom_start == LOD_B2_TRACE_MAP_ROM) {
                     const LodKseg0FaultTraceSnapshot& s = lod_kseg0_fault_trace_snapshot;
