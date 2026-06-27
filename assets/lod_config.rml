@@ -213,25 +213,18 @@ Display refresh: {{display_refresh_rate}}Hz
                                     </div>
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(2)">
                                         <label class="config-option__title">Audio Driver</label>
-                                        <div class="config-option__list">
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="auto" id="lod_audio_driver_auto" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_auto">Auto</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="default" id="lod_audio_driver_default" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_default">SDL Default</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="wasapi" id="lod_audio_driver_wasapi" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_wasapi">WASAPI</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="directsound" id="lod_audio_driver_directsound" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_directsound">DirectSound</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="pulseaudio" id="lod_audio_driver_pulseaudio" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_pulseaudio">PulseAudio</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="pipewire" id="lod_audio_driver_pipewire" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_pipewire">PipeWire</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="alsa" id="lod_audio_driver_alsa" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_alsa">ALSA</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="coreaudio" id="lod_audio_driver_coreaudio" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_coreaudio">CoreAudio</label>
-                                            <input type="radio" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" name="audio_driver" data-checked="audio_driver_mode" value="dummy" id="lod_audio_driver_dummy" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status" />
-                                            <label class="config-option__tab-label" for="lod_audio_driver_dummy">Dummy</label>
+                                        <div class="config-option-dropdown">
+                                            <select class="config-option-dropdown__select" data-value="audio_driver_mode" data-event-blur="set_cur_config_index(-1)" data-event-focus="set_cur_config_index(2)" id="lod_audio_driver_select" style="nav-up:#lod_audio_mute_off; nav-down:#lod_audio_backend_status">
+                                                <option value="auto">Auto</option>
+                                                <option value="default">SDL Default</option>
+                                                <option value="wasapi">WASAPI</option>
+                                                <option value="directsound">DirectSound</option>
+                                                <option value="pulseaudio">PulseAudio</option>
+                                                <option value="pipewire">PipeWire</option>
+                                                <option value="alsa">ALSA</option>
+                                                <option value="coreaudio">CoreAudio</option>
+                                                <option value="dummy">Dummy</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="config-option" data-event-mouseover="set_cur_config_index(3)">

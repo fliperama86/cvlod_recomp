@@ -599,12 +599,13 @@ target_sources(LodRecomp PRIVATE ${SOURCES})
 
 set_property(TARGET LodRecomp PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-add_custom_command(TARGET LodRecomp POST_BUILD
+add_custom_target(LodRecompAssets
     COMMAND ${CMAKE_COMMAND} -E copy_directory
         "${CMAKE_SOURCE_DIR}/assets"
         "$<TARGET_FILE_DIR:LodRecomp>/assets"
     COMMENT "Copying LodRecomp runtime assets"
 )
+add_dependencies(LodRecomp LodRecompAssets)
 
 # ── Tests ────────────────────────────────────────────────────────────
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/sanity ${CMAKE_BINARY_DIR}/tests/sanity)
