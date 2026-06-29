@@ -40,7 +40,7 @@ git submodule update --remote
 Primary builds use the imported Zelda64Recomp menu framework/assets by default.
 The legacy LoD overlay remains available for fallback/debug builds with
 `-DLOD_USE_ZELDA_MENU=OFF`. Because the imported menu framework/assets are
-GPL-3.0, this branch is licensed under GPL-3.0; see `LICENSE`, `COPYING`, and
+GPL-3.0, this branch is licensed under GPL-3.0-only; see `LICENSE` and
 `docs/ZELDA_MENU_PORT.md`.
 
 ## Current important submodules

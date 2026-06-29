@@ -12,11 +12,11 @@ single-file `lod_ui_overlay.cpp` implementation.
 
 The imported menu framework and menu assets come from Zelda64Recomp, which is
 licensed under GPL-3.0. This branch therefore treats the combined work as
-GPL-3.0 for distribution purposes.
+GPL-3.0-only for distribution purposes.
 
 Current imported files:
 
-- `COPYING` — GPL-3.0 license text from Zelda64Recomp.
+- `LICENSE` - GPL-3.0-only project license text.
 - `include/recomp_ui.h` — ZeldaRecomp UI public API header.
 - `src/ui/ui_*`, `src/ui/core/*`, `src/ui/elements/*`, `src/ui/util/*` —
   ZeldaRecomp menu framework sources.
@@ -25,9 +25,8 @@ Current imported files:
 - `include/overloaded.h`, `include/promptfont.h`, `lib/SlotMap/slot_map.h`,
   `lib/concurrentqueue/concurrentqueue.h` — helper headers used by the imported UI.
 
-`LICENSE` and `COPYING` now both contain the GPL-3.0 license text. Before
-publishing this branch/release, update README/release notices to call out the
-license change explicitly.
+`LICENSE` is the single top-level project license file and contains the
+GPL-3.0 license text.
 
 ## Porting status
 
