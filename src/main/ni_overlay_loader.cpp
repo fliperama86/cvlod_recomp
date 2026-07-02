@@ -2643,6 +2643,12 @@ static void lod_install_tower_ni_trace_wrappers(int pair_index, uint32_t vram,
 static recomp_func_t* lod_orig_pair126_input_release_state_init = nullptr;
 static recomp_func_t* lod_orig_pair126_input_release_state_destroy = nullptr;
 
+static constexpr uint32_t LOD_PAIR126_EXEC_FLAGS_PHYS = 0x001CABC8;
+static constexpr uint32_t LOD_PAIR126_TRANSITION_LOCKED_FLAGS = 0x20000000;
+static constexpr uint32_t LOD_PAIR126_CONTROLLABLE_FLAGS = 0x38000000;
+static constexpr uint32_t LOD_PAIR126_MISSING_GAMEPLAY_FLAGS =
+    LOD_PAIR126_CONTROLLABLE_FLAGS & ~LOD_PAIR126_TRANSITION_LOCKED_FLAGS;
+
 static uint32_t lod_pair126_input_phys(uint32_t base, int32_t off) {
     return ((uint32_t)((int32_t)base + off)) & 0x1FFFFFFF;
 }
@@ -2662,25 +2668,26 @@ static uint8_t lod_pair126_input_u8(uint8_t* rdram, uint32_t base, int32_t off) 
     return lod_ni_telemetry_range_ok(phys, 1) ? rdram[phys ^ 3] : 0;
 }
 
-static void lod_pair126_release_input_flags_if_stuck(uint8_t* rdram, const char* reason) {
-    constexpr uint32_t EXEC_FLAGS_PHYS = 0x001CABC8;
-    constexpr uint32_t PAIR126_TRANSITION_LOCKED_FLAGS = 0x20000000;
-    constexpr uint32_t PAIR126_CONTROLLABLE_FLAGS = 0x38000000;
-    constexpr uint32_t PAIR126_MISSING_GAMEPLAY_FLAGS =
-        PAIR126_CONTROLLABLE_FLAGS & ~PAIR126_TRANSITION_LOCKED_FLAGS;
-
+static bool lod_pair126_exec_flags_transition_locked(uint8_t* rdram) {
     if (lod_ni_telemetry_gamestate(rdram) != 3 ||
-        !lod_ni_telemetry_range_ok(EXEC_FLAGS_PHYS, 4)) {
-        return;
+        !lod_ni_telemetry_range_ok(LOD_PAIR126_EXEC_FLAGS_PHYS, 4)) {
+        return false;
     }
 
-    uint32_t* exec_flags = (uint32_t*)(rdram + EXEC_FLAGS_PHYS);
+    uint32_t* exec_flags = (uint32_t*)(rdram + LOD_PAIR126_EXEC_FLAGS_PHYS);
     const uint32_t before = *exec_flags;
-    if ((before & PAIR126_CONTROLLABLE_FLAGS) != PAIR126_TRANSITION_LOCKED_FLAGS) {
+    return (before & LOD_PAIR126_CONTROLLABLE_FLAGS) ==
+        LOD_PAIR126_TRANSITION_LOCKED_FLAGS;
+}
+
+static void lod_pair126_release_input_flags_if_stuck(uint8_t* rdram, const char* reason) {
+    if (!lod_pair126_exec_flags_transition_locked(rdram)) {
         return;
     }
 
-    const uint32_t after = before | PAIR126_MISSING_GAMEPLAY_FLAGS;
+    uint32_t* exec_flags = (uint32_t*)(rdram + LOD_PAIR126_EXEC_FLAGS_PHYS);
+    const uint32_t before = *exec_flags;
+    const uint32_t after = before | LOD_PAIR126_MISSING_GAMEPLAY_FLAGS;
     *exec_flags = after;
 
     static int release_log_count = 0;
@@ -2694,15 +2701,17 @@ static void lod_pair126_release_input_flags_if_stuck(uint8_t* rdram, const char*
     }
 }
 
-static bool lod_tower_pair126_restart_init_without_fade(uint8_t* rdram, uint32_t obj) {
+static bool lod_pair126_init_returned_without_fade(uint8_t* rdram, uint32_t obj) {
     if (obj == 0) {
         return false;
     }
 
-    // Normal Tower entry creates a fade child and reaches state_destroy.
-    // Restart-from-save/death can enter with a nonzero stage, table entry 9,
-    // no fade child/link, and never reaches destroy, leaving exec flags locked.
-    if (lod_current_map_overlay_rom() != 0x007D9790) {
+    // Pair126 normally creates a fade child/link during init and later reaches
+    // state_destroy, which restores the normal gameplay/control flags. Some
+    // restart or transition routes return from init with only the root state
+    // left, so no later pair126 cleanup can run while exec flags stay locked.
+    if (loaded_0f_pair != 126 ||
+        !lod_pair126_exec_flags_transition_locked(rdram)) {
         return false;
     }
 
@@ -2711,18 +2720,23 @@ static bool lod_tower_pair126_restart_init_without_fade(uint8_t* rdram, uint32_t
     uint8_t state0_index = lod_pair126_input_u8(rdram, obj, 0x09);
     uint32_t child = lod_pair126_input_u32(rdram, obj, 0x24);
     uint32_t entry_index = lod_pair126_input_u32(rdram, obj, 0x34);
+    uint32_t timer = lod_pair126_input_u32(rdram, obj, 0x38);
     uint32_t limit = lod_pair126_input_u32(rdram, obj, 0x48);
     uint32_t frame = lod_pair126_input_u32(rdram, obj, 0x4C);
+    uint32_t done = lod_pair126_input_u32(rdram, obj, 0x50);
     uint32_t linked = lod_pair126_input_u32(rdram, obj, 0x54);
 
     return stage_global != 0 &&
         state0_count == 1 &&
         state0_index == 0 &&
-        entry_index == 9 &&
+        entry_index > 0 &&
+        entry_index < 23 &&
         child == 0 &&
         linked == 0 &&
+        timer == 0 &&
         limit == 0 &&
-        frame == 0;
+        frame == 0 &&
+        done == 0;
 }
 
 static void lod_fix_pair126_input_release_state_init(uint8_t* rdram, recomp_context* ctx) {
@@ -2730,8 +2744,8 @@ static void lod_fix_pair126_input_release_state_init(uint8_t* rdram, recomp_cont
     if (lod_orig_pair126_input_release_state_init != nullptr) {
         lod_orig_pair126_input_release_state_init(rdram, ctx);
     }
-    if (lod_tower_pair126_restart_init_without_fade(rdram, obj)) {
-        lod_pair126_release_input_flags_if_stuck(rdram, "pair126.init-restart");
+    if (lod_pair126_init_returned_without_fade(rdram, obj)) {
+        lod_pair126_release_input_flags_if_stuck(rdram, "pair126.init-no-fade");
     }
 }
 
