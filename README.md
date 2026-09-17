@@ -306,6 +306,120 @@ python tools\apply_symbols.py
 
 The Windows N64Recomp build aborts slightly later than the macOS one, producing two extra artifacts that the fixer chain now handles automatically: a dangling `overlay_sections_by_index` opener in `recomp_overlays.inl`, and a duplicate `static_*_0E0037A0` definition. The N64Recomp submodule source must be clean (`git -C lib/N64ModernRuntime/N64Recomp status`) — never regenerate with a modified tool.
 
+## Android port
+
+Validated on a Retroid Pocket 6 (Snapdragon 8 Gen 2, Adreno 740, Android 13). The port is a Gradle
+wrapper around the same CMake project, so the game logic, RT64 renderer and UI are shared with the
+desktop builds. Vulkan 1.1 is required and declared mandatory in the manifest.
+
+### Running the APK
+
+Download `app-release.apk` from the GitHub release and install it by opening the file on the device
+(you will need to allow installs from your browser or file manager). No ROM is bundled: on first
+launch the launcher asks you to pick your own legally dumped Castlevania: Legacy of Darkness (USA)
+ROM through the Android document picker. The ROM is copied into the app private storage
+(`/data/data/org.cvlod.recomp/files/`) and validated before the game will start.
+
+Because the ROM, saves and settings all live in app private storage, **uninstalling the app deletes
+your saves**. Android also forces an uninstall when an APK is signed with a different key, so keep
+to APKs from the same release stream if you care about your save files.
+
+### Controls
+
+A physical controller is picked up automatically through SDL, including the built-in pads on
+handhelds like the Retroid. For touch-only devices there is an on-screen overlay:
+
+- Enable it in **Settings -> Controls -> On-screen controls**. It is off by default and persists in
+  `controls.json`.
+- It appears during gameplay only, and steps aside whenever a menu is open.
+- The full N64 layout is provided (analog stick, A, B, Z, L, R, Start and the four C buttons) plus a
+  `MENU` button, which is the only way to reach the emulator menu without a keyboard or controller.
+- Touch input is additive, so the overlay and a physical pad can be used at the same time.
+
+### Cheats
+
+**Settings -> Cheats** exposes six toggles (invincibility, money, red jewels, all consumables, max
+power-ups and Henry's ammunition) implemented as GameShark-style RDRAM writes re-applied every VI.
+They persist in `cheats.json` and the launcher shows a warning while any are active, so a save file
+cannot be quietly shaped by a cheat you forgot about.
+
+### Building the APK
+
+Prerequisites:
+
+- Android SDK with platform 34 and NDK 26.x (the CMake toolchain comes from the NDK)
+- CMake 3.22.1 as shipped by the SDK
+- **JDK 17.** The Android Gradle Plugin 8.5.1 will not run on Java 8, and newer JDKs are not
+  supported by this Gradle version. Point `JAVA_HOME` at a 17 install, for example the one bundled
+  with Android Studio.
+
+Set the SDK location in `android/local.properties` (not committed):
+
+```properties
+sdk.dir=/absolute/path/to/Android/Sdk
+```
+
+#### Vendored submodule patches (required)
+
+Two fixes the Android port depends on live inside submodules this repository does not own:
+
+```
+cvlod_recomp -> lib/rt64 (fliperama86/rt64) -> src/contrib/plume (renderbag/plume)
+```
+
+They cannot be committed here, so they are vendored as diffs in `patches/` and re-applied after a
+fresh submodule checkout:
+
+```sh
+python tools/apply_submodule_patches.py          # apply (idempotent)
+python tools/apply_submodule_patches.py --check  # report status only
+```
+
+The Gradle build runs this automatically before compiling, so a normal `./gradlew assembleRelease`
+needs no extra step. Run it by hand for the desktop CMake builds.
+
+`patches/plume.patch` is not optional: without it the game crashes on "Start game" on Adreno GPUs,
+because RT64 sizes the Vulkan descriptor pool to the requested variable count while Adreno accounts
+it against the descriptor count declared in the set layout, so `vkAllocateDescriptorSets` returns
+`VK_ERROR_OUT_OF_POOL_MEMORY` and the failed allocation leaves a null handle that is dereferenced
+later. `patches/rt64.patch` additionally supplies `file_to_c.py`, which rt64's CMakeLists invokes
+during the shader build but which is not tracked upstream.
+
+Then, after `git submodule update --init --recursive` and after providing the generated/local files
+listed above, build from the `android/` directory:
+
+```sh
+cd android
+JAVA_HOME=/path/to/jdk-17 ./gradlew assembleRelease
+```
+
+The APK is written to `android/app/build/outputs/apk/release/app-release.apk` and contains both
+`arm64-v8a` and `x86_64`. A debug build works too but is **not** playable: the recompiled game
+functions are compiled `-O0`, which is the difference between full speed and roughly a third of it.
+Always test with `assembleRelease`.
+
+Two things worth knowing about the build:
+
+- Do **not** pass `-Pandroid.injected.build.abi=...`. It halves build time by skipping an ABI, but it
+  also marks the APK `android:testOnly=true`, which can then only be installed via `adb install -t`
+  and cannot be distributed.
+- `versionName`/`versionCode` are derived from the repo `VERSION` file, so bump that rather than
+  editing `android/app/build.gradle.kts`.
+
+### Android-specific implementation notes
+
+- The shared `assets/` tree is staged into the APK by the `stageGameAssets` Gradle task and unpacked
+  to `filesDir/assets` on launch, refreshed whenever the installed package changes. The desktop
+  builds get these files from the `LodRecompAssets` CMake target, which cannot apply to an APK.
+- `SplashActivity` shows the splash art before handing off to `MainActivity`. A theme
+  `windowBackground` alone is not enough, because SDL covers it within ~200ms of launch.
+- Menu music plays through Android `MediaPlayer` rather than the SDL device, since the project has
+  no MP3 decoder. Its volume follows the in-app master volume and mute.
+- A release build cannot currently emit diagnostics: `adb run-as` is refused when the package is not
+  debuggable, and `fprintf(stderr, ...)` does not reach logcat. Add `isDebuggable = true` to the
+  release build type temporarily if you need to read `LodRecomp.log` off a device.
+
+
 ## Audio baseline and useful CMake flags
 
 The default build is intended to produce audible game audio. The current audio baseline is:

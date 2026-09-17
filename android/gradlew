@@ -1,0 +1,24 @@
+#!/bin/sh
+# Gradle wrapper launcher for POSIX shells. The Windows counterpart is gradlew.bat.
+# Requires JDK 17: AGP 8.5.1 refuses Java 8, and this Gradle version does not support newer JDKs.
+
+set -e
+
+APP_HOME=$(cd "$(dirname "$0")" >/dev/null && pwd)
+CLASSPATH="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+
+if [ -n "$JAVA_HOME" ]; then
+    JAVACMD="$JAVA_HOME/bin/java"
+    if [ ! -x "$JAVACMD" ]; then
+        echo "ERROR: JAVA_HOME is set to an invalid directory: $JAVA_HOME" >&2
+        exit 1
+    fi
+else
+    JAVACMD=java
+    command -v java >/dev/null 2>&1 || {
+        echo "ERROR: no java found on PATH and JAVA_HOME is not set." >&2
+        exit 1
+    }
+fi
+
+exec "$JAVACMD" -classpath "$CLASSPATH" org.gradle.wrapper.GradleWrapperMain "$@"

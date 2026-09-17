@@ -40,3 +40,23 @@ backups/
 
 # Local N64Recomp builds (use the known-good binary instead)
 **/build_tool/
+
+# Never commit ROMs or anything derived from them.
+*.z64
+*.n64
+*.v64
+
+# Android build output and machine-specific config
+android/.gradle/
+android/build/
+android/app/build/
+android/app/.cxx/
+android/local.properties
+android/app/src/main/java/**/*.class
+
+# Standalone test binaries built for on-device runs
+/touchtest
+/cheatstest
+dist/
+*.apk
+*.apk.sha256

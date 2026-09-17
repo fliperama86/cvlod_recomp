@@ -526,17 +526,6 @@ static void flush_ui_thread_callbacks() {
     }
 }
 
-static bool zelda_controller_button_toggles_menu(uint8_t button) {
-    return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
-}
-
-static bool scanned_input_is_menu_action() {
-    const int scanned_input_index = recomp::get_scanned_input_index();
-    return scanned_input_index == static_cast<int>(recomp::GameInput::TOGGLE_MENU) ||
-        scanned_input_index == static_cast<int>(recomp::GameInput::ACCEPT_MENU) ||
-        scanned_input_index == static_cast<int>(recomp::GameInput::APPLY_MENU);
-}
-
 static bool controller_button_is_dpad(uint8_t button) {
     return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_UP ||
         button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_DPAD_DOWN ||
@@ -549,6 +538,50 @@ static bool controller_button_matches_binding(uint8_t button, const recomp::Inpu
         button == field.input_id;
 }
 
+static bool keyboard_scancode_matches_binding(SDL_Scancode scancode, const recomp::InputField& field) {
+    return field.input_type == static_cast<uint32_t>(recomp::InputType::Keyboard) &&
+        static_cast<int32_t>(scancode) == field.input_id;
+}
+
+static bool zelda_controller_button_toggles_menu(uint8_t button) {
+    const recomp::InputField menu_toggle_0 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
+    const recomp::InputField menu_toggle_1 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
+    if (controller_button_matches_binding(button, menu_toggle_0) ||
+        controller_button_matches_binding(button, menu_toggle_1)) {
+        return true;
+    }
+    // Fallback if neither binding is configured
+    if (menu_toggle_0.input_type == 0 && menu_toggle_1.input_type == 0) {
+        return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
+    }
+    return false;
+}
+
+static bool zelda_keyboard_scancode_toggles_menu(SDL_Scancode scancode) {
+    const recomp::InputField menu_toggle_0 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Keyboard);
+    const recomp::InputField menu_toggle_1 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Keyboard);
+    if (keyboard_scancode_matches_binding(scancode, menu_toggle_0) ||
+        keyboard_scancode_matches_binding(scancode, menu_toggle_1)) {
+        return true;
+    }
+    // Fallback if neither binding is configured
+    if (menu_toggle_0.input_type == 0 && menu_toggle_1.input_type == 0) {
+        return scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE;
+    }
+    return false;
+}
+
+static bool scanned_input_is_menu_action() {
+    const int scanned_input_index = recomp::get_scanned_input_index();
+    return scanned_input_index == static_cast<int>(recomp::GameInput::TOGGLE_MENU) ||
+        scanned_input_index == static_cast<int>(recomp::GameInput::ACCEPT_MENU) ||
+        scanned_input_index == static_cast<int>(recomp::GameInput::APPLY_MENU);
+}
+
 static bool handle_scanning_event(
     const SDL_Event& cur_event,
     bool& non_mouse_interacted,
@@ -559,11 +592,15 @@ static bool handle_scanning_event(
         return false;
     }
 
+    const int scanned_input_index = recomp::get_scanned_input_index();
+    const bool is_scanning_toggle_menu =
+        (scanned_input_index == static_cast<int>(recomp::GameInput::TOGGLE_MENU));
+
     switch (cur_event.type) {
         case SDL_EventType::SDL_KEYDOWN: {
             non_mouse_interacted = true;
             kb_interacted = true;
-            if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE) {
+            if (!is_scanning_toggle_menu && zelda_keyboard_scancode_toggles_menu(cur_event.key.keysym.scancode)) {
                 recomp::cancel_scanning_input();
             } else if (scanning_device == recomp::InputDevice::Keyboard) {
                 recomp::finish_scanning_input({
@@ -577,12 +614,7 @@ static bool handle_scanning_event(
         case SDL_EventType::SDL_CONTROLLERBUTTONDOWN: {
             non_mouse_interacted = true;
             cont_interacted = true;
-            const recomp::InputField menu_toggle_0 =
-                recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
-            const recomp::InputField menu_toggle_1 =
-                recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
-            if (controller_button_matches_binding(cur_event.cbutton.button, menu_toggle_0) ||
-                controller_button_matches_binding(cur_event.cbutton.button, menu_toggle_1)) {
+            if (!is_scanning_toggle_menu && zelda_controller_button_toggles_menu(cur_event.cbutton.button)) {
                 recomp::cancel_scanning_input();
             } else if (scanning_device == recomp::InputDevice::Controller) {
                 if (scanned_input_is_menu_action() && controller_button_is_dpad(cur_event.cbutton.button)) {
@@ -891,13 +923,13 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
             }
         }
 
-        // If the config menu isn't open and the game has been started and either the escape key or select button are pressed, open the config menu.
+        // If the config menu isn't open and the game has been started and either the bound key or controller button is pressed, open the config menu.
         if (!config_was_open && ultramodern::is_game_started()) {
             bool open_config = false;
 
             switch (cur_event.type) {
             case SDL_EventType::SDL_KEYDOWN:
-                if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE) {
+                if (zelda_keyboard_scancode_toggles_menu(cur_event.key.keysym.scancode)) {
                     open_config = true;
                 }
                 break;
@@ -910,6 +942,15 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
 
             if (open_config) {
                 recompui::show_context(recompui::get_config_context_id(), "");
+            }
+        }
+        else if (config_was_open && ultramodern::is_game_started()) {
+            // When config menu is open and not actively scanning an input, allow the bound keyboard key to toggle it closed.
+            if (cur_event.type == SDL_EventType::SDL_KEYDOWN &&
+                recomp::get_scanning_input_device() == recomp::InputDevice::COUNT) {
+                if (zelda_keyboard_scancode_toggles_menu(cur_event.key.keysym.scancode)) {
+                    recompui::hide_context(recompui::get_config_context_id());
+                }
             }
         }
     } // end dequeue event loop

@@ -1,0 +1,50 @@
+diff --git a/librecomp/CMakeLists.txt b/librecomp/CMakeLists.txt
+index fcc3337..ab34024 100644
+--- a/librecomp/CMakeLists.txt
++++ b/librecomp/CMakeLists.txt
+@@ -48,11 +48,15 @@ target_include_directories(librecomp PRIVATE
+     "${CMAKE_CURRENT_SOURCE_DIR}/include/librecomp"
+ )
+ 
+-target_compile_options(librecomp PRIVATE
+-#    -Wall
+-#    -Wextra
+-    -Wno-unused-parameter
+-)
++if (MSVC)
++    target_compile_options(librecomp PRIVATE
++        /wd4100
++    )
++else()
++    target_compile_options(librecomp PRIVATE
++        -Wno-unused-parameter
++    )
++endif()
+ 
+ if (WIN32)
+     add_compile_definitions(NOMINMAX)
+diff --git a/ultramodern/CMakeLists.txt b/ultramodern/CMakeLists.txt
+index 5593172..1e318f6 100644
+--- a/ultramodern/CMakeLists.txt
++++ b/ultramodern/CMakeLists.txt
+@@ -30,11 +30,15 @@ target_include_directories(ultramodern PUBLIC
+     "${PROJECT_SOURCE_DIR}/../thirdparty/sse2neon"
+ )
+ 
+-target_compile_options(ultramodern PRIVATE
+-#    -Wall
+-#    -Wextra
+-    -Wno-unused-parameter
+-)
++if (MSVC)
++    target_compile_options(ultramodern PRIVATE
++        /wd4100
++    )
++else()
++    target_compile_options(ultramodern PRIVATE
++        -Wno-unused-parameter
++    )
++endif()
+ 
+ if (WIN32)
+     add_compile_definitions(NOMINMAX)

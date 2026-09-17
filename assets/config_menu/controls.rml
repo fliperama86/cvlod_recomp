@@ -20,6 +20,18 @@
                         </div>
                     </button>
                 </div>
+                <div data-if="touch_controls_supported" class="config__header-left">
+                    <button
+                        class="toggle"
+                        id="cont_touch_toggle"
+                        data-class-toggle--checked="touch_controls_enabled"
+                        onclick="toggle_touch_controls"
+                    >
+                        <div class="toggle__border" />
+                        <div class="toggle__floater" />
+                    </button>
+                    <div class="config-option__label">On-screen controls</div>
+                </div>
                 <div>
                     <button
                         class="button button--warning"

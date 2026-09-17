@@ -192,12 +192,19 @@ recompui::ContextId create_context_impl(Rml::ElementDocument* document) {
 void recompui::init_styling(const std::filesystem::path& rcss_file) {
     std::string style{};
     {
-        std::ifstream style_stream{rcss_file};
-        style_stream.seekg(0, std::ios::end);
-        style.resize(style_stream.tellg());
-        style_stream.seekg(0, std::ios::beg);
-
-        style_stream.read(style.data(), style.size());
+        std::ifstream style_stream{rcss_file, std::ios::binary};
+        if (style_stream) {
+            style_stream.seekg(0, std::ios::end);
+            auto size = style_stream.tellg();
+            if (size > 0) {
+                style.resize(static_cast<size_t>(size));
+                style_stream.seekg(0, std::ios::beg);
+                style_stream.read(style.data(), style.size());
+            }
+        }
+    }
+    if (style.empty()) {
+        fprintf(stderr, "[UI] Warning: Could not read styling file %s\n", rcss_file.string().c_str());
     }
     std::unique_ptr<Rml::StreamMemory> rml_stream = std::make_unique<Rml::StreamMemory>(reinterpret_cast<Rml::byte*>(style.data()), style.size());
     rml_stream->SetSourceURL(rcss_file.filename().string());
@@ -211,6 +218,14 @@ recompui::ContextId recompui::create_context(const std::filesystem::path& path) 
 
     new_context.open();
     Rml::ElementDocument* doc = recompui::load_document(path.string());
+    if (doc == nullptr) {
+        // Every later use of the context dereferences the document, so bail out with the offending
+        // path instead of segfaulting somewhere further along.
+        new_context.close();
+        recompui::message_box((std::string{"Fatal error - could not load UI document "} + path.string() + ".").c_str());
+        assert(false);
+        ultramodern::error_handling::quick_exit(__FILE__, __LINE__, __FUNCTION__);
+    }
     opened_context->document = doc;
     opened_context->root_element.base = doc;
     new_context.close();

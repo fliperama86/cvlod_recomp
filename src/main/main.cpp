@@ -65,6 +65,7 @@
 #include "lod/lod_fault_trace.hpp"
 #include "lod/lod_paths.hpp"
 #include "lod/lod_settings.hpp"
+#include "lod/lod_cheats.hpp"
 #include "lod/target_rom.hpp"
 #include "lod_ui_overlay.h"
 #include "lod_version.h"
@@ -82,16 +83,34 @@
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
+#ifdef __ANDROID__
+#include "android_touch_overlay.h"
+namespace lod::android {
+    void update_touch_overlay_ui(int width, int height);
+    void set_menu_music_gain(float gain);
+}
+#endif
+
+#ifdef LOD_USE_ZELDA_MENU
+void lod_toggle_ingame_menu(recompui::ConfigTab tab, const char* source);
+#endif
+
+#ifdef __ANDROID__
+namespace lod::android {
+    void shutdown_touch_overlay_ui();
+}
+#endif
+
 #ifndef LOD_ENABLE_AUDIO_TRACE
 #define LOD_ENABLE_AUDIO_TRACE 0
 #endif
 
-#ifndef LOD_ENABLE_AUDIO_RAW_DUMP
-#define LOD_ENABLE_AUDIO_RAW_DUMP 0
+#ifndef LOD_ENABLE_AUDIO_OUT_DUMP
+#define LOD_ENABLE_AUDIO_OUT_DUMP 0
 #endif
 
-#ifndef LOD_ENABLE_AUDIO_LATENCY_GUARD
-#define LOD_ENABLE_AUDIO_LATENCY_GUARD 0
+#ifndef LOD_ENABLE_AUDIO_RAW_DUMP
+#define LOD_ENABLE_AUDIO_RAW_DUMP 0
 #endif
 
 #ifndef LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
@@ -113,7 +132,7 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) > 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) > 0) {
         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());
     }
 
@@ -561,6 +580,58 @@ static std::filesystem::path controls_config_path() {
     return g_config_path / "controls.json";
 }
 
+static std::filesystem::path cheats_config_path() {
+    return g_config_path / "cheats.json";
+}
+
+// Cheats persist keyed by their stable string id, never by index, so inserting or reordering a
+// cheat cannot silently enable a different one in an existing file.
+static void save_cheats_config() {
+    nlohmann::json root;
+    nlohmann::json cheats = nlohmann::json::object();
+    for (size_t i = 0; i < lod::cheats::count(); i++) {
+        cheats[lod::cheats::info(i).id] = lod::cheats::enabled(i);
+    }
+    root["cheats"] = std::move(cheats);
+
+    std::ofstream out(cheats_config_path());
+    if (!out) {
+        fprintf(stderr, "[CHEAT] Could not write %s\n", cheats_config_path().string().c_str());
+        return;
+    }
+    out << root.dump(4) << std::endl;
+}
+
+static void load_cheats_config() {
+    std::ifstream f(cheats_config_path());
+    if (!f) {
+        return; // no file yet: every cheat stays off
+    }
+
+    nlohmann::json root;
+    try {
+        f >> root;
+    } catch (const nlohmann::json::exception& e) {
+        fprintf(stderr, "[CHEAT] Ignoring malformed %s: %s\n",
+                cheats_config_path().string().c_str(), e.what());
+        return;
+    }
+
+    auto cheats_it = root.find("cheats");
+    if (cheats_it == root.end() || !cheats_it->is_object()) {
+        return;
+    }
+    for (auto it = cheats_it->begin(); it != cheats_it->end(); ++it) {
+        if (!it.value().is_boolean()) {
+            continue;
+        }
+        const size_t index = lod::cheats::index_for_id(it.key().c_str());
+        if (index < lod::cheats::count()) {
+            lod::cheats::set_enabled(index, it.value().get<bool>());
+        }
+    }
+}
+
 static constexpr uint16_t N64_BUTTON_A       = 0x8000;
 static constexpr uint16_t N64_BUTTON_B       = 0x4000;
 static constexpr uint16_t N64_BUTTON_Z       = 0x2000;
@@ -585,6 +656,8 @@ struct ControlsConfig {
     bool right_stick_invert_x = true;
     bool right_stick_invert_y = true;
     float right_stick_deadzone = 0.5f;
+    // Android on-screen controls; off unless the player turns them on.
+    bool touch_controls_enabled = false;
 };
 
 static std::string normalized_config_key(std::string value) {
@@ -721,6 +794,7 @@ static ControlsConfig default_controls_config() {
     config.right_stick_invert_x = true;
     config.right_stick_invert_y = true;
     config.right_stick_deadzone = 0.5f;
+    config.touch_controls_enabled = false;
     return config;
 }
 
@@ -994,6 +1068,7 @@ static nlohmann::json controls_config_to_json(const ControlsConfig& config) {
                 {"invert_y", config.right_stick_invert_y},
                 {"deadzone", config.right_stick_deadzone},
             }},
+            {"touch_controls", config.touch_controls_enabled},
         }},
     };
 #ifdef LOD_USE_ZELDA_MENU
@@ -1102,6 +1177,11 @@ static ControlsConfig controls_config_from_json(const nlohmann::json& json) {
         }
     }
 
+    if (auto it = gamepad_it->find("touch_controls");
+        it != gamepad_it->end() && it->is_boolean()) {
+        config.touch_controls_enabled = it->get<bool>();
+    }
+
     return config;
 }
 
@@ -1164,6 +1244,59 @@ static void update_ui_controls_config_summary(const ControlsConfig& config) {
 void lod_save_controls_bindings_from_ui() {
     save_controls_config(g_controls_config);
     update_ui_controls_config_summary(g_controls_config);
+}
+
+// Android on-screen controls toggle, driven from the Controls tab.
+bool lod_touch_controls_supported_for_ui() {
+#ifdef __ANDROID__
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool lod_touch_controls_enabled_for_ui() {
+    return g_controls_config.touch_controls_enabled;
+}
+
+void lod_set_touch_controls_enabled_from_ui(bool enabled) {
+    if (g_controls_config.touch_controls_enabled == enabled) {
+        return;
+    }
+    g_controls_config.touch_controls_enabled = enabled;
+#ifdef __ANDROID__
+    lod::android::set_touch_controls_enabled(enabled);
+#endif
+    save_controls_config(g_controls_config);
+}
+
+// Cheats tab plumbing.
+size_t lod_cheat_count_for_ui() {
+    return lod::cheats::count();
+}
+
+const char* lod_cheat_label_for_ui(size_t index) {
+    return lod::cheats::info(index).label;
+}
+
+const char* lod_cheat_description_for_ui(size_t index) {
+    return lod::cheats::info(index).description;
+}
+
+bool lod_cheat_enabled_for_ui(size_t index) {
+    return lod::cheats::enabled(index);
+}
+
+size_t lod_active_cheat_count_for_ui() {
+    return lod::cheats::active_count();
+}
+
+void lod_set_cheat_enabled_from_ui(size_t index, bool enabled) {
+    if (lod::cheats::enabled(index) == enabled) {
+        return;
+    }
+    lod::cheats::set_enabled(index, enabled);
+    save_cheats_config();
 }
 #endif
 
@@ -1509,6 +1642,12 @@ static void set_audio_runtime_config(const lod::settings::AudioConfig& raw_confi
 
     g_audio_master_volume_percent.store(config.master_volume, std::memory_order_relaxed);
     g_audio_muted.store(config.mute, std::memory_order_relaxed);
+
+#ifdef __ANDROID__
+    // Menu music plays through MediaPlayer, outside the SDL device, so it needs the gain pushed to it.
+    lod::android::set_menu_music_gain(
+        config.mute ? 0.0f : std::clamp(config.master_volume, 0, 100) / 100.0f);
+#endif
 }
 
 static void save_audio_config(const lod::settings::AudioConfig& config) {
@@ -1581,21 +1720,32 @@ void lod::settings::apply_and_save_audio_config(const lod::settings::AudioConfig
     ::apply_and_save_audio_config(config, reason);
 }
 
+#ifdef LOD_USE_ZELDA_MENU
+// Shared by the F1 hotkey and the Android on-screen MENU button. On a touch-only device this menu
+// is otherwise unreachable, since TOGGLE_MENU is bound to Escape / controller Back.
+void lod_toggle_ingame_menu(recompui::ConfigTab tab, const char* source) {
+    recompui::ContextId config_context = recompui::get_config_context_id();
+    if (config_context == recompui::ContextId::null()) {
+        return;
+    }
+    if (recompui::is_context_shown(config_context)) {
+        recompui::hide_context(config_context);
+        fprintf(stderr, "[UI] %s settings hidden\n", source);
+    } else {
+        recompui::hide_all_contexts();
+        recompui::set_config_tab(tab);
+        recompui::show_context(config_context, "");
+        fprintf(stderr, "[UI] %s settings shown\n", source);
+    }
+}
+#endif
+
 static bool handle_graphics_hotkey(SDL_Keycode key) {
     switch (key) {
         case SDLK_F1:
         {
 #ifdef LOD_USE_ZELDA_MENU
-            recompui::ContextId config_context = recompui::get_config_context_id();
-            if (config_context != recompui::ContextId::null() && recompui::is_context_shown(config_context)) {
-                recompui::hide_context(config_context);
-                fprintf(stderr, "[UI] F1 Zelda settings hidden\n");
-            } else if (config_context != recompui::ContextId::null()) {
-                recompui::hide_all_contexts();
-                recompui::set_config_tab(recompui::ConfigTab::Graphics);
-                recompui::show_context(config_context, "");
-                fprintf(stderr, "[UI] F1 Zelda settings shown\n");
-            }
+            lod_toggle_ingame_menu(recompui::ConfigTab::Graphics, "F1");
 #else
             const bool was_visible = lod::ui::overlay_visible();
             lod::ui::toggle_overlay();
@@ -1818,9 +1968,42 @@ static void queue_zelda_ui_event(const SDL_Event& event) {
 #endif
 
 void update_gfx(void*) {
+#ifdef __ANDROID__
+    // Keep the on-screen control overlay in sync with the window each frame; it rebuilds itself if
+    // the surface was resized or rotated.
+    if (window != nullptr) {
+        int win_w = 0;
+        int win_h = 0;
+        SDL_GetWindowSize(window, &win_w, &win_h);
+        lod::android::update_touch_overlay_ui(win_w, win_h);
+    }
+#ifdef LOD_USE_ZELDA_MENU
+    // The on-screen MENU button is the only route into this menu without a keyboard or pad.
+    if (lod::android::consume_menu_request()) {
+        lod_toggle_ingame_menu(recompui::ConfigTab::General, "touch MENU");
+    }
+#endif
+#endif
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
         switch (event.type) {
+#ifdef __ANDROID__
+            case SDL_FINGERDOWN:
+            case SDL_FINGERMOTION:
+            case SDL_FINGERUP: {
+                int win_w = 0;
+                int win_h = 0;
+                if (window != nullptr) {
+                    SDL_GetWindowSize(window, &win_w, &win_h);
+                }
+                if (win_h > 0) {
+                    lod::android::handle_touch_event(
+                        event, static_cast<float>(win_w) / static_cast<float>(win_h));
+                }
+                break;
+            }
+#endif
             case SDL_QUIT:
                 ultramodern::quit();
                 return;
@@ -1878,14 +2061,15 @@ void update_gfx(void*) {
 // ── Audio ───────────────────────────────────────────────────────────
 
 static SDL_AudioDeviceID audio_device = 0;
-static SDL_AudioCVT audio_convert;
+static SDL_AudioStream* audio_stream = nullptr;
 static uint32_t sample_rate = 48000;
 static uint32_t output_sample_rate = 48000;
 constexpr uint32_t input_channels = 2;
 static uint32_t output_channels = 2;
-constexpr uint32_t duplicated_input_frames = 4;
-static uint32_t discarded_output_frames;
 constexpr uint32_t bytes_per_frame = input_channels * sizeof(float);
+// Real AI hardware can only have a couple of buffers queued at once; osAiGetLength() is capped to
+// this many 60Hz frames of audio so the game keeps generating instead of re-sending stale buffers.
+constexpr uint32_t kAiHardwareBufferedVis = 1;
 
 const char* audio_format_name(SDL_AudioFormat format) {
     switch (format) {
@@ -1911,14 +2095,31 @@ void log_audio_spec(const char* label, const SDL_AudioSpec& spec) {
 }
 
 void update_audio_converter() {
-    SDL_BuildAudioCVT(&audio_convert, AUDIO_F32, input_channels, sample_rate,
-                       AUDIO_F32, output_channels, output_sample_rate);
-    discarded_output_frames = duplicated_input_frames * output_sample_rate / sample_rate;
+    // SDL_AudioCVT is stateless: it restarts the resampler phase on every call, so converting each
+    // queued buffer independently leaves a discontinuity at every buffer boundary (measured at 130x
+    // the background rate of large sample-to-sample jumps). SDL_AudioStream keeps resampler state
+    // across calls, which is what a continuous stream needs.
+    if (audio_stream != nullptr) {
+        SDL_FreeAudioStream(audio_stream);
+        audio_stream = nullptr;
+    }
+
+    if (sample_rate == 0 || output_sample_rate == 0) {
+        return;
+    }
+
+    audio_stream = SDL_NewAudioStream(AUDIO_F32, static_cast<Uint8>(input_channels),
+                                      static_cast<int>(sample_rate),
+                                      AUDIO_F32, static_cast<Uint8>(output_channels),
+                                      static_cast<int>(output_sample_rate));
+    if (audio_stream == nullptr) {
+        fprintf(stderr, "[AUDIO] SDL_NewAudioStream(%u -> %u) failed: %s\n",
+                sample_rate, output_sample_rate, SDL_GetError());
+    }
 }
 
 void queue_samples(int16_t* audio_data, size_t sample_count) {
     static std::vector<float> swap_buffer;
-    static std::array<float, duplicated_input_frames * input_channels> duplicated_sample_buffer;
 
 #if LOD_ENABLE_AUDIO_TRACE
     static uint32_t queue_count = 0;
@@ -1960,14 +2161,12 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
     }
 #endif
 
-    size_t resampled_sample_count = sample_count + duplicated_input_frames * input_channels;
-    size_t max_sample_count = std::max(resampled_sample_count, resampled_sample_count * audio_convert.len_mult);
-    if (max_sample_count > swap_buffer.size()) {
-        swap_buffer.resize(max_sample_count);
+    if (audio_stream == nullptr || audio_device == 0) {
+        return;
     }
 
-    for (size_t i = 0; i < duplicated_input_frames * input_channels; i++) {
-        swap_buffer[i] = duplicated_sample_buffer[i];
+    if (swap_buffer.size() < sample_count) {
+        swap_buffer.resize(sample_count);
     }
 
     const float master_gain = g_audio_muted.load(std::memory_order_relaxed)
@@ -1975,52 +2174,58 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
         : std::clamp(g_audio_master_volume_percent.load(std::memory_order_relaxed), 0, 100) / 100.0f;
     const float sample_scale = master_gain * (1.0f / 32768.0f);
 
-    for (size_t i = 0; i < sample_count; i += input_channels) {
-        swap_buffer[i + 0 + duplicated_input_frames * input_channels] = audio_data[i + 1] * sample_scale;
-        swap_buffer[i + 1 + duplicated_input_frames * input_channels] = audio_data[i + 0] * sample_scale;
+    // The game emits its stereo pair in the opposite order, so swap while scaling to float.
+    for (size_t i = 0; i + 1 < sample_count; i += input_channels) {
+        swap_buffer[i + 0] = audio_data[i + 1] * sample_scale;
+        swap_buffer[i + 1] = audio_data[i + 0] * sample_scale;
     }
 
-    assert(sample_count > duplicated_input_frames * input_channels);
-
-    for (size_t i = 0; i < duplicated_input_frames * input_channels; i++) {
-        duplicated_sample_buffer[i] = swap_buffer[i + sample_count];
+    if (SDL_AudioStreamPut(audio_stream, swap_buffer.data(),
+                           static_cast<int>(sample_count * sizeof(swap_buffer[0]))) < 0) {
+        fprintf(stderr, "[AUDIO] SDL_AudioStreamPut failed: %s\n", SDL_GetError());
+        return;
     }
 
-    audio_convert.buf = reinterpret_cast<Uint8*>(swap_buffer.data());
-    audio_convert.len = (sample_count + duplicated_input_frames * input_channels) * sizeof(swap_buffer[0]);
-    SDL_ConvertAudio(&audio_convert);
-
-    uint32_t num_bytes_to_queue = audio_convert.len_cvt - output_channels * discarded_output_frames * sizeof(swap_buffer[0]);
-    float* samples_to_queue = swap_buffer.data() + output_channels * discarded_output_frames / 2;
-
-#if LOD_ENABLE_AUDIO_LATENCY_GUARD
-    const uint64_t queued_microseconds =
-        uint64_t(SDL_GetQueuedAudioSize(audio_device)) / bytes_per_frame * 1000000 / sample_rate;
-    uint32_t skip_factor = static_cast<uint32_t>(queued_microseconds / 100000);
-    if (skip_factor > 8) {
-        skip_factor = 8;
+    const int available_bytes = SDL_AudioStreamAvailable(audio_stream);
+    if (available_bytes <= 0) {
+        return;
     }
-    if (skip_factor != 0) {
-        const uint32_t skip_ratio = 1u << skip_factor;
-        const uint32_t frame_size = output_channels * sizeof(swap_buffer[0]);
-        const uint32_t original_frame_count = num_bytes_to_queue / frame_size;
-        const uint32_t decimated_frame_count = original_frame_count / skip_ratio;
 
-        for (uint32_t frame = 0; frame < decimated_frame_count; frame++) {
-            for (uint32_t channel = 0; channel < output_channels; channel++) {
-                samples_to_queue[frame * output_channels + channel] =
-                    samples_to_queue[frame * skip_ratio * output_channels + channel];
+    static std::vector<uint8_t> output_buffer;
+    if (output_buffer.size() < static_cast<size_t>(available_bytes)) {
+        output_buffer.resize(static_cast<size_t>(available_bytes));
+    }
+
+    const int got_bytes = SDL_AudioStreamGet(audio_stream, output_buffer.data(), available_bytes);
+    if (got_bytes <= 0) {
+        if (got_bytes < 0) {
+            fprintf(stderr, "[AUDIO] SDL_AudioStreamGet failed: %s\n", SDL_GetError());
+        }
+        return;
+    }
+
+    const void* samples_to_queue = output_buffer.data();
+    const uint32_t num_bytes_to_queue = static_cast<uint32_t>(got_bytes);
+
+#if LOD_ENABLE_AUDIO_OUT_DUMP // TEMP-DIAG: remove with the flag
+    {
+        static uint64_t dumped_bytes = 0;
+        constexpr uint64_t dump_cap = 8u * 1024u * 1024u;
+        static FILE* out_dump = nullptr;
+        static FILE* len_dump = nullptr;
+        if (out_dump == nullptr && dumped_bytes < dump_cap) {
+            out_dump = std::fopen((g_config_path / "audio_out_f32.raw").string().c_str(), "wb");
+            len_dump = std::fopen((g_config_path / "audio_out_lens.u32").string().c_str(), "wb");
+        }
+        if (out_dump != nullptr && len_dump != nullptr && dumped_bytes < dump_cap) {
+            std::fwrite(samples_to_queue, 1, num_bytes_to_queue, out_dump);
+            std::fwrite(&num_bytes_to_queue, sizeof(num_bytes_to_queue), 1, len_dump);
+            dumped_bytes += num_bytes_to_queue;
+            if (dumped_bytes >= dump_cap) {
+                std::fflush(out_dump);
+                std::fflush(len_dump);
             }
         }
-        num_bytes_to_queue = decimated_frame_count * frame_size;
-
-#if LOD_ENABLE_AUDIO_TRACE
-        fprintf(stderr,
-                "[AUDIO] latency_guard queued_us=%" PRIu64 " skip_factor=%u"
-                " skip_ratio=%u frames=%u->%u bytes=%u\n",
-                queued_microseconds, skip_factor, skip_ratio,
-                original_frame_count, decimated_frame_count, num_bytes_to_queue);
-#endif
     }
 #endif
 
@@ -2037,6 +2242,14 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 size_t get_frames_remaining() {
     constexpr float buffer_offset_frames = 1.0f;
     uint64_t buffered_byte_count = SDL_GetQueuedAudioSize(audio_device);
+    // Audio held inside the resampling stream is buffered too; leaving it out under-reports the
+    // pipeline depth and makes the game over-produce.
+    if (audio_stream != nullptr) {
+        const int pending_bytes = SDL_AudioStreamAvailable(audio_stream);
+        if (pending_bytes > 0) {
+            buffered_byte_count += static_cast<uint64_t>(pending_bytes);
+        }
+    }
     buffered_byte_count = buffered_byte_count * 2 * sample_rate / output_sample_rate / output_channels;
 
     uint32_t frames_per_vi = (sample_rate / 60);
@@ -2045,7 +2258,19 @@ size_t get_frames_remaining() {
     } else {
         buffered_byte_count = 0;
     }
-    return static_cast<uint32_t>(buffered_byte_count / bytes_per_frame);
+
+    // osAiGetLength() is the AI DMA's view of how much audio is still pending, and the real AI can
+    // only hold two queued buffers (~32ms). Reporting the depth of an SDL queue that can hold far
+    // more convinces the game its audio is already covered, so it stops generating fresh samples and
+    // re-submits its current buffer instead - measured at ~54% of all submissions being byte-identical
+    // repeats, which is what the crackle actually is. Cap the report at what hardware could plausibly
+    // still hold so the game keeps producing every frame.
+    const uint64_t hardware_ai_cap_frames = uint64_t(frames_per_vi) * kAiHardwareBufferedVis;
+    uint64_t frames_remaining = buffered_byte_count / bytes_per_frame;
+    if (frames_remaining > hardware_ai_cap_frames) {
+        frames_remaining = hardware_ai_cap_frames;
+    }
+    return static_cast<uint32_t>(frames_remaining);
 }
 
 void set_frequency(uint32_t freq) {
@@ -2056,9 +2281,9 @@ void set_frequency(uint32_t freq) {
     set_frequency_count++;
     if (set_frequency_count <= 40 || (set_frequency_count % 120) == 0) {
         fprintf(stderr,
-                "[AUDIO] set_frequency#%u freq=%u output=%u len_mult=%d discarded=%u\n",
+                "[AUDIO] set_frequency#%u freq=%u output=%u stream=%s\n",
                 set_frequency_count, sample_rate, output_sample_rate,
-                audio_convert.len_mult, discarded_output_frames);
+                audio_stream != nullptr ? "ok" : "null");
     }
 #endif
 }
@@ -2104,8 +2329,8 @@ void reset_audio(uint32_t output_freq) {
     output_sample_rate = output_freq;
     update_audio_converter();
     fprintf(stderr,
-            "[AUDIO] reset_audio output=%u len_mult=%d discarded=%u device=%u\n",
-            output_sample_rate, audio_convert.len_mult, discarded_output_frames, audio_device);
+            "[AUDIO] reset_audio output=%u stream=%s device=%u\n",
+            output_sample_rate, audio_stream != nullptr ? "ok" : "null", audio_device);
 }
 
 lod::settings::AudioStatus lod::settings::audio_status() {
@@ -2250,7 +2475,13 @@ static uint16_t n64_button_for_game_input(recomp::GameInput input) {
 }
 #endif
 
+extern uint8_t* rdram_ptr_for_debug;
+extern "C" void lod_check_and_release_transition_lock(uint8_t* rdram);
+
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+    if (rdram_ptr_for_debug != nullptr) {
+        lod_check_and_release_transition_lock(rdram_ptr_for_debug);
+    }
 #if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     {
         static int input_calls = 0; input_calls++;
@@ -2293,6 +2524,16 @@ bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
             zelda_input_value(recomp::GameInput::Y_AXIS_NEG),
         -1.0f,
         1.0f);
+
+#ifdef __ANDROID__
+    // Additive, so the on-screen controls supplement a physical pad rather than replacing it.
+    if (lod::android::touch_controls_enabled()) {
+        const lod::android::TouchControlsState touch = lod::android::get_touch_controls_state();
+        *buttons |= touch.buttons;
+        *x = std::clamp(*x + touch.stick_x / 127.0f, -1.0f, 1.0f);
+        *y = std::clamp(*y + touch.stick_y / 127.0f, -1.0f, 1.0f);
+    }
+#endif
 
     return true;
 #else
@@ -2517,23 +2758,19 @@ static bool lod_env_flag_enabled(const char* name) {
 // Declared in overlays.cpp. Set during lod_on_init once RDRAM exists.
 extern uint8_t* rdram_ptr_for_debug;
 
-static bool lod_infinite_health_cheat_enabled() {
-    static const bool enabled = lod_env_flag_enabled("LOD_CHEAT_INFINITE_HEALTH");
-    return enabled;
-}
+static void lod_cheats_vi_callback() {
+    if (ultramodern::is_game_started() && rdram_ptr_for_debug != nullptr) {
+        lod_check_and_release_transition_lock(rdram_ptr_for_debug);
+    }
 
-static void lod_write_guest_u16(uint8_t* rdram, uint32_t guest_addr, uint16_t value) {
-    constexpr uint32_t rdram_size = 0x00800000;
-    uint32_t phys = guest_addr & 0x1FFFFFFF;
-    if (phys + sizeof(uint16_t) > rdram_size) {
+    // Re-applied every VI, just like the original cheat device: the game rewrites these fields
+    // continuously, so a one-shot poke would not hold.
+    if (lod::cheats::active_count() == 0) {
         return;
     }
 
-    *reinterpret_cast<uint16_t*>(rdram + (phys ^ 2)) = value;
-}
-
-static void lod_debug_cheats_vi_callback() {
-    if (!lod_infinite_health_cheat_enabled()) {
+    // Never poke memory before the game owns it.
+    if (!ultramodern::is_game_started()) {
         return;
     }
 
@@ -2542,14 +2779,8 @@ static void lod_debug_cheats_vi_callback() {
         return;
     }
 
-    // GameShark/Action Replay "Infinite Energy" for LoD USA:
-    // 811CAB3A 2AF8. Re-apply every VI just like the original cheat device.
-    lod_write_guest_u16(rdram, 0x801CAB3Au, 0x2AF8u);
-    static bool logged = false;
-    if (!logged) {
-        fprintf(stderr, "[CHEAT] Infinite health applied at 0x801CAB3A\n");
-        logged = true;
-    }
+    constexpr size_t rdram_size = 0x00800000;
+    lod::cheats::apply_all(rdram, rdram_size);
 }
 
 static bool is_n64_rom_path(const std::filesystem::path& path) {
@@ -2613,7 +2844,17 @@ static const char* rom_validation_error_name(recomp::RomValidationError error) {
     return "ROM validation failed.";
 }
 
+#ifdef __ANDROID__
+namespace lod::android {
+    void request_rom_picker_from_java();
+}
+#endif
+
 static std::filesystem::path prompt_for_rom_path() {
+#ifdef __ANDROID__
+    lod::android::request_rom_picker_from_java();
+    return {};
+#endif
     fprintf(stderr,
             "[LodRecomp] Asking user to select a stock LoD ROM.\n");
 
@@ -2767,7 +3008,7 @@ static void validate_and_start_rom(std::filesystem::path rom_path, bool persist_
     g_rom_validation_busy.store(false, std::memory_order_relaxed);
 }
 
-static void start_rom_validation_thread(std::filesystem::path rom_path, bool persist_selected_path, const char* source_label) {
+void start_rom_validation_thread(std::filesystem::path rom_path, bool persist_selected_path, const char* source_label) {
     std::thread([rom_path = std::move(rom_path), persist_selected_path, label = std::string(source_label)]() mutable {
         validate_and_start_rom(std::move(rom_path), persist_selected_path, label.c_str());
     }).detach();
@@ -2941,7 +3182,7 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
 static void crash_handler(int sig, siginfo_t* info, void* ctx) {
     fprintf(stderr, "\n[CRASH] Signal %d at address %p (code=%d)\n",
             sig, info->si_addr, info->si_code);
-#if defined(__APPLE__) || defined(__linux__)
+#if (defined(__APPLE__) || defined(__linux__)) && !defined(__ANDROID__)
     {
         void* frames[64];
         int frame_count = backtrace(frames, 64);
@@ -3121,7 +3362,14 @@ static std::optional<std::filesystem::path> find_portable_config_path(int argc, 
     return std::nullopt;
 }
 
+#ifdef __ANDROID__
+extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** argv) {
+#else
 int main(int argc, char** argv) {
+#endif
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) > 0) {
+        fprintf(stderr, "[ERROR] Failed to initialize SDL2 early: %s\n", SDL_GetError());
+    }
     LodCommandLineParseResult cli_parse = lod_parse_command_line(argc, argv);
     if (!cli_parse.error.empty()) {
         fprintf(stderr, "[CONFIG] %s\n\n", cli_parse.error.c_str());
@@ -3170,8 +3418,16 @@ int main(int argc, char** argv) {
         } else {
             config_path = std::filesystem::path(std::getenv("USERPROFILE") ? std::getenv("USERPROFILE") : ".") / ".lodrecomp";
         }
+#elif defined(__ANDROID__)
+        const char* home = getenv("HOME");
+        if (home && *home) {
+            config_path = std::filesystem::path(home) / ".lodrecomp";
+        } else {
+            config_path = std::filesystem::path("/data/data/org.cvlod.recomp/files");
+        }
 #else
-        config_path = std::filesystem::path(getenv("HOME")) / ".lodrecomp";
+        const char* home = getenv("HOME");
+        config_path = std::filesystem::path(home ? home : ".") / ".lodrecomp";
 #endif
     }
     std::error_code config_dir_ec;
@@ -3187,9 +3443,6 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "[CONFIG] Config path: %s\n", config_path.string().c_str());
     }
-    if (lod_infinite_health_cheat_enabled()) {
-        fprintf(stderr, "[CHEAT] Infinite health enabled: writing 0x2AF8 to 0x801CAB3A each VI\n");
-    }
     recomp::register_config_path(config_path);
     if (g_cli_options.save_path.has_value()) {
         ultramodern::set_save_file_path_override(*g_cli_options.save_path);
@@ -3202,6 +3455,16 @@ int main(int argc, char** argv) {
     }
     g_config_path = config_path;
     lod::ui::set_config_path_display(g_config_path.string());
+
+    load_cheats_config();
+    // Kept working for headless testing: forces the Invincibility cheat on regardless of cheats.json.
+    if (lod_env_flag_enabled("LOD_CHEAT_INFINITE_HEALTH")) {
+        lod::cheats::set_enabled(static_cast<size_t>(lod::cheats::Cheat::Invincibility), true);
+        fprintf(stderr, "[CHEAT] LOD_CHEAT_INFINITE_HEALTH forced Invincibility on\n");
+    }
+    if (lod::cheats::active_count() != 0) {
+        fprintf(stderr, "[CHEAT] %zu cheat(s) active\n", lod::cheats::active_count());
+    }
 
     auto graphics_config = load_graphics_config();
     ultramodern::renderer::set_graphics_config(graphics_config);
@@ -3219,6 +3482,12 @@ int main(int argc, char** argv) {
     update_ui_controls_config_summary(g_controls_config);
     fprintf(stderr, "[CONFIG] Loaded controls config: %s\n",
             controls_config_path().string().c_str());
+
+#ifdef __ANDROID__
+    lod::android::set_touch_controls_enabled(g_controls_config.touch_controls_enabled);
+    fprintf(stderr, "[CONFIG] Touch controls: %s\n",
+            g_controls_config.touch_controls_enabled ? "on" : "off");
+#endif
 
     auto audio_config = load_audio_config();
     fprintf(stderr, "[CONFIG] Loaded audio config: master=%d mute=%s sdl_driver=%s path=%s\n",
@@ -3312,7 +3581,7 @@ int main(int argc, char** argv) {
     };
 
     ultramodern::events::callbacks_t events_callbacks{
-        .vi_callback = lod_debug_cheats_vi_callback,
+        .vi_callback = lod_cheats_vi_callback,
         .gfx_init_callback = nullptr,
     };
 

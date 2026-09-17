@@ -17,6 +17,10 @@
 #if defined(__APPLE__) || defined(__linux__)
 #include <dlfcn.h>
 #endif
+#if defined(_MSC_VER) && !defined(__clang__)
+#include <stdlib.h>
+#define __builtin_bswap32 _byteswap_ulong
+#endif
 
 #include "recomp.h"
 #include "librecomp/overlays.hpp"
@@ -2642,6 +2646,8 @@ static void lod_install_tower_ni_trace_wrappers(int pair_index, uint32_t vram,
 #if LOD_FIX_PAIR126_INPUT_RELEASE
 static recomp_func_t* lod_orig_pair126_input_release_state_init = nullptr;
 static recomp_func_t* lod_orig_pair126_input_release_state_destroy = nullptr;
+static recomp_func_t* lod_orig_pair129_input_release_state_00c8 = nullptr;
+static recomp_func_t* lod_orig_pair129_input_release_state_destroy = nullptr;
 
 static constexpr uint32_t LOD_PAIR126_EXEC_FLAGS_PHYS = 0x001CABC8;
 static constexpr uint32_t LOD_PAIR126_TRANSITION_LOCKED_FLAGS = 0x20000000;
@@ -2701,6 +2707,24 @@ static void lod_pair126_release_input_flags_if_stuck(uint8_t* rdram, const char*
     }
 }
 
+extern "C" void lod_check_and_release_transition_lock(uint8_t* rdram) {
+    if (rdram == nullptr) return;
+    if (lod_ni_telemetry_gamestate(rdram) != 3) {
+        return;
+    }
+
+    static int consecutive_transition_locked_frames = 0;
+    if (lod_pair126_exec_flags_transition_locked(rdram)) {
+        consecutive_transition_locked_frames++;
+        if (consecutive_transition_locked_frames > 60) {
+            lod_pair126_release_input_flags_if_stuck(rdram, "gameplay-watchdog");
+            consecutive_transition_locked_frames = 0;
+        }
+    } else {
+        consecutive_transition_locked_frames = 0;
+    }
+}
+
 static bool lod_pair126_init_returned_without_fade(uint8_t* rdram, uint32_t obj) {
     if (obj == 0) {
         return false;
@@ -2756,6 +2780,25 @@ static void lod_fix_pair126_input_release_state_destroy(uint8_t* rdram, recomp_c
     lod_pair126_release_input_flags_if_stuck(rdram, "pair126.destroy");
 }
 
+static void lod_fix_pair129_input_release_state_00c8(uint8_t* rdram, recomp_context* ctx) {
+    if (lod_orig_pair129_input_release_state_00c8 != nullptr) {
+        lod_orig_pair129_input_release_state_00c8(rdram, ctx);
+    }
+    static int pair129_00c8_calls = 0;
+    pair129_00c8_calls++;
+    if (pair129_00c8_calls > 60 && lod_pair126_exec_flags_transition_locked(rdram)) {
+        lod_pair126_release_input_flags_if_stuck(rdram, "pair129.stuck-00c8");
+        pair129_00c8_calls = 0;
+    }
+}
+
+static void lod_fix_pair129_input_release_state_destroy(uint8_t* rdram, recomp_context* ctx) {
+    if (lod_orig_pair129_input_release_state_destroy != nullptr) {
+        lod_orig_pair129_input_release_state_destroy(rdram, ctx);
+    }
+    lod_pair126_release_input_flags_if_stuck(rdram, "pair129.destroy");
+}
+
 static void lod_install_pair126_input_release_single(uint32_t func_vram,
                                                    recomp_func_t* wrapper,
                                                    recomp_func_t** original_out,
@@ -2782,18 +2825,29 @@ static void lod_install_pair126_input_release_single(uint32_t func_vram,
 
 static void lod_install_pair126_input_release_wrapper(int pair_index, uint32_t vram,
                                                     const char* reason) {
-    if (pair_index != 126 || vram != 0x0F000000) {
+    if (vram != 0x0F000000) {
         return;
     }
 
-    lod_install_pair126_input_release_single(0x0F000070,
-        lod_fix_pair126_input_release_state_init,
-        &lod_orig_pair126_input_release_state_init,
-        "pair126.init", reason);
-    lod_install_pair126_input_release_single(0x0F00064C,
-        lod_fix_pair126_input_release_state_destroy,
-        &lod_orig_pair126_input_release_state_destroy,
-        "pair126.destroy", reason);
+    if (pair_index == 126) {
+        lod_install_pair126_input_release_single(0x0F000070,
+            lod_fix_pair126_input_release_state_init,
+            &lod_orig_pair126_input_release_state_init,
+            "pair126.init", reason);
+        lod_install_pair126_input_release_single(0x0F00064C,
+            lod_fix_pair126_input_release_state_destroy,
+            &lod_orig_pair126_input_release_state_destroy,
+            "pair126.destroy", reason);
+    } else if (pair_index == 129) {
+        lod_install_pair126_input_release_single(0x0F0000C8,
+            lod_fix_pair129_input_release_state_00c8,
+            &lod_orig_pair129_input_release_state_00c8,
+            "pair129.00C8", reason);
+        lod_install_pair126_input_release_single(0x0F0007FC,
+            lod_fix_pair129_input_release_state_destroy,
+            &lod_orig_pair129_input_release_state_destroy,
+            "pair129.destroy", reason);
+    }
 }
 #endif
 
@@ -3333,8 +3387,8 @@ static void load_ni_overlay(uint8_t* rdram, int pair_index, uint32_t mapped_vadd
     }
 #endif
 #if LOD_FIX_PAIR126_INPUT_RELEASE
-    if (pair_index == 126 && vram == 0x0F000000) {
-        lod_install_pair126_input_release_wrapper(pair_index, vram, "pair126-load");
+    if ((pair_index == 126 || pair_index == 129) && vram == 0x0F000000) {
+        lod_install_pair126_input_release_wrapper(pair_index, vram, "pair126-129-load");
     }
 #endif
 

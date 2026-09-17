@@ -52,6 +52,7 @@
 extern "C" uint32_t lod_current_map_overlay_rom();
 extern "C" uint32_t lod_current_map_overlay_size();
 extern "C" int lod_current_map_overlay_load_count();
+extern "C" void lod_check_and_release_transition_lock(uint8_t* rdram);
 
 static uint8_t DMEM[0x1000];
 static uint8_t IMEM[0x1000];
@@ -1078,11 +1079,26 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     app->state->extended.extendRDRAM = true;
     app->processDisplayLists(app->core.RDRAM, data_addr, 0, true);
 
+    lod_check_and_release_transition_lock(app->core.RDRAM);
+
 #if LOD_FIX_TOWER_BLACK_OVERLAY
-    if (tower_render_active && app->workloadQueue != nullptr) {
+    if (app->workloadQueue != nullptr) {
         RT64::WorkloadQueue* queue = app->workloadQueue.get();
         const uint32_t prev = queue->previousWriteCursor();
-        lod_tower_remove_stuck_black_overlay(queue->workloads[prev], g_dl_n);
+        if (tower_render_active) {
+            lod_tower_remove_stuck_black_overlay(queue->workloads[prev], g_dl_n);
+        } else if (app->core.RDRAM != nullptr) {
+            uint32_t gsm_addr = *(uint32_t*)(app->core.RDRAM + 0x0C1520);
+            if (gsm_addr != 0) {
+                uint32_t gsm_phys = gsm_addr & 0x1FFFFFFF;
+                if (gsm_phys + 0x28 <= 0x00800000) {
+                    int32_t cur_gs = *(int32_t*)(app->core.RDRAM + gsm_phys + 0x24);
+                    if (cur_gs == 3) {
+                        lod_tower_remove_stuck_black_overlay(queue->workloads[prev], g_dl_n);
+                    }
+                }
+            }
+        }
     }
 #endif
 

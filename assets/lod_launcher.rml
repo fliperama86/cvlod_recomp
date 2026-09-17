@@ -17,6 +17,7 @@
                         <div><h1>Legacy of Darkness</h1></div>
                         <div class="subtitle-title__disclaimer">Recompiled</div>
                     </button>
+                    <div class="subtitle-title__disclaimer" data-if="cheats_active">! {{ cheats_warning }}</div>
                 </div>
                 <div class="launcher__content-quadrant"></div>
             </div>

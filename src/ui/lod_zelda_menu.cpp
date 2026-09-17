@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <deque>
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <initializer_list>
 #include <list>
@@ -50,6 +51,23 @@ extern "C" int lod_current_map_overlay_load_count();
 extern "C" int lod_ni_overlay_loaded_0f_pair();
 extern "C" int lod_ni_overlay_loaded_0e_pair();
 void lod_save_controls_bindings_from_ui();
+bool lod_touch_controls_supported_for_ui();
+bool lod_touch_controls_enabled_for_ui();
+void lod_set_touch_controls_enabled_from_ui(bool enabled);
+
+size_t lod_cheat_count_for_ui();
+const char* lod_cheat_label_for_ui(size_t index);
+const char* lod_cheat_description_for_ui(size_t index);
+bool lod_cheat_enabled_for_ui(size_t index);
+size_t lod_active_cheat_count_for_ui();
+void lod_set_cheat_enabled_from_ui(size_t index, bool enabled);
+
+#ifdef __ANDROID__
+namespace lod::android {
+    void start_menu_music();
+    void stop_menu_music();
+}
+#endif
 
 namespace {
 constexpr uint32_t kInputNone = static_cast<uint32_t>(recomp::InputType::None);
@@ -70,6 +88,8 @@ recomp::InputDevice g_scanning_device = recomp::InputDevice::COUNT;
 recomp::InputDevice g_current_input_device = recomp::InputDevice::Controller;
 
 recompui::ContextId g_launcher_context = recompui::ContextId::null();
+Rml::DataModelHandle g_cheats_model;
+Rml::Vector<int> g_cheat_rows;
 recompui::ContextId g_config_context = recompui::ContextId::null();
 recompui::ConfigTab g_active_tab = recompui::ConfigTab::General;
 Rml::DataModelHandle g_launcher_model;
@@ -259,6 +279,8 @@ void dirty_launcher() {
     }
     g_launcher_model.DirtyVariable("rom_valid");
     g_launcher_model.DirtyVariable("rom_status");
+        g_launcher_model.DirtyVariable("cheats_active");
+        g_launcher_model.DirtyVariable("cheats_warning");
     g_launcher_model.DirtyVariable("rom_file");
 }
 
@@ -278,6 +300,7 @@ void dirty_controls() {
         g_controls_model.DirtyVariable("active_binding_input");
         g_controls_model.DirtyVariable("active_binding_slot");
         g_controls_model.DirtyVariable("cur_input_row");
+        g_controls_model.DirtyVariable("touch_controls_enabled");
     }
     dirty_nav_help();
     if (g_config_model) {
@@ -602,6 +625,7 @@ const char* config_tab_name(recompui::ConfigTab tab) {
     switch (tab) {
         case recompui::ConfigTab::General: return "General";
         case recompui::ConfigTab::Controls: return "Controls";
+        case recompui::ConfigTab::Cheats: return "Cheats";
         case recompui::ConfigTab::Graphics: return "Graphics";
         case recompui::ConfigTab::Sound: return "Audio";
         case recompui::ConfigTab::Mods: return "Mods";
@@ -1009,6 +1033,9 @@ class LodLauncherMenu final : public recompui::MenuController {
 public:
     void load_document() override {
         g_launcher_context = recompui::create_context(zelda64::get_asset_path("lod_launcher.rml"));
+#ifdef __ANDROID__
+        lod::android::start_menu_music();
+#endif
     }
 
     void register_events(recompui::UiEventListenerInstancer& listener) override {
@@ -1022,6 +1049,9 @@ public:
                 dirty_launcher();
                 return;
             }
+#ifdef __ANDROID__
+            lod::android::stop_menu_music();
+#endif
             recomp::start_game(game_id);
             recompui::hide_all_contexts();
             recompui::process_game_started();
@@ -1069,6 +1099,13 @@ public:
         constructor.Bind("config_path", &g_config_path_display);
         g_version_string = recomp::get_project_version().to_string();
         constructor.Bind("version_number", &g_version_string);
+        constructor.BindFunc("cheats_active", [](Rml::Variant& out) {
+            out = lod_active_cheat_count_for_ui() != 0;
+        });
+        constructor.BindFunc("cheats_warning", [](Rml::Variant& out) {
+            const size_t n = lod_active_cheat_count_for_ui();
+            out = Rml::String{ std::to_string(n) + (n == 1 ? " cheat active" : " cheats active") };
+        });
         g_launcher_model = constructor.GetModelHandle();
     }
 };
@@ -1092,6 +1129,10 @@ public:
         });
         recompui::register_event(listener, "open_quit_game_prompt", [](const std::string&, Rml::Event&) {
             zelda64::open_quit_game_prompt();
+        });
+        recompui::register_event(listener, "toggle_touch_controls", [](const std::string&, Rml::Event&) {
+            lod_set_touch_controls_enabled_from_ui(!lod_touch_controls_enabled_for_ui());
+            dirty_controls();
         });
         recompui::register_event(listener, "toggle_input_device", [](const std::string&, Rml::Event&) {
             g_current_input_device = g_current_input_device == recomp::InputDevice::Controller
@@ -1122,6 +1163,9 @@ public:
         });
         recompui::register_event(listener, "show_controls_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::Controls);
+        });
+        recompui::register_event(listener, "show_cheats_tab", [](const std::string&, Rml::Event&) {
+            recompui::set_config_tab(recompui::ConfigTab::Cheats);
         });
         recompui::register_event(listener, "show_audio_tab", [](const std::string&, Rml::Event&) {
             recompui::set_config_tab(recompui::ConfigTab::Sound);
@@ -1159,6 +1203,13 @@ public:
         });
         constructor.BindFunc("input_device_is_keyboard", [](Rml::Variant& out) {
             out = g_current_input_device == recomp::InputDevice::Keyboard;
+        });
+
+        constructor.BindFunc("touch_controls_supported", [](Rml::Variant& out) {
+            out = lod_touch_controls_supported_for_ui();
+        });
+        constructor.BindFunc("touch_controls_enabled", [](Rml::Variant& out) {
+            out = lod_touch_controls_enabled_for_ui();
         });
 
         constructor.RegisterTransformFunc("get_input_name", [](const Rml::VariantList& inputs) {
@@ -1357,6 +1408,43 @@ public:
 
     void make_bindings(Rml::Context* context) override {
         reset_pending_graphics_from_active();
+        {
+            // Cheats tab. One row per entry in the cheat table, so the C++ table stays the single
+            // source of truth for labels and ordering.
+            Rml::DataModelConstructor cheats = context->CreateDataModel("cheats_model");
+            if (cheats) {
+                cheats.RegisterArray<Rml::Vector<int>>();
+                g_cheat_rows.clear();
+                for (size_t i = 0; i < lod_cheat_count_for_ui(); i++) {
+                    g_cheat_rows.push_back(static_cast<int>(i));
+                }
+                cheats.Bind("cheats", &g_cheat_rows);
+        
+                cheats.RegisterTransformFunc("cheat_name", [](const Rml::VariantList& args) {
+                    return Rml::Variant{ Rml::String{ lod_cheat_label_for_ui(args.at(0).Get<size_t>()) } };
+                });
+                cheats.RegisterTransformFunc("cheat_desc", [](const Rml::VariantList& args) {
+                    return Rml::Variant{ Rml::String{ lod_cheat_description_for_ui(args.at(0).Get<size_t>()) } };
+                });
+                cheats.RegisterTransformFunc("cheat_on", [](const Rml::VariantList& args) {
+                    return Rml::Variant{ lod_cheat_enabled_for_ui(args.at(0).Get<size_t>()) };
+                });
+                cheats.BindFunc("cheats_active_count", [](Rml::Variant& out) {
+                    out = static_cast<uint64_t>(lod_active_cheat_count_for_ui());
+                });
+                cheats.BindEventCallback("toggle_cheat",
+                    [](Rml::DataModelHandle handle, Rml::Event&, const Rml::VariantList& args) {
+                        if (args.empty()) {
+                            return;
+                        }
+                        const size_t index = args.at(0).Get<size_t>();
+                        lod_set_cheat_enabled_from_ui(index, !lod_cheat_enabled_for_ui(index));
+                        handle.DirtyAllVariables();
+                        dirty_launcher();
+                    });
+                g_cheats_model = cheats.GetModelHandle();
+            }
+        }
         Rml::DataModelConstructor constructor = context->CreateDataModel("config_model");
         constructor.BindEventCallback("set_cur_config_index",
             [](Rml::DataModelHandle model_handle, Rml::Event& event, const Rml::VariantList& inputs) {
@@ -1740,7 +1828,37 @@ std::filesystem::path zelda64::get_program_path() {
 }
 
 std::filesystem::path zelda64::get_asset_path(const char* asset) {
-#if defined(__APPLE__)
+#if defined(__ANDROID__)
+    std::filesystem::path target_path = std::filesystem::path("/data/data/org.cvlod.recomp/files") / "assets" / asset;
+    std::error_code ec;
+    if (std::filesystem::exists(target_path, ec)) {
+        return target_path;
+    }
+
+    std::string asset_rel = std::string("assets/") + asset;
+    SDL_RWops* rw = SDL_RWFromFile(asset_rel.c_str(), "rb");
+    if (!rw) {
+        rw = SDL_RWFromFile(asset, "rb");
+    }
+    if (rw) {
+        Sint64 size = SDL_RWsize(rw);
+        if (size > 0) {
+            std::vector<char> buffer(static_cast<size_t>(size));
+            if (SDL_RWread(rw, buffer.data(), 1, static_cast<size_t>(size)) == static_cast<size_t>(size)) {
+                std::filesystem::create_directories(target_path.parent_path(), ec);
+                std::ofstream out(target_path, std::ios::binary);
+                if (out) {
+                    out.write(buffer.data(), buffer.size());
+                    out.flush();
+                    SDL_RWclose(rw);
+                    return target_path;
+                }
+            }
+        }
+        SDL_RWclose(rw);
+    }
+    return target_path;
+#elif defined(__APPLE__)
     std::filesystem::path bundled_asset = lod::get_bundle_resource_directory() / "assets" / asset;
     if (std::filesystem::exists(bundled_asset)) {
         return bundled_asset;
@@ -1903,6 +2021,7 @@ int recompui::config_tab_to_index(ConfigTab tab) {
         case ConfigTab::Controls: return 1;
         case ConfigTab::Graphics: return 2;
         case ConfigTab::Sound: return 3;
+        case ConfigTab::Cheats: return 4;
         case ConfigTab::Mods: return 0;
         case ConfigTab::Debug: return 4;
     }

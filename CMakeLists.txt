@@ -51,6 +51,48 @@ add_compile_definitions(HLSL_CPU)
 
 add_subdirectory(${CMAKE_SOURCE_DIR}/lib/rt64 ${CMAKE_BINARY_DIR}/rt64)
 
+# ── Platform: Android ───────────────────────────────────────────────
+if (ANDROID)
+    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED=1")
+    include(FetchContent)
+
+    if (DEFINED ENV{SDL2_VERSION})
+        set(SDL2_VERSION $ENV{SDL2_VERSION})
+    else()
+        set(SDL2_VERSION "2.30.3")
+    endif()
+
+    if (NOT TARGET SDL2 AND NOT TARGET SDL2-static)
+        FetchContent_Declare(
+            sdl2_src
+            URL https://github.com/libsdl-org/SDL/archive/refs/tags/release-${SDL2_VERSION}.tar.gz
+        )
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_TEST OFF CACHE BOOL "" FORCE)
+        FetchContent_MakeAvailable(sdl2_src)
+        set(SDL2_INCLUDE_DIRS "${sdl2_src_SOURCE_DIR}/include" "${sdl2_src_BINARY_DIR}/include" "${sdl2_src_BINARY_DIR}/include/SDL2" CACHE PATH "" FORCE)
+    endif()
+endif()
+
+if (NOT TARGET freetype AND NOT TARGET Freetype::Freetype)
+    find_package(Freetype QUIET)
+endif()
+
+if (NOT TARGET freetype AND NOT TARGET Freetype::Freetype)
+    include(FetchContent)
+    FetchContent_Declare(
+        freetype
+        URL https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-2.tar.gz
+    )
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(freetype)
+    if (TARGET freetype AND NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype ALIAS freetype)
+    endif()
+endif()
+
 # ── lunasvg + RmlUi (required by rt64 build chain) ──────────────────
 set(BUILD_SHARED_LIBS OFF)
 SET(LUNASVG_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
@@ -150,11 +192,18 @@ endif()
 # ── RecompiledFuncs ─────────────────────────────────────────────────
 add_library(RecompiledFuncs STATIC)
 
-target_compile_options(RecompiledFuncs PRIVATE
-    -fno-strict-aliasing
-    -Wno-unused-variable
-    -Wno-implicit-function-declaration
-)
+if (MSVC)
+    target_compile_options(RecompiledFuncs PRIVATE
+        /wd4101
+        /wd4013
+    )
+else()
+    target_compile_options(RecompiledFuncs PRIVATE
+        -fno-strict-aliasing
+        -Wno-unused-variable
+        -Wno-implicit-function-declaration
+    )
+endif()
 
 option(LOD_ENABLE_FIGURE_SEG_TRACE "Enable generated-code diagnostics for figure/model links that still contain segmented addresses" OFF)
 if (LOD_ENABLE_FIGURE_SEG_TRACE)
@@ -183,6 +232,7 @@ target_compile_definitions(RecompiledFuncs PRIVATE LOD_SCENE_DATA_POOL_MIN=${LOD
 
 target_include_directories(RecompiledFuncs PRIVATE
     ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/RecompiledFuncs
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/ultramodern/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/librecomp/include
     ${CMAKE_SOURCE_DIR}/lib/N64ModernRuntime/N64Recomp/include
@@ -193,7 +243,11 @@ file(GLOB FUNC_CXX_SOURCES ${CMAKE_SOURCE_DIR}/RecompiledFuncs/*.cpp)
 target_sources(RecompiledFuncs PRIVATE ${FUNC_C_SOURCES} ${FUNC_CXX_SOURCES})
 
 # ── Main executable ─────────────────────────────────────────────────
-add_executable(LodRecomp)
+if (ANDROID)
+    add_library(LodRecomp SHARED)
+else()
+    add_executable(LodRecomp)
+endif()
 
 option(LOD_FIX_NI_PERSIST_OVERLAY_DATA "Persist mutable NI overlay segment data across pair swaps" ON)
 if (LOD_FIX_NI_PERSIST_OVERLAY_DATA)
@@ -258,7 +312,7 @@ if (LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT)
 endif()
 set(LOD_ITEM_MENU_SAVE_SLOT "1" CACHE STRING "Debug-only save slot selected by LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT (1-3)")
 target_compile_definitions(LodRecomp PRIVATE LOD_ITEM_MENU_SAVE_SLOT=${LOD_ITEM_MENU_SAVE_SLOT})
-set(LOD_POST_RDRAM_GUARD_SIZE "0x10000" CACHE STRING "Size of zero-filled post-RDRAM diagnostic/compatibility guard at rdram+0x80800000")
+set(LOD_POST_RDRAM_GUARD_SIZE "0x10000000" CACHE STRING "Size of zero-filled post-RDRAM diagnostic/compatibility guard at rdram+0x80800000")
 target_compile_definitions(LodRecomp PRIVATE LOD_POST_RDRAM_GUARD_SIZE=${LOD_POST_RDRAM_GUARD_SIZE})
 option(LOD_FIX_SEG6_CPU_ALIAS_GUARD "Map zero-filled CPU aliases for segment-6 0x06xxxxxx/0x46xxxxxx reads while osMapTLB/NI copies populate real pages" ON)
 if (LOD_FIX_SEG6_CPU_ALIAS_GUARD)
@@ -374,10 +428,8 @@ option(LOD_ENABLE_AUDIO_RAW_DUMP "Enable debug-only raw AI queue dump to /tmp/lo
 if (LOD_ENABLE_AUDIO_RAW_DUMP)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_AUDIO_RAW_DUMP=1)
 endif()
-option(LOD_ENABLE_AUDIO_LATENCY_GUARD "Enable Zelda-style SDL queued-audio latency catch-up guard" OFF)
-if (LOD_ENABLE_AUDIO_LATENCY_GUARD)
-    target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_AUDIO_LATENCY_GUARD=1)
-endif()
+# The queued-audio latency catch-up guard was removed along with the stateless SDL_AudioCVT path it
+# decimated; SDL_AudioStream buffers continuously instead.
 option(LOD_ENABLE_RSP_AUDIO_TRACE "Enable debug-only RSP audio task tracing and first-ucode dump" OFF)
 if (LOD_ENABLE_RSP_AUDIO_TRACE)
     target_compile_definitions(LodRecomp PRIVATE LOD_ENABLE_RSP_AUDIO_TRACE=1)
@@ -422,12 +474,16 @@ set(SOURCES
     ${CMAKE_SOURCE_DIR}/src/main/ignored_func_stubs.cpp
     ${CMAKE_SOURCE_DIR}/src/main/tlb_segment.cpp
     ${CMAKE_SOURCE_DIR}/src/main/lod_init.cpp
+    ${CMAKE_SOURCE_DIR}/src/main/lod_cheats.cpp
     ${CMAKE_SOURCE_DIR}/src/main/ni_overlay_loader.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/lod_ui_overlay.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfaceVS.hlsl.spirv.c
     ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfacePS.hlsl.spirv.c
     ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfaceVS.hlsl.metal.c
     ${CMAKE_SOURCE_DIR}/src/ui/shaders/InterfacePS.hlsl.metal.c
+    ${CMAKE_SOURCE_DIR}/src/main/support_android.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/android_touch_overlay.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/android_touch_ui.cpp
     ${LOD_AUDIO_RSP_SOURCE}
 
     ${CMAKE_SOURCE_DIR}/lib/RmlUi/Backends/RmlUi_Platform_SDL.cpp
@@ -550,6 +606,12 @@ if (CMAKE_SYSTEM_NAME MATCHES "Linux")
     endif()
 endif()
 
+# ── Platform: Android ───────────────────────────────────────────────
+if (ANDROID)
+    target_include_directories(LodRecomp PRIVATE ${sdl2_src_SOURCE_DIR}/include ${freetype_SOURCE_DIR}/include)
+    target_link_libraries(LodRecomp PRIVATE SDL2-static freetype log android vulkan EGL GLESv3)
+endif()
+
 # ── Platform: Windows ───────────────────────────────────────────────
 if (WIN32)
     include(FetchContent)
@@ -600,7 +662,28 @@ if (WIN32)
 endif()
 
 # ── Link everything ─────────────────────────────────────────────────
-find_package(ZLIB REQUIRED)
+if (NOT TARGET ZLIB::ZLIB)
+    find_package(ZLIB QUIET)
+endif()
+if (NOT TARGET ZLIB::ZLIB)
+    include(FetchContent)
+    FetchContent_Declare(
+        zlib
+        URL https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz
+    )
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(zlib)
+    if (TARGET zlibstatic AND NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+        set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+        set(ZLIB_LIBRARIES zlibstatic CACHE STRING "" FORCE)
+    elseif (TARGET zlib AND NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlib)
+        set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+        set(ZLIB_LIBRARIES zlib CACHE STRING "" FORCE)
+    endif()
+endif()
 if (APPLE AND CMAKE_OSX_SYSROOT AND TARGET ZLIB::ZLIB)
     # The macOS SDK's usr/include path is already implied by -isysroot. If the
     # imported ZLIB target adds it explicitly, clang can search the SDK C headers
@@ -640,6 +723,8 @@ add_dependencies(LodRecomp LodRecompAssets)
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/sanity ${CMAKE_BINARY_DIR}/tests/sanity)
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/dl_harness ${CMAKE_BINARY_DIR}/tests/dl_harness)
 add_subdirectory(${CMAKE_SOURCE_DIR}/tests/pak ${CMAKE_BINARY_DIR}/tests/pak)
+add_subdirectory(${CMAKE_SOURCE_DIR}/tests/touch ${CMAKE_BINARY_DIR}/tests/touch)
+add_subdirectory(${CMAKE_SOURCE_DIR}/tests/cheats ${CMAKE_BINARY_DIR}/tests/cheats)
 
 # ── DXC shader compilation (required by rt64) ───────────────────────
 set(DXC_COMMON_OPTS "-I${PROJECT_SOURCE_DIR}/src")

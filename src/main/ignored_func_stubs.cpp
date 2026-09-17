@@ -4,6 +4,7 @@
 // natively by ultramodern, but verify each symbol before leaving it empty:
 // some LoD functions have misleading libultra names and still mutate game data.
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -15,6 +16,16 @@
 
 #include "recomp.h"
 #include "lod/lod_fault_trace.hpp"
+
+// TEMP-DIAG: traces every AI buffer submission to logcat to identify duplicate submissions.
+#if defined(__ANDROID__)
+#ifndef LOD_ENABLE_AI_PTR_TRACE
+#define LOD_ENABLE_AI_PTR_TRACE 0 // set to 1 to log AI duplicate rate + audio throughput
+#endif
+#include <android/log.h>
+#else
+#define LOD_ENABLE_AI_PTR_TRACE 0
+#endif
 #include "librecomp/overlays.hpp"
 
 #ifndef LOD_ENABLE_SAVE_AUTO_INPUT
@@ -2337,6 +2348,40 @@ void lod_osAiSetNextBuffer_recomp(uint8_t* rdram, recomp_context* ctx) {
         }
     }
 #endif
+#if LOD_ENABLE_AI_PTR_TRACE // TEMP-DIAG
+    {
+        // Logged to logcat because the in-app log is tail-capped and rotates these away.
+        // Because the SDL queue stays bounded, bytes queued ~= bytes consumed, so the fraction of
+        // submitted bytes that are NOT duplicates equals the emulator's speed relative to realtime.
+        static uint32_t ai_calls = 0;
+        static uint32_t prev_phys = 0;
+        static uint32_t prev_bytes = 0;
+        static uint64_t total_bytes = 0;
+        static uint64_t unique_bytes = 0;
+        static auto t0 = std::chrono::steady_clock::now();
+        const bool is_dup = (phys == prev_phys && bytes == prev_bytes);
+        ai_calls++;
+        total_bytes += bytes;
+        if (!is_dup) {
+            unique_bytes += bytes;
+        }
+        if ((ai_calls % 240) == 0) {
+            const double secs = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - t0).count();
+            // One frame of N64 stereo s16 audio at the game's rate.
+            const double expected_bytes_per_sec = 44100.0 * 2.0 * 2.0;
+            __android_log_print(ANDROID_LOG_INFO, "LodAiTrace",
+                                "calls=%u dup=%.1f%% unique=%.0fB/s expected=%.0fB/s SPEED=%.1f%%",
+                                ai_calls,
+                                100.0 * (double)(total_bytes - unique_bytes) / (double)total_bytes,
+                                unique_bytes / secs, expected_bytes_per_sec,
+                                100.0 * (unique_bytes / secs) / expected_bytes_per_sec);
+        }
+        prev_phys = phys;
+        prev_bytes = bytes;
+    }
+#endif
+
     ultramodern::queue_audio_buffer(rdram, (PTR(int16_t))kseg0, bytes);
     ctx->r2 = 0;
 }

@@ -7,11 +7,18 @@ struct RecompCustomElement {
 
 #define CUSTOM_ELEMENT(s, e) { s, std::make_unique< Rml::ElementInstancerGeneric< e > >() }
 
+#ifdef LOD_ZELDA_MENU_MINIMAL
+void recompui::register_custom_elements() {
+}
+
+Rml::ElementInstancer* recompui::get_custom_element_instancer(std::string tag) {
+    (void)tag;
+    return nullptr;
+}
+#else
 static RecompCustomElement custom_elements[] = {
-#ifndef LOD_ZELDA_MENU_MINIMAL
     CUSTOM_ELEMENT("recomp-mod-menu", recompui::ElementModMenu),
     CUSTOM_ELEMENT("recomp-config-sub-menu", recompui::ElementConfigSubMenu),
-#endif
 };
 
 void recompui::register_custom_elements() {
@@ -28,9 +35,13 @@ Rml::ElementInstancer* recompui::get_custom_element_instancer(std::string tag) {
     }
     return nullptr;
 }
+#endif
 
 Rml::ElementPtr recompui::create_custom_element(Rml::Element* parent, std::string tag) {
     auto instancer = recompui::get_custom_element_instancer(tag);
+    if (!instancer) {
+        return nullptr;
+    }
     const Rml::XMLAttributes attributes = {};
     if (Rml::ElementPtr element = instancer->InstanceElement(parent, tag, attributes))
     {

@@ -274,6 +274,37 @@ Display refresh: {{display_refresh_rate}}Hz
                         </form>
                     </panel>
 
+                    <tab class="tab" id="tab_cheats" onclick="show_cheats_tab">
+                        <div>Cheats</div>
+                        <div class="tab__indicator"></div>
+                    </tab>
+                    <panel class="config" data-model="cheats_model">
+                        <form class="config__form">
+                            <div class="config__hz-wrapper">
+                                <div class="config__wrapper" style="overflow-y: auto;">
+                                    <div
+                                        data-for="row, i : cheats"
+                                        style="display: flex; flex-direction: row; align-items: center; justify-content: space-between; padding: 8dp 4dp; margin: 0dp;"
+                                    >
+                                        <div style="display: flex; flex-direction: column; flex: 1 1 auto;">
+                                            <label class="config-option__title" style="margin: 0dp;">{{ cheat_name(i) }}</label>
+                                            <p style="margin: 2dp 0dp 0dp 0dp;">{{ cheat_desc(i) }}</p>
+                                        </div>
+                                        <button
+                                            class="toggle"
+                                            data-attr-id="'cheat_toggle_' + i"
+                                            data-class-toggle--checked="cheat_on(i)"
+                                            data-event-click="toggle_cheat(i)"
+                                            style="flex: 0 0 auto; margin-left: 16dp;"
+                                        >
+                                            <div class="toggle__border" />
+                                            <div class="toggle__floater" />
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </panel>
                     <tab class="tab" data-if="debug_visible" id="tab_debug" onclick="show_debug_tab">
                         <div>Debug</div>
                         <div class="tab__indicator"></div>

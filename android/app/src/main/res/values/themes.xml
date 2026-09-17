@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Shown from process start until SDL's surface draws its first frame, which covers the
+         several seconds of native init (library load, asset extraction, ROM validation). -->
+    <style name="Theme.LodRecomp.Splash" parent="@android:style/Theme.NoTitleBar.Fullscreen">
+        <item name="android:windowBackground">@drawable/splash</item>
+    </style>
+</resources>

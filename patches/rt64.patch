@@ -1,0 +1,214 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 006e93a..b1b3edb 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -18,14 +18,14 @@ if (NOT ${RT64_STATIC})
+ endif()
+ 
+ function(preprocess INFILE OUTFILE OPTIONS)
+-    if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
++    if (MSVC)
+         if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+             add_custom_command(OUTPUT ${OUTFILE}
+                 COMMAND clang -x c -E -P ${INFILE} -o ${OUTFILE} ${OPTIONS}
+                 DEPENDS ${INFILE})
+         else()
+             add_custom_command(OUTPUT ${OUTFILE}
+-                COMMAND ${CMAKE_CXX_COMPILER} /Zs /EP ${INFILE} ${OPTIONS} > ${OUTFILE}
++                COMMAND ${CMAKE_CXX_COMPILER} /EP /P /Fi${OUTFILE} ${INFILE} ${OPTIONS}
+                 DEPENDS ${INFILE})
+         endif()
+     else()
+@@ -35,7 +35,7 @@ function(preprocess INFILE OUTFILE OPTIONS)
+     endif()
+ endfunction()
+ 
+-if (WIN32)
++if (WIN32 OR CMAKE_HOST_WIN32)
+     set (DXC "${PROJECT_SOURCE_DIR}/src/contrib/dxc/bin/x64/dxc.exe")
+     add_compile_definitions(NOMINMAX)
+ 
+@@ -62,17 +62,39 @@ else()
+     endif()
+ endif()
+ 
+-set(ZSTD_LEGACY_SUPPORT OFF)
+-set(ZSTD_BUILD_STATIC ON)
+-set(ZSTD_BUILD_SHARED OFF)
++set(ZSTD_LEGACY_SUPPORT OFF CACHE BOOL "" FORCE)
++set(ZSTD_BUILD_STATIC ON CACHE BOOL "" FORCE)
++set(ZSTD_BUILD_SHARED OFF CACHE BOOL "" FORCE)
++set(ZSTD_BUILD_PROGRAMS OFF CACHE BOOL "" FORCE)
++set(ZSTD_BUILD_DICTBUILDER OFF CACHE BOOL "" FORCE)
+ 
+ add_subdirectory(src/tools/file_to_c)
+ add_subdirectory(src/contrib/re-spirv)
+-add_subdirectory(src/contrib/nativefiledialog-extended)
++if (ANDROID)
++    add_library(nfd INTERFACE)
++else()
++    add_subdirectory(src/contrib/nativefiledialog-extended)
++endif()
+ add_subdirectory(src/contrib/zstd/build/cmake)
+ 
+-if (CMAKE_SYSTEM_NAME MATCHES "Linux" AND RT64_SDL_WINDOW_VULKAN)
++# Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
++if (WIN32 AND NOT ANDROID)
++    set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
++    set(SDL2_LIBRARIES "SDL2" "SDL2main")
++    link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
++elseif (TARGET SDL2-static OR TARGET SDL2 OR ANDROID)
++    set(SDL2_LIBRARIES "SDL2-static")
++    if (sdl2_src_SOURCE_DIR)
++        set(SDL2_INCLUDE_DIRS "${sdl2_src_SOURCE_DIR}/include" "${sdl2_src_BINARY_DIR}/include" "${sdl2_src_BINARY_DIR}/include/SDL2")
++    endif()
++else()
++    find_package(SDL2 REQUIRED)
++endif()
++
++if ((CMAKE_SYSTEM_NAME MATCHES "Linux" OR ANDROID) AND RT64_SDL_WINDOW_VULKAN)
+     set(PLUME_SDL_VULKAN_ENABLED TRUE)
++    add_compile_definitions("PLUME_SDL_VULKAN_ENABLED=1")
++    add_compile_definitions("RT64_SDL_WINDOW_VULKAN")
+ elseif (APPLE)
+     set(PLUME_APPLE_RETINA_ENABLED OFF)
+ endif()
+@@ -115,8 +137,8 @@ function(build_shader_spirv_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+         COMMAND ${DXC} ${DXC_SPV_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.spv
+         DEPENDS ${FILENAME})
+     add_custom_command(OUTPUT ${OUTNAME}.spirv.c
+-        COMMAND file_to_c ${OUTNAME}.spv ${TARGET_NAME}BlobSPIRV ${OUTNAME}.spirv.c ${OUTNAME}.spirv.h
+-        DEPENDS ${OUTNAME}.spv file_to_c
++        COMMAND python ${PROJECT_SOURCE_DIR}/file_to_c.py ${OUTNAME}.spv ${TARGET_NAME}BlobSPIRV ${OUTNAME}.spirv.c ${OUTNAME}.spirv.h
++        DEPENDS ${OUTNAME}.spv
+         BYPRODUCTS ${OUTNAME}.spirv.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.spirv.c)
+ endfunction()
+@@ -126,8 +148,8 @@ function(build_shader_dxil_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+         COMMAND ${DXC} ${DXC_DXIL_OPTS} ${ARGN} ${FILENAME} /Fo ${OUTNAME}.dxil
+         DEPENDS ${FILENAME})
+     add_custom_command(OUTPUT ${OUTNAME}.dxil.c
+-        COMMAND file_to_c ${OUTNAME}.dxil ${TARGET_NAME}BlobDXIL ${OUTNAME}.dxil.c ${OUTNAME}.dxil.h
+-        DEPENDS ${OUTNAME}.dxil file_to_c
++        COMMAND python ${PROJECT_SOURCE_DIR}/file_to_c.py ${OUTNAME}.dxil ${TARGET_NAME}BlobDXIL ${OUTNAME}.dxil.c ${OUTNAME}.dxil.h
++        DEPENDS ${OUTNAME}.dxil
+         BYPRODUCTS ${OUTNAME}.dxil.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.dxil.c)
+ endfunction()
+@@ -146,8 +168,8 @@ function(build_shader_msl_impl TARGETOBJ FILENAME TARGET_NAME OUTNAME)
+             COMMAND xcrun -sdk macosx metallib ${OUTNAME}.ir -o ${OUTNAME}.metallib
+             DEPENDS ${OUTNAME}.ir)
+     add_custom_command(OUTPUT ${OUTNAME}.metal.c
+-            COMMAND file_to_c ${OUTNAME}.metallib ${TARGET_NAME}BlobMSL ${OUTNAME}.metal.c ${OUTNAME}.metal.h
+-            DEPENDS ${OUTNAME}.metallib file_to_c
++            COMMAND python ${PROJECT_SOURCE_DIR}/file_to_c.py ${OUTNAME}.metallib ${TARGET_NAME}BlobMSL ${OUTNAME}.metal.c ${OUTNAME}.metal.h
++            DEPENDS ${OUTNAME}.metallib
+             BYPRODUCTS ${OUTNAME}.metal.h)
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.metal.c)
+ endfunction()
+@@ -240,8 +262,8 @@ function(preprocess_shader TARGETOBJ SHADERNAME)
+     cmake_path(GET OUTNAME PARENT_PATH OUTPUT_DIR)
+     preprocess(${FILENAME} ${OUTNAME}.rw ${DXC_COMMON_OPTS})
+     add_custom_command(OUTPUT ${OUTNAME}.rw.c
+-        COMMAND file_to_c ${OUTNAME}.rw ${TARGET_NAME}Text ${OUTNAME}.rw.c ${OUTNAME}.rw.h
+-        DEPENDS ${OUTNAME}.rw file_to_c
++        COMMAND python ${PROJECT_SOURCE_DIR}/file_to_c.py ${OUTNAME}.rw ${TARGET_NAME}Text ${OUTNAME}.rw.c ${OUTNAME}.rw.h
++        DEPENDS ${OUTNAME}.rw
+         BYPRODUCTS ${OUTNAME}.rw.h)
+     file(MAKE_DIRECTORY ${OUTPUT_DIR})
+     target_sources(${TARGETOBJ} PRIVATE ${OUTNAME}.rw.c)
+@@ -281,15 +303,6 @@ function(build_ray_shader TARGETOBJ SHADERNAME)
+     build_shader(${TARGETOBJ} ${SHADERNAME} "${DXC_RT_OPTS}" ${ARGN})
+ endfunction()
+ 
+-# Point cmake at src/contrib/mupen64plus-win32-deps/SDL2-2.26.3 for SDL2 on windows, look for an installed package on other systems
+-if (WIN32)
+-    set(SDL2_INCLUDE_DIRS "${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/include")
+-    set(SDL2_LIBRARIES "SDL2" "SDL2main")
+-    link_directories("${PROJECT_SOURCE_DIR}/src/contrib/mupen64plus-win32-deps/SDL2-2.26.3/lib/x64")
+-else()
+-    find_package(SDL2 REQUIRED)
+-endif()
+-
+ message(STATUS "${SDL2_INCLUDE_DIRS} ${SDL2_LIBRARIES}")
+ 
+ add_compile_definitions(
+@@ -412,8 +425,11 @@ set (SOURCES
+     "${PROJECT_SOURCE_DIR}/src/contrib/miniz/miniz.c"
+ )
+ 
++if (SDL2_INCLUDE_DIRS)
++    include_directories(${SDL2_INCLUDE_DIRS})
++endif()
++
+ include_directories(
+-    "${SDL2_INCLUDE_DIRS}"
+     "${PROJECT_SOURCE_DIR}/src"
+     "${PROJECT_SOURCE_DIR}/src/contrib"
+     "${PROJECT_SOURCE_DIR}/src/contrib/plume"
+diff --git a/src/common/rt64_user_paths.cpp b/src/common/rt64_user_paths.cpp
+index f38d8eb..8daeba1 100644
+--- a/src/common/rt64_user_paths.cpp
++++ b/src/common/rt64_user_paths.cpp
+@@ -32,6 +32,8 @@ namespace RT64 {
+         }
+ 
+         CoTaskMemFree(knownPath);
++#   elif defined(__ANDROID__)
++        resultPath = std::filesystem::path("/data/data/org.cvlod.recomp/files") / appId;
+ #   elif defined(__linux__) || defined(__APPLE__)
+         const char *homeDir = getenv("HOME");
+         if (homeDir == nullptr) {
+diff --git a/src/hle/rt64_application_window.cpp b/src/hle/rt64_application_window.cpp
+index 08f83e5..5887aca 100755
+--- a/src/hle/rt64_application_window.cpp
++++ b/src/hle/rt64_application_window.cpp
+@@ -11,7 +11,7 @@
+ #if defined(_WIN32)
+ #   include <Windows.h>
+ #   include <ShellScalingAPI.h>
+-#elif defined(__linux__)
++#elif defined(__linux__) && !defined(__ANDROID__)
+ #   define Status int
+ #   if !defined(RT64_SDL_WINDOW_VULKAN)
+ #      include <X11/extensions/Xrandr.h>
+@@ -103,9 +103,7 @@ namespace RT64 {
+         bounds.top = rect.top;
+         bounds.width = rect.right - rect.left;
+         bounds.height = rect.bottom - rect.top;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
+-#   elif defined(__linux__) || defined(__APPLE__)
++#   elif defined(RT64_SDL_WINDOW_VULKAN) || defined(__ANDROID__) || defined(__linux__) || defined(__APPLE__)
+         if (SDL_VideoInit(nullptr) != 0) {
+             printf("Failed to init SDL2 video: %s\n", SDL_GetError());
+             assert(false && "Failed to init SDL2 video");
+@@ -147,8 +145,8 @@ namespace RT64 {
+         windowHandle = wmInfo.info.win.window;
+ #   elif defined(RT64_SDL_WINDOW_VULKAN)
+         windowHandle = sdlWindow;
+-#   elif defined(__ANDROID__)
+-        static_assert(false && "Android unimplemented");
++#   elif defined(RT64_SDL_WINDOW_VULKAN) || defined(__ANDROID__)
++        windowHandle = sdlWindow;
+ #   elif defined(__linux__)
+         windowHandle.display = wmInfo.info.x11.display;
+         windowHandle.window = wmInfo.info.x11.window;
+@@ -279,7 +277,7 @@ namespace RT64 {
+         if ((refreshRate % 10) == 9) {
+             refreshRate++;
+         }
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
++#   elif defined(RT64_SDL_WINDOW_VULKAN) || defined(__ANDROID__)
+         int displayIndex = SDL_GetWindowDisplayIndex(windowHandle);
+         if (displayIndex < 0) {
+             fprintf(stderr, "SDL_GetWindowDisplayIndex failed. Error: %s.\n", SDL_GetError());
+@@ -347,7 +345,7 @@ namespace RT64 {
+         GetWindowRect(windowHandle, &rect);
+         newWindowLeft = rect.left;
+         newWindowTop = rect.top;
+-#   elif defined(RT64_SDL_WINDOW_VULKAN)
++#   elif defined(RT64_SDL_WINDOW_VULKAN) || defined(__ANDROID__)
+         SDL_GetWindowPosition(windowHandle, &newWindowLeft, &newWindowTop);
+ #   elif defined(__linux__)
+         XWindowAttributes attributes;
