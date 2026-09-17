@@ -57,3 +57,6 @@ android/app/src/main/java/**/*.class
 # Standalone test binaries built for on-device runs
 /touchtest
 /cheatstest
+dist/
+*.apk
+*.apk.sha256

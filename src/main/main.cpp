@@ -2475,7 +2475,13 @@ static uint16_t n64_button_for_game_input(recomp::GameInput input) {
 }
 #endif
 
+extern uint8_t* rdram_ptr_for_debug;
+extern "C" void lod_check_and_release_transition_lock(uint8_t* rdram);
+
 bool get_n64_input(int controller_num, uint16_t* buttons, float* x, float* y) {
+    if (rdram_ptr_for_debug != nullptr) {
+        lod_check_and_release_transition_lock(rdram_ptr_for_debug);
+    }
 #if LOD_ENABLE_RUNTIME_HEARTBEAT_LOGS
     {
         static int input_calls = 0; input_calls++;
@@ -2753,6 +2759,10 @@ static bool lod_env_flag_enabled(const char* name) {
 extern uint8_t* rdram_ptr_for_debug;
 
 static void lod_cheats_vi_callback() {
+    if (ultramodern::is_game_started() && rdram_ptr_for_debug != nullptr) {
+        lod_check_and_release_transition_lock(rdram_ptr_for_debug);
+    }
+
     // Re-applied every VI, just like the original cheat device: the game rewrites these fields
     // continuously, so a one-shot poke would not hold.
     if (lod::cheats::active_count() == 0) {

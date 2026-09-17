@@ -50,6 +50,20 @@ index 0789c20..3004019 100644
  endif()
  
  if(PLUME_D3D12_AGILITY_SDK_ENABLED)
+diff --git a/plume_d3d12.cpp b/plume_d3d12.cpp
+index 8c239f4..1a42db1 100644
+--- a/plume_d3d12.cpp
++++ b/plume_d3d12.cpp
+@@ -35,6 +35,9 @@
+ #ifndef D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE
+ #define D3D12_RESOURCE_STATE_ALL_SHADER_RESOURCE (D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+ #endif
++#ifndef D3D12_HEAP_TYPE_GPU_UPLOAD
++#define D3D12_HEAP_TYPE_GPU_UPLOAD ((D3D12_HEAP_TYPE)5)
++#endif
+ 
+ #ifdef PLUME_D3D12_AGILITY_SDK_ENABLED
+ extern "C" {
 diff --git a/plume_render_interface_types.h b/plume_render_interface_types.h
 index 9dcfedf..d6153a5 100644
 --- a/plume_render_interface_types.h

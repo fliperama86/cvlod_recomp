@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.2.28 - 2026-09-16
+
+- Fixed Issue #28: Added custom gamepad and keyboard binding support for toggling the config menu (`recomp::GameInput::TOGGLE_MENU`).
+- Fixed Issue #29: Resolved host crash (`0xC0000005` at `0x80960008`) at Carrie Stage 4 Vampire boss battle by expanding KSEG0 mirror to 256MB and adding RDRAM post-guard range.
+- Fixed Issues #27, #31, #33, #35, #36: Fixed Henry transition freezes, black screens, invisible platforms/NPCs (Edward), rock crusher floor, and disabled pause with overlay Pair 129 lifecycle tracking and automatic transition lock release watchdog.
+- Fixed RT64 stuck full-screen black overlay during active gameplay transitions.
+- Native MSVC and Android compilation support.
+
+## v0.2.27 - 2026-08-22
+
+- Added official Android port with touch controls, on-screen layout customization, cheats menu, splash screen, and audio.
+
 ## v0.2.26 - 2026-07-02
 
 - Fixed the Henry Outer Walls elevator black screen reported in issue #26.

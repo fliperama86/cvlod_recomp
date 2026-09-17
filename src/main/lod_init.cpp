@@ -20,7 +20,7 @@
 #include "librecomp/overlays.hpp"
 
 #ifndef LOD_POST_RDRAM_GUARD_SIZE
-#define LOD_POST_RDRAM_GUARD_SIZE 0x10000
+#define LOD_POST_RDRAM_GUARD_SIZE 0x10000000
 #endif
 
 #ifndef LOD_FIX_SEG6_CPU_ALIAS_GUARD
@@ -444,29 +444,37 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
 
 
     // === KSEK0 RDRAM mirror ===
-    // Map 8MB at rdram+0x80000000 so KSEK0 addresses (0x80XXXXXX) resolve.
+    // Map RDRAM and KSEG0 address space (rdram+0x80000000 to rdram+0x90000000, 256MB)
+    // so KSEG0 addresses (0x80XXXXXX) resolve cleanly without host access violations.
+    // In particular, model vertex and effect transforms during boss fights (e.g. Carrie
+    // Stage 4 Vampire boss battle) access buffers at 0x80960008 (phys 0x960008, past 8MB).
     {
-        constexpr size_t rdram_mirror_size = 8 * 1024 * 1024;
-        int ret = mprotect(rdram + 0x80000000, rdram_mirror_size, PROT_READ | PROT_WRITE);
-        fprintf(stderr, "[mprotect] KSEK0 RDRAM mirror: rdram+0x80000000 (8 MB) %s\n",
-                ret == 0 ? "OK" : "FAILED");
-        // Guard the first page just past 8MB. The gameplay/intro route can
-        // probe 0x80800002 (rdram+0x80800002), which real hardware would not
-        // turn into a host SIGBUS. Keep this zero-filled and small so it does
-        // not mask broad out-of-range writes while we trace the caller.
+        // Also ensure physical RDRAM beyond 8MB up to 32MB is committed readable/writable
         {
-            uintptr_t page_mask = sysconf(_SC_PAGESIZE) - 1;
-            uint8_t* guard = rdram + 0x80000000 + rdram_mirror_size;
-            size_t guard_size = LOD_POST_RDRAM_GUARD_SIZE;
-            uint8_t* aligned = (uint8_t*)((uintptr_t)guard & ~page_mask);
-            size_t aligned_size = (guard + guard_size - aligned + page_mask) & ~page_mask;
-            int guard_ret = mprotect(aligned, aligned_size, PROT_READ | PROT_WRITE);
-            fprintf(stderr, "[mprotect] KSEK0 post-RDRAM guard: rdram+0x80800000 size=0x%zX %s\n",
-                    guard_size, guard_ret == 0 ? "OK" : "FAILED");
-            if (guard_ret == 0) {
-                memset(guard, 0, guard_size);
+            constexpr size_t phys_rdram_guard_size = 24 * 1024 * 1024; // 8MB -> 32MB
+            int ret_phys = mprotect(rdram + 0x00800000, phys_rdram_guard_size, PROT_READ | PROT_WRITE);
+            fprintf(stderr, "[mprotect] Physical RDRAM 8MB-32MB guard: rdram+0x00800000 (24 MB) %s\n",
+                    ret_phys == 0 ? "OK" : "FAILED");
+            if (ret_phys == 0) {
+                memset(rdram + 0x00800000, 0, phys_rdram_guard_size);
             }
         }
+
+        constexpr size_t rdram_mirror_size = 8 * 1024 * 1024;
+        constexpr size_t kseg0_total_size = 0x10000000ULL; // 256MB up to ROM mirror at 0x90000000
+        int ret = mprotect(rdram + 0x80000000, kseg0_total_size, PROT_READ | PROT_WRITE);
+        fprintf(stderr, "[mprotect] KSEK0 RDRAM mirror: rdram+0x80000000 (256 MB) %s\n",
+                ret == 0 ? "OK" : "FAILED");
+
+        // Zero-fill the post-RDRAM guard region past 8MB
+        if (ret == 0) {
+            uint8_t* guard = rdram + 0x80000000 + rdram_mirror_size;
+            size_t guard_size = kseg0_total_size - rdram_mirror_size;
+            memset(guard, 0, guard_size);
+            fprintf(stderr, "[mprotect] KSEK0 post-RDRAM guard: rdram+0x80800000 size=0x%zX OK\n",
+                    guard_size);
+        }
+
         // Set osMemSize so game knows RDRAM size without probing.
         *(uint32_t*)(rdram + 0x318) = kReportedOsMemSize;
         fprintf(stderr, "[init] Set osMemSize (0x80000318) = 0x%08X (%s)\n",

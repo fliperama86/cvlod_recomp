@@ -1,7 +1,24 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 006e93a..94df970 100644
+index 006e93a..b1b3edb 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
+@@ -18,14 +18,14 @@ if (NOT ${RT64_STATIC})
+ endif()
+ 
+ function(preprocess INFILE OUTFILE OPTIONS)
+-    if (CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
++    if (MSVC)
+         if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+             add_custom_command(OUTPUT ${OUTFILE}
+                 COMMAND clang -x c -E -P ${INFILE} -o ${OUTFILE} ${OPTIONS}
+                 DEPENDS ${INFILE})
+         else()
+             add_custom_command(OUTPUT ${OUTFILE}
+-                COMMAND ${CMAKE_CXX_COMPILER} /Zs /EP ${INFILE} ${OPTIONS} > ${OUTFILE}
++                COMMAND ${CMAKE_CXX_COMPILER} /EP /P /Fi${OUTFILE} ${INFILE} ${OPTIONS}
+                 DEPENDS ${INFILE})
+         endif()
+     else()
 @@ -35,7 +35,7 @@ function(preprocess INFILE OUTFILE OPTIONS)
      endif()
  endfunction()
@@ -129,52 +146,6 @@ index 006e93a..94df970 100644
      "${PROJECT_SOURCE_DIR}/src"
      "${PROJECT_SOURCE_DIR}/src/contrib"
      "${PROJECT_SOURCE_DIR}/src/contrib/plume"
-diff --git a/file_to_c.py b/file_to_c.py
-new file mode 100644
-index 0000000..8b8db0f
---- /dev/null
-+++ b/file_to_c.py
-@@ -0,0 +1,40 @@
-+import sys
-+import os
-+
-+def main():
-+    if len(sys.argv) != 5:
-+        print(f"Usage: {sys.argv[0]} [input file] [array name] [output C file] [output C header]")
-+        sys.exit(0)
-+
-+    input_path = sys.argv[1]
-+    array_name = sys.argv[2]
-+    output_c_path = sys.argv[3]
-+    output_h_path = sys.argv[4]
-+
-+    with open(input_path, 'rb') as f:
-+        contents = f.read()
-+
-+    if not contents:
-+        sys.stderr.write(f"Failed to open file {input_path}! (Or empty)\n")
-+        sys.exit(1)
-+
-+    os.makedirs(os.path.dirname(os.path.abspath(output_c_path)), exist_ok=True)
-+    os.makedirs(os.path.dirname(os.path.abspath(output_h_path)), exist_ok=True)
-+
-+    with open(output_c_path, 'w') as f:
-+        f.write("#include <stddef.h>\n")
-+        f.write(f"extern const char {array_name}[{len(contents)}];\n")
-+        f.write(f"const char {array_name}[{len(contents)}] = {{")
-+        f.write(", ".join(str(b if b < 128 else b - 256) for b in contents))
-+        f.write("};\n")
-+        f.write(f"extern const size_t {array_name}_size;\n")
-+        f.write(f"const size_t {array_name}_size = sizeof({array_name}) / sizeof({array_name}[0]);\n")
-+
-+    with open(output_h_path, 'w') as f:
-+        f.write("#ifdef __cplusplus\n  extern \"C\" {\n#endif\n#include <stddef.h>\n")
-+        f.write(f"extern const char {array_name}[{len(contents)}];\n")
-+        f.write(f"extern const size_t {array_name}_size;\n")
-+        f.write("#ifdef __cplusplus\n  }\n#endif\n")
-+
-+if __name__ == '__main__':
-+    main()
 diff --git a/src/common/rt64_user_paths.cpp b/src/common/rt64_user_paths.cpp
 index f38d8eb..8daeba1 100644
 --- a/src/common/rt64_user_paths.cpp

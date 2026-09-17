@@ -74,17 +74,22 @@ if (ANDROID)
         FetchContent_MakeAvailable(sdl2_src)
         set(SDL2_INCLUDE_DIRS "${sdl2_src_SOURCE_DIR}/include" "${sdl2_src_BINARY_DIR}/include" "${sdl2_src_BINARY_DIR}/include/SDL2" CACHE PATH "" FORCE)
     endif()
+endif()
 
-    if (NOT TARGET freetype)
-        FetchContent_Declare(
-            freetype
-            URL https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-2.tar.gz
-        )
-        set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
-        FetchContent_MakeAvailable(freetype)
-        if (TARGET freetype AND NOT TARGET Freetype::Freetype)
-            add_library(Freetype::Freetype ALIAS freetype)
-        endif()
+if (NOT TARGET freetype AND NOT TARGET Freetype::Freetype)
+    find_package(Freetype QUIET)
+endif()
+
+if (NOT TARGET freetype AND NOT TARGET Freetype::Freetype)
+    include(FetchContent)
+    FetchContent_Declare(
+        freetype
+        URL https://github.com/freetype/freetype/archive/refs/tags/VER-2-13-2.tar.gz
+    )
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(freetype)
+    if (TARGET freetype AND NOT TARGET Freetype::Freetype)
+        add_library(Freetype::Freetype ALIAS freetype)
     endif()
 endif()
 
@@ -187,11 +192,18 @@ endif()
 # ── RecompiledFuncs ─────────────────────────────────────────────────
 add_library(RecompiledFuncs STATIC)
 
-target_compile_options(RecompiledFuncs PRIVATE
-    -fno-strict-aliasing
-    -Wno-unused-variable
-    -Wno-implicit-function-declaration
-)
+if (MSVC)
+    target_compile_options(RecompiledFuncs PRIVATE
+        /wd4101
+        /wd4013
+    )
+else()
+    target_compile_options(RecompiledFuncs PRIVATE
+        -fno-strict-aliasing
+        -Wno-unused-variable
+        -Wno-implicit-function-declaration
+    )
+endif()
 
 option(LOD_ENABLE_FIGURE_SEG_TRACE "Enable generated-code diagnostics for figure/model links that still contain segmented addresses" OFF)
 if (LOD_ENABLE_FIGURE_SEG_TRACE)
@@ -300,7 +312,7 @@ if (LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT)
 endif()
 set(LOD_ITEM_MENU_SAVE_SLOT "1" CACHE STRING "Debug-only save slot selected by LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT (1-3)")
 target_compile_definitions(LodRecomp PRIVATE LOD_ITEM_MENU_SAVE_SLOT=${LOD_ITEM_MENU_SAVE_SLOT})
-set(LOD_POST_RDRAM_GUARD_SIZE "0x10000" CACHE STRING "Size of zero-filled post-RDRAM diagnostic/compatibility guard at rdram+0x80800000")
+set(LOD_POST_RDRAM_GUARD_SIZE "0x10000000" CACHE STRING "Size of zero-filled post-RDRAM diagnostic/compatibility guard at rdram+0x80800000")
 target_compile_definitions(LodRecomp PRIVATE LOD_POST_RDRAM_GUARD_SIZE=${LOD_POST_RDRAM_GUARD_SIZE})
 option(LOD_FIX_SEG6_CPU_ALIAS_GUARD "Map zero-filled CPU aliases for segment-6 0x06xxxxxx/0x46xxxxxx reads while osMapTLB/NI copies populate real pages" ON)
 if (LOD_FIX_SEG6_CPU_ALIAS_GUARD)
@@ -650,7 +662,28 @@ if (WIN32)
 endif()
 
 # ── Link everything ─────────────────────────────────────────────────
-find_package(ZLIB REQUIRED)
+if (NOT TARGET ZLIB::ZLIB)
+    find_package(ZLIB QUIET)
+endif()
+if (NOT TARGET ZLIB::ZLIB)
+    include(FetchContent)
+    FetchContent_Declare(
+        zlib
+        URL https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz
+    )
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    set(SKIP_INSTALL_ALL ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(zlib)
+    if (TARGET zlibstatic AND NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+        set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+        set(ZLIB_LIBRARIES zlibstatic CACHE STRING "" FORCE)
+    elseif (TARGET zlib AND NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlib)
+        set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+        set(ZLIB_LIBRARIES zlib CACHE STRING "" FORCE)
+    endif()
+endif()
 if (APPLE AND CMAKE_OSX_SYSROOT AND TARGET ZLIB::ZLIB)
     # The macOS SDK's usr/include path is already implied by -isysroot. If the
     # imported ZLIB target adds it explicitly, clang can search the SDK C headers

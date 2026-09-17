@@ -33,6 +33,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PATCHES = [
     ("patches/rt64.patch", "lib/rt64"),
     ("patches/plume.patch", "lib/rt64/src/contrib/plume"),
+    ("patches/n64modernruntime.patch", "lib/N64ModernRuntime"),
 ]
 
 
