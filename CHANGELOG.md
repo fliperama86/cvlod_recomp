@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.27 - 2026-09-28
+
+- Fixed geometry clipping and popping that appeared with widescreen or high framerate enabled, depending on the camera heading.
+- Updated the RT64 renderer and the N64 runtime to their latest upstream versions, including Metal fixes and fixes for crashes and stalls around exit and timers.
+- Added optional testing cheats, configurable in `cheats.cfg` next to the other config files (all off by default).
+
 ## v0.2.26 - 2026-07-02
 
 - Fixed the Henry Outer Walls elevator black screen reported in issue #26.
