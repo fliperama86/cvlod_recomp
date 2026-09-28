@@ -903,17 +903,12 @@ static void lod_issue23_log_workload_summary(const char* tag, int issue_task, in
 }
 #endif
 
-// Clears the framebuffer while no game is running (launcher VIs), matching
-// RecompFrontend's RT64 context.
+// Called for VIs before a game starts. RecompFrontend clears the framebuffer
+// here with an RT64 fill workload, but on D3D12 that workload crashes inside
+// RT64's framebuffer RAM upload (NativeTarget::copyFromRAM via State::fullSync).
+// LodRecomp never drew anything before a game starts, so keep that behavior.
 void lod::renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
-    app->state->listProcessBegin();
-    app->state->rdp->setColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 320, fb_address);
-    // G_AD_DISABLE | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_FILL | G_PM_NPRIMITIVE
-    // G_AC_NONE | G_ZS_PIXEL | G_RM_NOOP | G_RM_NOOP2
-    app->state->rdp->setOtherMode(0x382C30, 0);
-    app->state->rdp->fillRect(0, 0, 320 << 2, 240 << 2);
-    app->state->fullSync();
-    app->state->listProcessEnd();
+    (void)fb_address;
 }
 
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
