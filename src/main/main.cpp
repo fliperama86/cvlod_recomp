@@ -3748,6 +3748,50 @@ static void report_crash_details(void* fault_addr) {
 }
 
 #ifdef _WIN32
+static void describe_crash_address(const char* tag, DWORD64 addr) {
+    HMODULE module = nullptr;
+    char path[MAX_PATH] = {};
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(addr), &module) &&
+        module != nullptr && GetModuleFileNameA(module, path, MAX_PATH) > 0) {
+        const char* name = strrchr(path, '\\');
+        name = (name != nullptr) ? name + 1 : path;
+        fprintf(stderr, "  %s 0x%016llX = %s+0x%llX\n", tag, static_cast<unsigned long long>(addr), name,
+                static_cast<unsigned long long>(addr - reinterpret_cast<DWORD64>(module)));
+    } else {
+        fprintf(stderr, "  %s 0x%016llX = <unknown module>\n", tag, static_cast<unsigned long long>(addr));
+    }
+}
+
+// Native stack with module+offset per frame, so crashes inside system or
+// driver DLLs can be attributed without a debugger.
+static void report_native_stack(const CONTEXT* context) {
+#if defined(_M_X64)
+    CONTEXT ctx = *context;
+    fprintf(stderr, "  Native stack:\n");
+    for (int frame = 0; frame < 32 && ctx.Rip != 0; frame++) {
+        describe_crash_address(frame == 0 ? "  ip" : "    ", ctx.Rip);
+        DWORD64 image_base = 0;
+        PRUNTIME_FUNCTION function = RtlLookupFunctionEntry(ctx.Rip, &image_base, nullptr);
+        if (function == nullptr) {
+            // Leaf function: the return address is at the top of the stack.
+            if (ctx.Rsp == 0) {
+                break;
+            }
+            ctx.Rip = *reinterpret_cast<const DWORD64*>(ctx.Rsp);
+            ctx.Rsp += 8;
+        } else {
+            PVOID handler_data = nullptr;
+            DWORD64 establisher_frame = 0;
+            RtlVirtualUnwind(UNW_FLAG_NHANDLER, image_base, ctx.Rip, function, &ctx, &handler_data,
+                             &establisher_frame, nullptr);
+        }
+    }
+#else
+    (void)context;
+#endif
+}
+
 static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     const EXCEPTION_RECORD* rec = ep->ExceptionRecord;
     void* fault_addr = nullptr;
@@ -3756,6 +3800,7 @@ static LONG WINAPI crash_handler(EXCEPTION_POINTERS* ep) {
     }
     fprintf(stderr, "\n[CRASH] Exception 0x%08lX at address %p (ip=%p)\n",
             static_cast<unsigned long>(rec->ExceptionCode), fault_addr, rec->ExceptionAddress);
+    report_native_stack(ep->ContextRecord);
     report_crash_details(fault_addr);
     lod_session_log_crash_delay();
     _exit(127);
