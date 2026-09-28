@@ -2386,6 +2386,7 @@ std::vector<recomp::GameEntry> supported_games = {
     {
         .rom_hash = lod::target_rom::kXxh3_64,
         .internal_name = std::string(lod::target_rom::kInternalName),
+        .display_name = "Castlevania: Legacy of Darkness",
         .game_id = u8"castlevania2.n64.us",
         .mod_game_id = "",  // Disabled — mod system not yet set up for LoD
         .save_type = recomp::SaveType::Sram, // 32KB — used for virtual Controller Pak
@@ -3585,7 +3586,7 @@ static void validate_and_start_rom(std::filesystem::path rom_path, bool persist_
         rom_basename(rom_path), true);
     fprintf(stderr, "[LodRecomp] ROM validated successfully, starting game...\n");
     g_rom_game_started.store(true, std::memory_order_relaxed);
-    recomp::start_game(game_id);
+    recomp::start_game(game_id, std::string{});
     lod::ui::hide_rom_setup();
     g_rom_validation_busy.store(false, std::memory_order_relaxed);
 }

@@ -903,6 +903,19 @@ static void lod_issue23_log_workload_summary(const char* tag, int issue_task, in
 }
 #endif
 
+// Clears the framebuffer while no game is running (launcher VIs), matching
+// RecompFrontend's RT64 context.
+void lod::renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
+    app->state->listProcessBegin();
+    app->state->rdp->setColorImage(G_IM_FMT_RGBA, G_IM_SIZ_16b, 320, fb_address);
+    // G_AD_DISABLE | G_CD_MAGICSQ | G_CK_NONE | G_TC_FILT | G_TF_BILERP | G_TT_NONE | G_TL_TILE | G_TD_CLAMP | G_TP_PERSP | G_CYC_FILL | G_PM_NPRIMITIVE
+    // G_AC_NONE | G_ZS_PIXEL | G_RM_NOOP | G_RM_NOOP2
+    app->state->rdp->setOtherMode(0x382C30, 0);
+    app->state->rdp->fillRect(0, 0, 320 << 2, 240 << 2);
+    app->state->fullSync();
+    app->state->listProcessEnd();
+}
+
 void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
     uint8_t* rdram = app->core.RDRAM;

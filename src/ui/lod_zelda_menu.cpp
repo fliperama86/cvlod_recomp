@@ -1022,7 +1022,7 @@ public:
                 dirty_launcher();
                 return;
             }
-            recomp::start_game(game_id);
+            recomp::start_game(game_id, std::string{});
             recompui::hide_all_contexts();
             recompui::process_game_started();
         });

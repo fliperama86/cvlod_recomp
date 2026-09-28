@@ -21,6 +21,7 @@ namespace lod {
 
             void enable_instant_present() override;
             void send_dl(const OSTask *task) override;
+            void send_dummy_workload(uint32_t fb_address) override;
             void update_screen() override;
             void shutdown() override;
             uint32_t get_display_framerate() const override;
