@@ -229,6 +229,7 @@ gfx_update_and_draw_root   = 0x800065DC; // type:func  // per-frame graphics roo
 gfx_emit_node_segment_commands = 0x80006990; // type:func  // emits texture/segment display-list commands for a graphics node
 gfx_emit_node_child_lists  = 0x80007018; // type:func  // emits child/sub display-list commands for a graphics node
 gfx_emit_node_recursive    = 0x800070F0; // type:func  // recursively walks graphics nodes and emits RDP state packets
+gfx_build_cull_list        = 0x80007B94; // type:func  // builds per-frame draw list; culls nodes outside a 4:3 screen (+-160/+-120) plus radius
 gfx_draw_root_node_list    = 0x80008AC8; // type:func  // chooses sorted/root graphics node draw path
 
 // Figure/model hierarchy

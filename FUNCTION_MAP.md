@@ -377,6 +377,7 @@ Tower of Sorcery map overlay (`map_ovl_29`, ROM `0x007D9790`) notes:
 | 0x80006990 | gfx_emit_node_segment_commands | Emits texture/segment display-list commands for a graphics node |
 | 0x80007018 | gfx_emit_node_child_lists | Emits child/sub display-list commands for a graphics node |
 | 0x800070F0 | gfx_emit_node_recursive | Recursively walks graphics nodes and emits RDP state packets (`E700`, `FA00`, `FB00`, `F900`, `F800`) |
+| 0x80007B94 | gfx_build_cull_list | Recursively builds the per-frame 0x18-byte draw-list entries (`0x800C1578`). Projects each model's base and top point through the active camera view matrix (`0x801CAE38`) and flags entries visible (`0x40000000`) or culled (`0x80000000`) against a hard-coded 320x240 screen (`+-160` x, `+-120` y) plus projected radius. `LOD_FIX_WIDESCREEN_CULL` scales the `+-160` bound to the output aspect ratio. |
 | 0x80008AC8 | gfx_draw_root_node_list | Chooses the sorted/root graphics node draw path before falling back to `gfx_emit_node_recursive` |
 
 ### Segment-6 CPU alias notes

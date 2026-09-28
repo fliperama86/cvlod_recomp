@@ -354,6 +354,70 @@ extern uint32_t lod_current_map_overlay_rom(void);
 
 
 # =============================================================================
+# Current patch: widen the draw-list screen cull for widescreen
+# Target: gfx_build_cull_list (VRAM 0x80007B94)
+# The game culls each model against a hard-coded 320x240 screen (+-160.0 x,
+# +-120.0 y, as double high words 0x4064/0xC064 and 0x405E/0xC05E) plus its
+# projected radius. With RT64's Expand aspect ratio, models past the 4:3 edge
+# pop out while still on screen, so scale the +-160.0 bound at runtime.
+# =============================================================================
+@active_patch("Widen draw-list screen cull for widescreen")
+def patch_widescreen_draw_list_cull():
+    path, content = find_file_with_function("80007B94")
+    if not path:
+        return False
+
+    if "PATCH: widescreen draw-list cull" in content:
+        return False
+
+    support_code = """
+#ifndef LOD_FIX_WIDESCREEN_CULL
+#define LOD_FIX_WIDESCREEN_CULL 0
+#endif
+
+#if LOD_FIX_WIDESCREEN_CULL
+extern uint32_t lod_widescreen_cull_bound_hi(uint32_t hi);
+#define LOD_WIDESCREEN_CULL_BOUND_HI(hi) lod_widescreen_cull_bound_hi(hi)
+#else
+#define LOD_WIDESCREEN_CULL_BOUND_HI(hi) (hi)
+#endif
+"""
+    lines = content.split('\n')
+    last_include = 0
+    for i, line in enumerate(lines):
+        if line.startswith('#include'):
+            last_include = i
+    lines.insert(last_include + 1, support_code.strip('\n'))
+    content = '\n'.join(lines)
+
+    body_start = content.find("// 0x80007B94:")
+    body_end = content.find("\nRECOMP_FUNC", body_start)
+    if body_end == -1:
+        body_end = len(content)
+    body = content[body_start:body_end]
+
+    count = 0
+    for hi in ("0X4064", "0XC064"):
+        old = f"ctx->r1 = S32({hi} << 16);"
+        new = (f"// --- PATCH: widescreen draw-list cull ---\n"
+               f"    ctx->r1 = S32(LOD_WIDESCREEN_CULL_BOUND_HI({hi} << 16));\n"
+               f"    // --- END PATCH ---")
+        count += body.count(old)
+        body = body.replace(old, new)
+
+    # One -160.0 and five +160.0 sites; N64Recomp duplicates two likely-branch
+    # delay slots, giving 8 generated statements.
+    if count != 8:
+        print(f"    WARNING: expected 8 +-160.0 cull bound loads in 0x80007B94, found {count}")
+        return False
+
+    content = content[:body_start] + body + content[body_end:]
+    with open(path, 'w', newline='\n') as f:
+        f.write(content)
+    return True
+
+
+# =============================================================================
 # Current patch: expand scene graph pool minimums
 # Target: scene4_init / scene_init calls to sceneGraphPools_init (VRAM 0x80004CB0)
 # =============================================================================

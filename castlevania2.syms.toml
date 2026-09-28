@@ -175,7 +175,7 @@ functions = [
     { name = "func_800073EC", vram = 0x800073EC, size = 0x2A8 },
     { name = "func_80007694", vram = 0x80007694, size = 0x2B8 },
     { name = "func_8000794C", vram = 0x8000794C, size = 0x248 },
-    { name = "func_80007B94", vram = 0x80007B94, size = 0xC38 },
+    { name = "gfx_build_cull_list", vram = 0x80007B94, size = 0xC38 },
     { name = "func_800087CC", vram = 0x800087CC, size = 0x88 },
     { name = "func_80008854", vram = 0x80008854, size = 0xE0 },
     { name = "func_80008934", vram = 0x80008934, size = 0x194 },

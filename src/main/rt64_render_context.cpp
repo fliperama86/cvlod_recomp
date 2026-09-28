@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <atomic>
 #include <memory>
 #include <cstring>
 #include <cstdio>
@@ -52,6 +54,45 @@
 extern "C" uint32_t lod_current_map_overlay_rom();
 extern "C" uint32_t lod_current_map_overlay_size();
 extern "C" int lod_current_map_overlay_load_count();
+
+// Horizontal scale for gfx_build_cull_list's 4:3 screen cull, published by the
+// gfx thread and read by the game thread via lod_widescreen_cull_bound_hi.
+static std::atomic<float> g_widescreen_cull_x_scale{1.0f};
+
+// Mirrors RT64's aspect ratio target selection (WorkloadQueue) for a 4:3 source.
+static void lod_update_widescreen_cull_scale(RT64::Application* app) {
+    constexpr float OriginalAspect = 4.0f / 3.0f;
+    float target = OriginalAspect;
+    switch (app->userConfig.aspectRatio) {
+        case RT64::UserConfiguration::AspectRatio::Expand: {
+            const uint32_t width = app->sharedQueueResources->swapChainWidth;
+            const uint32_t height = app->sharedQueueResources->swapChainHeight;
+            if ((width > 0) && (height > 0)) {
+                target = float(width) / float(height);
+            }
+            break;
+        }
+        case RT64::UserConfiguration::AspectRatio::Manual:
+            target = float(app->userConfig.aspectTarget);
+            break;
+        default:
+            break;
+    }
+    g_widescreen_cull_x_scale.store(std::max(target / OriginalAspect, 1.0f), std::memory_order_relaxed);
+}
+
+// Takes the high word of the cull's +-160.0 double constant and returns the
+// high word of the bound widened to the current aspect ratio. The low word is
+// zero in the game code, so the result keeps ~6 significant digits.
+extern "C" uint32_t lod_widescreen_cull_bound_hi(uint32_t hi) {
+    const uint64_t in_bits = uint64_t(hi) << 32;
+    double bound;
+    std::memcpy(&bound, &in_bits, sizeof(bound));
+    bound *= g_widescreen_cull_x_scale.load(std::memory_order_relaxed);
+    uint64_t out_bits;
+    std::memcpy(&out_bits, &bound, sizeof(out_bits));
+    return uint32_t(out_bits >> 32);
+}
 
 static uint8_t DMEM[0x1000];
 static uint8_t IMEM[0x1000];
@@ -916,6 +957,7 @@ void lod::renderer::RT64Context::send_dl(const OSTask* task) {
     uint32_t data_addr = task->t.data_ptr & 0x3FFFFFF;
     uint8_t* rdram = app->core.RDRAM;
     g_dl_n++;
+    lod_update_widescreen_cull_scale(app.get());
 
 #if LOD_ENABLE_TOWER_RENDER_SUMMARY || LOD_FIX_TOWER_BLACK_OVERLAY
     const bool tower_render_active = (lod_current_map_overlay_rom() == 0x007D9790);
