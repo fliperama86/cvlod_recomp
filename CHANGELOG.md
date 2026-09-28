@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.29 - 2026-09-28
+
+### Android
+- **Fixed ROM browser not working** — tapping "Select ROM" now correctly opens the system file picker and stays in a "Waiting..." state while the picker is open. Previously, the launcher immediately showed "ROM selection cancelled" before the file picker result arrived, making it impossible to load a ROM through the UI.
+- **Fixed ROM not found on cold-start after first pick** — the app now checks its private storage (`filesDir/rom.z64`) during startup ROM discovery, so a previously picked ROM is found without requiring a re-pick every launch.
+
+Users who previously could not get past the launcher on Android should now be able to tap "Select ROM", choose their `.z64` file from Downloads or any file manager location, and have the game start automatically.
+
 ## v0.2.28 - 2026-09-16
 
 - Fixed Issue #28: Added custom gamepad and keyboard binding support for toggling the config menu (`recomp::GameInput::TOGGLE_MENU`).
