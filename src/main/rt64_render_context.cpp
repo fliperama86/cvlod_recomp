@@ -904,9 +904,10 @@ static void lod_issue23_log_workload_summary(const char* tag, int issue_task, in
 #endif
 
 // Called for VIs before a game starts. RecompFrontend clears the framebuffer
-// here with an RT64 fill workload, but on D3D12 that workload crashes inside
-// RT64's framebuffer RAM upload (NativeTarget::copyFromRAM via State::fullSync).
-// LodRecomp never drew anything before a game starts, so keep that behavior.
+// here with an RT64 fill workload, but on D3D12 WARP that workload crashes
+// inside RT64's framebuffer RAM upload (NativeTarget::copyFromRAM via
+// State::fullSync). LodRecomp never drew anything before a game starts, so
+// keep that behavior; update_screen blanks the dummy VI to match.
 void lod::renderer::RT64Context::send_dummy_workload(uint32_t fb_address) {
     (void)fb_address;
 }
@@ -1120,7 +1121,11 @@ void lod::renderer::RT64Context::update_screen() {
 #ifdef LOD_USE_ZELDA_MENU
     // Match ZeldaRecomp's launcher behavior before emulation starts: let the
     // runtime's dummy VI drive UI-only frames without LoD's gameplay CFB fixups.
+    // The dummy VI is visible, and with no dummy workload (see
+    // send_dummy_workload) RT64 would upload its RDRAM framebuffer on every
+    // present, which crashes on D3D12 WARP. Blank it so only the UI draws.
     if (!ultramodern::is_game_started()) {
+        ultramodern::renderer::get_vi_regs()->VI_STATUS_REG = 0;
         app->updateScreen();
         return;
     }
