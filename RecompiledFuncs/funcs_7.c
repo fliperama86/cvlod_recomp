@@ -2,6 +2,470 @@
 #include "funcs.h"
 #include "lod_symbols.h"
 
+#if LOD_ENABLE_NI0E_TRACE
+#include <stdbool.h>
+#include <stdio.h>
+
+// Round 2: TLB-ensure probe for func_80011060 (funcs_7.c below), the
+// "ensure NI overlay mapped before dispatch" helper. Round 1's
+// docs/issue27-31-ni0e-findings.md confirmed the id-indexed descriptor
+// lookup: t2 = descriptor_word & 0x0FFFFFFF (table 0x800AEA8C[id]), then
+// (start,end) = table 0x800B00C4[t2*8-8 .. t2*8-4], s4 = end - (start &
+// 0x7FFFFFFF). If s4 == 0 the whole osMapTLB loop is skipped
+// (funcs_7.c beq $s4,$zero,L_80011210). This probe logs both outcomes,
+// rate-limited since the function is called on the hot per-object dispatch
+// path. No behavior change: log only.
+static inline bool lod_ni0e_ensure_addr_ok(uint32_t addr, uint32_t size) {
+    const uint32_t phys = addr & 0x1FFFFFFFu;
+    return addr != 0 && phys <= 0x800000u && size <= 0x800000u - phys;
+}
+
+static inline gpr lod_ni0e_ensure_addr_gpr(uint32_t addr) {
+    return (gpr)(int32_t)addr;
+}
+
+static uint16_t lod_ni0e_ensure_read_id(uint8_t* rdram, uint32_t obj) {
+    if (!lod_ni0e_ensure_addr_ok(obj, 2)) {
+        return 0xFFFFu;
+    }
+    return (uint16_t)(MEM_HU(0x0, lod_ni0e_ensure_addr_gpr(obj)) & 0x7FFu);
+}
+
+// "new distinct id" set for the ensure-map side (rare path); capped at 64
+// distinct ids per the round-2 instructions.
+static uint16_t lod_ni0e_ensure_map_seen[64];
+static int lod_ni0e_ensure_map_seen_count = 0;
+
+static bool lod_ni0e_ensure_map_id_is_new(uint16_t id) {
+    for (int i = 0; i < lod_ni0e_ensure_map_seen_count; i++) {
+        if (lod_ni0e_ensure_map_seen[i] == id) {
+            return false;
+        }
+    }
+    if (lod_ni0e_ensure_map_seen_count < 64) {
+        lod_ni0e_ensure_map_seen[lod_ni0e_ensure_map_seen_count++] = id;
+    }
+    return true;
+}
+
+// Called right before the `beq $s4,$zero,L_80011210` skip branch. t2/start/
+// end/s4 are cheap register values already computed for the branch itself
+// (no extra rdram reads); the id readback (rdram read) is deferred behind
+// the rate-limit check on the hot skip path so the common case stays cheap.
+static void lod_ni0e_ensure_probe(uint8_t* rdram, uint32_t obj, uint32_t t2, uint32_t start,
+                                   uint32_t end, uint32_t s4) {
+    if (s4 == 0) {
+        static uint32_t skip_calls = 0;
+        skip_calls++;
+        if (skip_calls <= 100u || (skip_calls % 2000u) == 0u) {
+            const uint16_t id = lod_ni0e_ensure_read_id(rdram, obj);
+            fprintf(stderr,
+                    "[NI0E_TRACE] ensure-skip id=0x%03X t2=0x%X start=0x%08X end=0x%08X "
+                    "obj=0x%08X call=%u\n",
+                    id, t2, start, end, obj, skip_calls);
+        }
+        return;
+    }
+
+    static uint32_t map_calls = 0;
+    map_calls++;
+    const uint16_t id = lod_ni0e_ensure_read_id(rdram, obj);
+    const bool new_id = lod_ni0e_ensure_map_id_is_new(id);
+    if (new_id || (map_calls % 600u) == 0u) {
+        fprintf(stderr,
+                "[NI0E_TRACE] ensure-map id=0x%03X s4=0x%X obj=0x%08X call=%u%s\n",
+                id, s4, obj, map_calls, new_id ? " (new)" : "");
+    }
+}
+
+// Round 4: manager-creation probe for object_executeChildObject
+// (func_80010B84, below) and object_createAndSetChild (func_80002410,
+// funcs_1.c/object_createAndSetChild). object_executeChildObject walks an
+// object's GSS_SLOT template array (obj+0x34..+0x74, 16 words): for each
+// nonzero, not-yet-created slot (masked word's sign bit clear) it derives an
+// id (masked word & 0x7FF) and looks that id up in the SAME per-id
+// descriptor-pointer table func_80011060 uses for TLB residency
+// (0x800AEA8C, see docs/issue27-31-ni0e-findings.md). If the id HAS a
+// descriptor entry there (NI/file-backed class) the slot is only flagged
+// with 0x40000000 ("deferred") and NOT created this pass; otherwise
+// object_createAndSetChild is called immediately. This probe logs both
+// outcomes so we can see whether id 0x0AB (pause manager) is ever visited
+// here, and whether it is created immediately or perpetually deferred.
+//
+// Round 5: round-4 found these probes never fired because they were gated
+// to the four focus maps, while manager creation (or its failure) happens
+// at session start in whatever room the save loads into. De-gated to log
+// GLOBALLY (any map) for high-signal cases: id==0x0AB always logs
+// (rare event, no throttling); other ids keep the original focus-map-gated
+// sampling (first 120 + every 300th) unchanged, PLUS a separate low-rate
+// global sample (first 60 + every 600th) outside focus maps so the
+// descriptor-backed ("deferred") creation machinery stays visible
+// session-wide. See docs/issue27-31-ni0e-findings.md Round 5.
+extern uint32_t lod_current_map_overlay_rom(void);
+
+static bool lod_ni0e_manager_focus_map(void) {
+    const uint32_t rom = lod_current_map_overlay_rom();
+    return rom == 0x007A2D70u || rom == 0x007932D0u || rom == 0x007D4420u ||
+           rom == 0x007D3C90u;
+}
+
+#define LOD_NI0E_MANAGER_ID 0x0ABu
+
+static uint32_t lod_ni0e_manager_exec_calls = 0;         // focus-map general stream (unchanged)
+static uint32_t lod_ni0e_manager_exec_0ab_calls = 0;      // global id==0x0AB stream (always logs)
+static uint32_t lod_ni0e_manager_exec_global_calls = 0;   // Round 5: global deferred sample
+
+// Round 6: session-wide sequence counter, logged unconditionally for the
+// first 400 slot evaluations of the session (same policy as the
+// object_createAndSetChild probe in funcs_1.c) so the full manager-exec
+// stream from session start is available to diff a working pause-manager
+// session against the Henry-save-load session where id 0x0AB never appears.
+// After the first 400 evaluations, falls back to the existing round-5
+// filtered behavior below unchanged. See docs/issue27-31-ni0e-findings.md
+// Round 6.
+static uint32_t lod_ni0e_manager_exec_seq = 0;
+
+static void lod_ni0e_manager_exec_probe(uint32_t obj, uint32_t slot_word, uint32_t id,
+                                         uint32_t descriptor, const char* decision) {
+    const uint32_t map_rom = lod_current_map_overlay_rom();
+    lod_ni0e_manager_exec_seq++;
+
+    if (lod_ni0e_manager_exec_seq <= 400u) {
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-exec #%u obj=0x%08X word=0x%08X id=0x%03X descriptor=0x%08X "
+                "%s map=0x%08X\n",
+                lod_ni0e_manager_exec_seq, obj, slot_word, id, descriptor, decision, map_rom);
+        return;
+    }
+
+    if (id == LOD_NI0E_MANAGER_ID) {
+        lod_ni0e_manager_exec_0ab_calls++;
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-exec obj=0x%08X word=0x%08X id=0x%03X descriptor=0x%08X "
+                "%s call=%u map_rom=0x%08X\n",
+                obj, slot_word, id, descriptor, decision, lod_ni0e_manager_exec_0ab_calls,
+                map_rom);
+        return;
+    }
+
+    if (lod_ni0e_manager_focus_map()) {
+        lod_ni0e_manager_exec_calls++;
+        if (lod_ni0e_manager_exec_calls > 120u && (lod_ni0e_manager_exec_calls % 300u) != 0u) {
+            return;
+        }
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-exec obj=0x%08X word=0x%08X id=0x%03X descriptor=0x%08X "
+                "%s call=%u map_rom=0x%08X\n",
+                obj, slot_word, id, descriptor, decision, lod_ni0e_manager_exec_calls, map_rom);
+        return;
+    }
+
+    // Round 5: outside focus maps, only sample descriptor-backed ("deferred")
+    // slots -- descriptor != 0 is exactly the "deferred" decision case.
+    if (descriptor != 0) {
+        lod_ni0e_manager_exec_global_calls++;
+        if (lod_ni0e_manager_exec_global_calls > 60u &&
+            (lod_ni0e_manager_exec_global_calls % 600u) != 0u) {
+            return;
+        }
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-exec obj=0x%08X word=0x%08X id=0x%03X descriptor=0x%08X "
+                "%s call=%u map_rom=0x%08X\n",
+                obj, slot_word, id, descriptor, decision, lod_ni0e_manager_exec_global_calls,
+                map_rom);
+    }
+}
+
+static uint32_t lod_ni0e_manager_create_calls = 0;        // focus-map general stream (unchanged)
+static uint32_t lod_ni0e_manager_create_0ab_calls = 0;     // global id==0x0AB stream (always logs)
+static uint32_t lod_ni0e_manager_create_global_calls = 0;  // Round 5: global sample
+
+static void lod_ni0e_manager_create_probe(uint32_t parent, uint32_t template_word,
+                                           uint32_t result) {
+    const uint32_t id = template_word & 0x7FFu;
+    const uint32_t map_rom = lod_current_map_overlay_rom();
+
+    if (id == LOD_NI0E_MANAGER_ID) {
+        lod_ni0e_manager_create_0ab_calls++;
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-create parent=0x%08X word=0x%08X id=0x%03X result=0x%08X%s "
+                "call=%u map_rom=0x%08X\n",
+                parent, template_word, id, result, result == 0 ? " (NULL - alloc failed)" : "",
+                lod_ni0e_manager_create_0ab_calls, map_rom);
+        return;
+    }
+
+    if (lod_ni0e_manager_focus_map()) {
+        lod_ni0e_manager_create_calls++;
+        if (lod_ni0e_manager_create_calls > 120u && (lod_ni0e_manager_create_calls % 300u) != 0u) {
+            return;
+        }
+        fprintf(stderr,
+                "[NI0E_TRACE] manager-create parent=0x%08X word=0x%08X id=0x%03X result=0x%08X%s "
+                "call=%u map_rom=0x%08X\n",
+                parent, template_word, id, result, result == 0 ? " (NULL - alloc failed)" : "",
+                lod_ni0e_manager_create_calls, map_rom);
+        return;
+    }
+
+    // Round 5: outside focus maps, low-rate global sample of every real
+    // creation attempt (covers both the immediate "create" path and the
+    // activate-deferred-create completion path) so the deferral machinery
+    // stays visible session-wide.
+    lod_ni0e_manager_create_global_calls++;
+    if (lod_ni0e_manager_create_global_calls > 60u &&
+        (lod_ni0e_manager_create_global_calls % 600u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] manager-create parent=0x%08X word=0x%08X id=0x%03X result=0x%08X%s "
+            "call=%u map_rom=0x%08X\n",
+            parent, template_word, id, result, result == 0 ? " (NULL - alloc failed)" : "",
+            lod_ni0e_manager_create_global_calls, map_rom);
+}
+
+// Round 14 (Task A): fileptr-write probe. func_80011754 (below, this file) is
+// the "ensure NI/data file loaded" helper: it checks file_ptr_array[fileid]
+// (RDRAM 0x801C8830 + fileid*4), and if zero, allocates a buffer and stores
+// the pointer into that slot *before* the actual DMA-read/decompress that
+// fills the buffer's contents completes (see the async continuation via
+// func_800116BC/func_80012ED0 and the pending-tracking global at 0x800C160C,
+// read/written later in the same function) -- i.e. a nonzero slot means "a
+// buffer is reserved", not necessarily "the file's bytes are ready yet".
+// This logs every write to that slot (both the "already loaded" pass-through
+// and the fresh allocation) with the fileid and stored value, so a capture
+// can correlate exactly when fileids 0x3B/0x3D (the per-map text files named
+// in the Round 14 task brief) become nonzero relative to when
+// func_80145FD4's builder (funcs_45.c, tag textreg-resolve) runs on a map
+// transition. Rate-limited: writes can be frequent across a whole session.
+static uint32_t lod_ni0e_fileptr_write_calls = 0;
+
+static void lod_ni0e_fileptr_write_probe(uint32_t fileid, uint32_t value) {
+    lod_ni0e_fileptr_write_calls++;
+    if (lod_ni0e_fileptr_write_calls > 200u && (lod_ni0e_fileptr_write_calls % 500u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] fileptr-write fileid=0x%02X value=0x%08X call=%u map_rom=0x%08X\n",
+            fileid, value, lod_ni0e_fileptr_write_calls, lod_current_map_overlay_rom());
+}
+
+// Round 17 (Task A): the sys+0x2B28 (RDRAM 0x801CADE8) writer chain, called
+// unconditionally from func_80145DA8's (funcs_45.c) bgState "load" state via
+// func_800119CC(a0=<func table ptr>, a1=0x8019D1A8 id-array, a2=0,
+// a3=&(sys+0x2B28)). None of these three functions embed the literal 2B28
+// offset (it always arrives as a caller-supplied base register), which is
+// exactly why round 16's literal-immediate grep found no writer. Three
+// sites, tag "load_state-branch" (shared with the funcs_45.c probes above
+// it in the call chain), same first-20 + every-600 rate limit, own per-site
+// counters.
+static uint32_t lod_ni0e_loadstate_scan_calls = 0;
+static uint32_t lod_ni0e_loadstate_loaded_calls = 0;
+static uint32_t lod_ni0e_loadstate_zero2b28_calls = 0;
+
+// Site "scan-result" (func_800119CC, 0x80011AC4/0x80011ACC): after walking
+// the id-array looking for an entry whose sys+id*4+0x570 flag is still
+// clear ("needs load"), t2 holds the last such id found (0 if none, because
+// the scratch it's read from -- RDRAM/global 0x800C1604 -- was zeroed at
+// function entry and never touched otherwise). If t2 <= 0 (no candidate),
+// the function writes the constant 0x80000000 into *a3 (sys+0x2B28) as a
+// "nothing to load" sentinel and returns WITHOUT ever reaching
+// func_80011754/func_800116BC below -- i.e. sys+0x2B28 never gets zeroed
+// nor queued for the real async write on this path. If t2 > 0, the function
+// instead proceeds to look up that candidate again and, if it still needs
+// loading, calls func_80011754 with a3 unchanged (site "loaded-check"
+// below decides whether THAT call actually reaches the real writer).
+static void lod_ni0e_loadstate_scan_probe(uint32_t a3_ptr, int32_t t2, int wrote_sentinel) {
+    lod_ni0e_loadstate_scan_calls++;
+    if (lod_ni0e_loadstate_scan_calls > 20u && (lod_ni0e_loadstate_scan_calls % 600u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] load_state-branch #%u tag=scan-result a3=0x%08X t2=%d %s "
+            "map_rom=0x%08X\n",
+            lod_ni0e_loadstate_scan_calls, a3_ptr, t2,
+            wrote_sentinel ? "SKIP(no candidate, wrote 0x80000000 to *a3)" : "pass(candidate found)",
+            lod_current_map_overlay_rom());
+}
+
+// Site "loaded-check" (func_80011754, 0x800117E4): sys+fileid*4+0x570 (v0)
+// nonzero means "already loaded" -- the function returns immediately
+// (L_80011954) WITHOUT ever calling func_800116BC, so the a3 (sys+0x2B28)
+// pointer this call was carrying is simply dropped on the floor for this
+// call. func_80145DA8 clears this same flag for every id it queues right
+// before pushing it into the id-array (see the "id-entry"/"record2-gate"
+// sites in funcs_45.c), so this should normally read 0 for a freshly-queued
+// id; a nonzero reading here on the problem map would mean the flag was
+// re-set by something else between the clear and this check.
+static void lod_ni0e_loadstate_loaded_probe(uint32_t fileid, uint32_t v0, int skipped) {
+    lod_ni0e_loadstate_loaded_calls++;
+    if (lod_ni0e_loadstate_loaded_calls > 20u && (lod_ni0e_loadstate_loaded_calls % 600u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] load_state-branch #%u tag=loaded-check fileid=0x%02X sys570=0x%08X %s "
+            "map_rom=0x%08X\n",
+            lod_ni0e_loadstate_loaded_calls, fileid, v0,
+            skipped ? "SKIP(already loaded, func_800116BC never reached)" : "pass",
+            lod_current_map_overlay_rom());
+}
+
+// Site "zero-2b28" (func_800116BC, entry): this is the actual (computed-
+// pointer) write of *(sys+0x2B28) = 0 that starts the async request; the
+// real heap pointer this field eventually needs is written later by whatever
+// completion handler drains the ring-buffer entry this call also queues
+// (not yet traced -- next round's thread if this site logs "reached" but
+// sys+0x2B28 still never leaves 0 in a capture). ptr_arg is the incoming
+// stack argument (t6 in the original MIPS); zero means the caller passed a
+// null destination (defensive: should not happen from func_80145DA8's own
+// call, which always supplies a3=sys+0x2B28).
+static void lod_ni0e_loadstate_zero2b28_probe(uint32_t ptr_arg) {
+    lod_ni0e_loadstate_zero2b28_calls++;
+    if (lod_ni0e_loadstate_zero2b28_calls > 20u && (lod_ni0e_loadstate_zero2b28_calls % 600u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] load_state-branch #%u tag=zero-2b28 ptr=0x%08X %s map_rom=0x%08X\n",
+            lod_ni0e_loadstate_zero2b28_calls, ptr_arg,
+            ptr_arg == 0 ? "SKIP(null ptr, no zero-store)" : "reached(sys+2B28 zeroed, request queued)",
+            lod_current_map_overlay_rom());
+}
+
+// Round 18 (Task A): ring-enq probe. Continuing the chain round 17 traced
+// into func_800116BC: after the unconditional *completionPtr = 0 zero-store
+// above, this function appends a 20-byte request record into a 16-slot ring
+// array at descriptor(v1 = *(a0+0x34))+0x848, at slot index
+// ((readIndex@+0x844 + pendingCount@+0x846) mod 16), then increments
+// pendingCount@+0x846. Reading the full function this round found a
+// previously-undocumented silent-drop path: pendingCount is checked against
+// 16 *after* the zero-store already happened -- if the ring already has 16
+// entries pending, the enqueue is skipped entirely (no slot written, no
+// error returned to any caller) while *completionPtr has already been left
+// at 0. This is a concrete, static mechanism matching the observed
+// "sys+0x2B28 stays 0 forever" symptom that does not require a stuck
+// consumer at all. fileid is not one of func_800116BC's own arguments (it
+// lives one level up, in func_80011754's frame) but IS re-derivable here:
+// func_80011754 stores it to RDRAM 0x800C1608 immediately before computing
+// the DMA range and calling this function (see funcs_7.c near the
+// func_800048C4 call site), and that global is not touched again inside
+// func_800116BC itself, so re-reading it fresh is safe and avoids a fragile
+// cross-function bridge global. Logged for both the accepted and dropped
+// outcomes so a capture can directly see which one happens for fileids
+// 0x3B/0x3D on the problem map transition; first 60 + every 200th per the
+// task brief.
+static uint32_t lod_ni0e_ring_enq_calls = 0;
+
+static void lod_ni0e_ring_enq_probe(uint8_t* rdram, uint32_t descriptor, uint32_t completion_ptr,
+                                     uint32_t pending_before, int accepted, uint32_t slot,
+                                     uint32_t rom_addr, uint32_t dest_buffer, uint32_t size) {
+    lod_ni0e_ring_enq_calls++;
+    if (lod_ni0e_ring_enq_calls > 60u && (lod_ni0e_ring_enq_calls % 200u) != 0u) {
+        return;
+    }
+    const gpr fileid_base = (gpr)(int32_t)0x800C0000;
+    const uint32_t fileid = (uint32_t)MEM_W(0x1608, fileid_base);
+    if (accepted) {
+        fprintf(stderr,
+                "[NI0E_TRACE] ring-enq #%u fileid=0x%02X desc=0x%08X completion_ptr=0x%08X "
+                "pending_before=%u ACCEPTED slot=%u rom=0x%08X dest=0x%08X size=0x%X "
+                "map_rom=0x%08X\n",
+                lod_ni0e_ring_enq_calls, fileid, descriptor, completion_ptr, pending_before, slot,
+                rom_addr, dest_buffer, size, lod_current_map_overlay_rom());
+    } else {
+        fprintf(stderr,
+                "[NI0E_TRACE] ring-enq #%u fileid=0x%02X desc=0x%08X completion_ptr=0x%08X "
+                "pending_before=%u DROPPED(ring full, 16 pending, no slot queued) map_rom=0x%08X\n",
+                lod_ni0e_ring_enq_calls, fileid, descriptor, completion_ptr, pending_before,
+                lod_current_map_overlay_rom());
+    }
+}
+
+// Round 19 (Task B/C.1): desc-life probe. Task B asked "who writes RDRAM
+// 0x800C1600 (or its +0x34 field)": grepping the whole recompiled tree
+// (every file, not just this one) for the `sw reg, 0x1600($at=0x800C0000)`
+// pattern -- and separately for every `sw v0, 0x34($something)` reachable
+// from that global -- turns up exactly ONE static writer anywhere in
+// RecompiledFuncs/*.c: func_80011D80 (below), on its allocation-succeeded
+// path only. The `func_800027B0(obj, poolId=0, size=0x988, bitIndex=0)`
+// call a few lines above (jalr through a computed t9, so it never shows up
+// as a literal `func_800027B0(rdram` call site) is what actually allocates
+// the 0x988-byte descriptor block (0x848 header + 16*20 = 0x988, exactly
+// the ring size round 18 derived) and stores the result at `obj+0x34` --
+// see docs/issue27-31-ni0e-findings.md Round 19 for the full read of both
+// functions. No other function in the recompiled binary performs either
+// store. This does NOT by itself prove func_80011D80 only *runs* once:
+// like every other function in this DMA-manager state machine
+// (func_80011D10, func_800120DC, func_80012B20 -- see the consumer-hunt
+// probes in funcs_8.c), func_80011D80 has no `jal`/literal-address call
+// site anywhere in RecompiledFuncs/*.c either, so it too is reached only
+// through a runtime function-pointer table this repo's `asm/` dump has no
+// data-section text for (no D_800AF560 contents, no caller, anywhere in
+// this checkout). Whether the game (legitimately, per-scene) or the recomp
+// (as a bug) re-enters this same store a second time can therefore only be
+// settled at runtime, which is what this probe does: it reads the CURRENT
+// (pre-store) global object pointer immediately before the overwrite, then
+// logs old -> new alongside the new descriptor pointer the same call
+// already resolved a few instructions earlier (`v0 = *(obj+0x34)`, already
+// valid by the time this store runs, since func_800027B0 populated it
+// first). Not rate-limited ("Always (rare)" per the task brief) -- this
+// store should fire at most a handful of times in an entire session.
+static uint32_t lod_ni0e_desclife_calls = 0;
+
+static void lod_ni0e_desclife_probe(uint32_t old_obj, uint32_t new_obj, uint32_t new_desc) {
+    lod_ni0e_desclife_calls++;
+    fprintf(stderr,
+            "[NI0E_TRACE] desc-life #%u site=func_80011D80 old_obj=0x%08X new_obj=0x%08X "
+            "new_desc=0x%08X %s map_rom=0x%08X\n",
+            lod_ni0e_desclife_calls, old_obj, new_obj, new_desc,
+            (old_obj != 0 && old_obj != new_obj) ? "REINIT(non-null old pointer replaced!)"
+                                                  : "first-init",
+            lod_current_map_overlay_rom());
+}
+
+// Round 19 (Task C.3): textfile-life. Watches the exact fileid the task
+// brief named (0x38) plus the CURRENT map's own "main map text" fileid,
+// derived the same way func_80145DA8's record2-gate site (funcs_45.c,
+// round 17) reads it, rather than hardcoded: sys+0x28D0 (sys base
+// 0x801C82C0, confirmed from that same function's own $s6 load a few lines
+// above its record2-gate branch) is the live map_id; record2 = 0x80192160 +
+// map_id*16 (the SAME table update_a's gate2 and load_state's record2-gate
+// both read, per round 16/17 -- and 0x80192160 + 4*16 = 0x801921A0,
+// matching the task brief's own map_id-4 example exactly); record2+0xC
+// (halfword) is the fileid record2-gate pushes into the id-array/queue when
+// its block runs. Deriving it fresh every call (rather than hardcoding
+// map_id 4's value) keeps the probe correct if a future capture happens to
+// reproduce on a different map than the task brief's own example.
+// Always-on (no rate limit) per the task brief -- a targeted single-fileid
+// watch, not a hot-path probe. Duplicated verbatim (same reasoning) into
+// funcs_8.c for the completion-side hooks there, since these are separate
+// translation units.
+static uint32_t lod_ni0e_textfile_watch_fileid(uint8_t* rdram) {
+    const gpr sys_base = (gpr)(int32_t)0x801C82C0;
+    const int16_t map_id = (int16_t)MEM_H(0x28D0, sys_base);
+    if (map_id < 0 || map_id > 0x3FF) {
+        return 0xFFFFFFFFu;
+    }
+    const gpr record2 = (gpr)(int32_t)(0x80192160 + map_id * 16);
+    return (uint32_t)MEM_HU(0xC, record2);
+}
+
+static bool lod_ni0e_textfile_is_watched(uint8_t* rdram, uint32_t fileid) {
+    return fileid == 0x38u || fileid == lod_ni0e_textfile_watch_fileid(rdram);
+}
+
+static void lod_ni0e_textfile_life_probe(uint8_t* rdram, const char* event, uint32_t fileid,
+                                          uint32_t descriptor, uint32_t completion_ptr,
+                                          uint32_t extra) {
+    if (!lod_ni0e_textfile_is_watched(rdram, fileid)) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] textfile-life event=%s fileid=0x%02X desc=0x%08X "
+            "completion_ptr=0x%08X extra=0x%08X map_rom=0x%08X\n",
+            event, fileid, descriptor, completion_ptr, extra, lod_current_map_overlay_rom());
+}
+#endif  // LOD_ENABLE_NI0E_TRACE
+
 RECOMP_FUNC void func_800100FC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -1995,10 +2459,18 @@ L_80010BDC:
     // 0x80010C1C: b           L_80010C3C
     // 0x80010C20: or          $s2, $s2, $fp
     ctx->r18 = ctx->r18 | ctx->r30;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_manager_exec_probe((uint32_t)ctx->r19, (uint32_t)ctx->r16, (uint32_t)ctx->r2,
+                                 (uint32_t)ctx->r25, "deferred");
+#endif
         goto L_80010C3C;
     // 0x80010C20: or          $s2, $s2, $fp
     ctx->r18 = ctx->r18 | ctx->r30;
 L_80010C24:
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_manager_exec_probe((uint32_t)ctx->r19, (uint32_t)ctx->r16, (uint32_t)ctx->r2, 0,
+                                 "create");
+#endif
     // 0x80010C24: jal         0x80002410
     // 0x80010C28: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
@@ -2007,6 +2479,9 @@ L_80010C24:
     // 0x80010C28: or          $a1, $s0, $zero
     ctx->r5 = ctx->r16 | 0;
     after_0:
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_manager_create_probe((uint32_t)ctx->r19, (uint32_t)ctx->r16, (uint32_t)ctx->r2);
+#endif
     // 0x80010C2C: lui         $at, 0x7FFF
     ctx->r1 = S32(0X7FFF << 16);
     // 0x80010C30: ori         $at, $at, 0xFFFF
@@ -2132,6 +2607,13 @@ L_80010CD4:
     }
     // 0x80010CF0: sw          $t6, 0x0($s0)
     MEM_W(0X0, ctx->r16) = ctx->r14;
+#if LOD_ENABLE_NI0E_TRACE
+    // This is the deferred-creation follow-up to object_executeChildObject's
+    // "deferred" case above: the 0x40000000 bit is being cleared (t6) and the
+    // child created now that object_activateChildren is processing this slot.
+    lod_ni0e_manager_exec_probe((uint32_t)ctx->r22, (uint32_t)ctx->r14,
+                                 (uint32_t)ctx->r14 & 0x7FFu, 0, "activate-deferred-create");
+#endif
     // 0x80010CF4: jal         0x80002410
     // 0x80010CF8: or          $a1, $t6, $zero
     ctx->r5 = ctx->r14 | 0;
@@ -2140,6 +2622,9 @@ L_80010CD4:
     // 0x80010CF8: or          $a1, $t6, $zero
     ctx->r5 = ctx->r14 | 0;
     after_0:
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_manager_create_probe((uint32_t)ctx->r22, (uint32_t)ctx->r14, (uint32_t)ctx->r2);
+#endif
     // 0x80010CFC: and         $t8, $v0, $s5
     ctx->r24 = ctx->r2 & ctx->r21;
     // 0x80010D00: sw          $t8, 0x0($s0)
@@ -2771,6 +3256,11 @@ L_80011050:
 RECOMP_FUNC void func_80011060(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_NI0E_TRACE
+    // obj (a0) is clobbered later in this function (reused as a scratch
+    // pointer), so it must be captured here at entry.
+    const uint32_t ni0e_ensure_obj = (uint32_t)ctx->r4;
+#endif
     // 0x80011060: addiu       $sp, $sp, -0x50
     ctx->r29 = ADD32(ctx->r29, -0X50);
     // 0x80011064: sw          $ra, 0x34($sp)
@@ -2991,6 +3481,12 @@ L_800111A8:
     // 0x800111C0: nop
 
 L_800111C4:
+#if LOD_ENABLE_NI0E_TRACE
+    // t2 = ctx->r10, start(masked) = ctx->r15, end = ctx->r13, s4 = ctx->r20:
+    // all stable since their last assignment above, per docs/issue27-31-ni0e-findings.md.
+    lod_ni0e_ensure_probe(rdram, ni0e_ensure_obj, (uint32_t)ctx->r10, (uint32_t)ctx->r15,
+                           (uint32_t)ctx->r13, (uint32_t)ctx->r20);
+#endif
     // 0x800111C4: beq         $s4, $zero, L_80011210
     if (ctx->r20 == 0) {
         // 0x800111C8: or          $s0, $zero, $zero
@@ -3900,6 +4396,9 @@ RECOMP_FUNC void func_800116BC(uint8_t* rdram, recomp_context* ctx) {
     int c1cs = 0;
     // 0x800116BC: lw          $t6, 0x10($sp)
     ctx->r14 = MEM_W(ctx->r29, 0X10);
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_loadstate_zero2b28_probe((uint32_t)ctx->r14);
+#endif
     // 0x800116C0: sw          $a1, 0x4($sp)
     MEM_W(0X4, ctx->r29) = ctx->r5;
     // 0x800116C4: sw          $a2, 0x8($sp)
@@ -3925,6 +4424,13 @@ L_800116D4:
     if (ctx->r1 == 0) {
         // 0x800116E4: addiu       $t1, $a0, 0x1
         ctx->r9 = ADD32(ctx->r4, 0X1);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_ring_enq_probe(rdram, (uint32_t)ctx->r3, (uint32_t)ctx->r14, (uint32_t)ctx->r4, 0,
+                                 0, 0, 0, 0);
+        lod_ni0e_textfile_life_probe(
+            rdram, "enqueue-dropped", (uint32_t)MEM_W(0X1608, (gpr)(int32_t)0x800C0000),
+            (uint32_t)ctx->r3, (uint32_t)ctx->r14, 0);
+#endif
             goto L_8001174C;
     }
     // 0x800116E4: addiu       $t1, $a0, 0x1
@@ -3987,6 +4493,14 @@ L_8001170C:
     // 0x80011744: jr          $ra
     // 0x80011748: sw          $t5, 0x10($a2)
     MEM_W(0X10, ctx->r6) = ctx->r13;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_ring_enq_probe(rdram, (uint32_t)ctx->r3, (uint32_t)ctx->r13, (uint32_t)ctx->r4, 1,
+                             (uint32_t)ctx->r25, (uint32_t)ctx->r10, (uint32_t)ctx->r11,
+                             (uint32_t)ctx->r7);
+    lod_ni0e_textfile_life_probe(
+        rdram, "enqueue-accepted", (uint32_t)MEM_W(0X1608, (gpr)(int32_t)0x800C0000),
+        (uint32_t)ctx->r3, (uint32_t)ctx->r13, (uint32_t)ctx->r25);
+#endif
     return;
     // 0x80011748: sw          $t5, 0x10($a2)
     MEM_W(0X10, ctx->r6) = ctx->r13;
@@ -4080,6 +4594,10 @@ L_800117BC:
     ctx->r7 = ADD32(ctx->r25, ctx->r8);
     // 0x800117D8: lw          $v0, 0x570($a3)
     ctx->r2 = MEM_W(ctx->r7, 0X570);
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_loadstate_loaded_probe((uint32_t)ctx->r18, (uint32_t)ctx->r2,
+                                     ctx->r2 != 0 ? 1 : 0);
+#endif
     // 0x800117DC: sll         $t1, $s2, 1
     ctx->r9 = S32(ctx->r18 << 1);
     // 0x800117E0: sll         $t3, $t1, 2
@@ -4188,10 +4706,16 @@ L_8001187C:
     if (ctx->r16 != 0) {
         // 0x80011880: sw          $s0, 0x570($a3)
         MEM_W(0X570, ctx->r7) = ctx->r16;
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_fileptr_write_probe((uint32_t)ctx->r18, (uint32_t)ctx->r16);
+#endif
             goto L_8001188C;
     }
     // 0x80011880: sw          $s0, 0x570($a3)
     MEM_W(0X570, ctx->r7) = ctx->r16;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_fileptr_write_probe((uint32_t)ctx->r18, (uint32_t)ctx->r16);
+#endif
     // 0x80011884: b           L_8001195C
     // 0x80011888: addiu       $v0, $zero, -0x1
     ctx->r2 = ADD32(0, -0X1);
@@ -4592,6 +5116,10 @@ L_80011AA4:
 L_80011AC0:
     // 0x80011AC0: lw          $t3, 0x54($sp)
     ctx->r11 = MEM_W(ctx->r29, 0X54);
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_loadstate_scan_probe((uint32_t)ctx->r11, (int32_t)ctx->r10,
+                                   (SIGNED(ctx->r10) <= 0 && ctx->r11 != 0) ? 1 : 0);
+#endif
     // 0x80011AC4: bgtz        $t2, L_80011AF8
     if (SIGNED(ctx->r10) > 0) {
         // 0x80011AC8: nop
@@ -5140,6 +5668,9 @@ RECOMP_FUNC void func_80011D80(uint8_t* rdram, recomp_context* ctx) {
 L_80011DC8:
     // 0x80011DC8: lw          $v0, 0x34($s0)
     ctx->r2 = MEM_W(ctx->r16, 0X34);
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_desclife_probe((uint32_t)MEM_W(0X1600, ctx->r1), (uint32_t)ctx->r16, (uint32_t)ctx->r2);
+#endif
     // 0x80011DCC: sw          $s0, 0x1600($at)
     MEM_W(0X1600, ctx->r1) = ctx->r16;
     // 0x80011DD0: lui         $t9, 0x8000

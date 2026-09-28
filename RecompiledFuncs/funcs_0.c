@@ -1,6 +1,21 @@
 #include "recomp.h"
 #include "funcs.h"
 #include "lod_symbols.h"
+
+#ifndef LOD_ENABLE_NI0E_TRACE
+#define LOD_ENABLE_NI0E_TRACE 0
+#endif
+
+#if LOD_ENABLE_NI0E_TRACE
+// Round 22: GameStateMgr node-pool probes. Implemented in
+// src/main/ni_overlay_loader.cpp; see the "gsm-alloc"/"gsm-free" comment
+// block there and docs/issue27-31-fix-design.md section 11 for the full
+// writeup. cmdNodeTable_alloc (below) is the pool's allocator;
+// func_80001B00 (below) is one of its free sites.
+extern void lod_ni0e_gsm_alloc_probe(uint8_t* rdram, uint32_t slot_addr, uint32_t payload);
+extern void lod_ni0e_gsm_free_probe(uint8_t* rdram, uint32_t slot_addr, uint32_t old_payload);
+#endif
+
 #ifndef LOD_FIX_EXPAND_SCENE_NODE_POOL
 #define LOD_FIX_EXPAND_SCENE_NODE_POOL 0
 #endif
@@ -3863,6 +3878,9 @@ L_8000197C:
     // 0x8000198C: jr          $ra
     // 0x80001990: or          $v0, $v1, $zero
     ctx->r2 = ctx->r3 | 0;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_alloc_probe(rdram, (uint32_t)ctx->r2, (uint32_t)ctx->r4);
+#endif
     return;
     // 0x80001990: or          $v0, $v1, $zero
     ctx->r2 = ctx->r3 | 0;
@@ -3885,6 +3903,9 @@ L_80001998:
     ctx->r2 = 0 | 0;
     // 0x800019A8: jr          $ra
     // 0x800019AC: nop
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_alloc_probe(rdram, (uint32_t)ctx->r2, (uint32_t)ctx->r4);
+#endif
 
     return;
     // 0x800019AC: nop
@@ -4234,6 +4255,9 @@ L_80001B28:
     MEM_W(0X0, ctx->r3) = ctx->r15;
     // 0x80001B3C: jr          $ra
     // 0x80001B40: sw          $zero, 0x4($a1)
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_free_probe(rdram, (uint32_t)ctx->r5, (uint32_t)MEM_W(0X4, ctx->r5));
+#endif
     MEM_W(0X4, ctx->r5) = 0;
     return;
     // 0x80001B40: sw          $zero, 0x4($a1)

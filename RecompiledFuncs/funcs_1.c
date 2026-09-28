@@ -2,6 +2,387 @@
 #include "funcs.h"
 #include "lod_symbols.h"
 
+#if LOD_ENABLE_NI0E_TRACE
+// Issue #27/#31 unified 0x0E hypothesis divergence detector. Implemented in
+// src/main/ni_overlay_loader.cpp; see docs/issue27-31-ni0e-findings.md.
+extern void lod_ni0e_check_dispatch(uint8_t* rdram, uint32_t target, uint32_t obj);
+
+// Round 22: GameStateMgr node-pool probes. Implemented in
+// src/main/ni_overlay_loader.cpp; see the "gsm-alloc"/"gsm-free"/"gsm-enq"
+// comment block there and docs/issue27-31-fix-design.md section 11.
+// GameStateMgr_enqueue (func_80002D5C) is the pool's enqueue entry point;
+// GameStateMgr_dispatch (func_80002E3C) is the consumer and one of the
+// pool's free sites (3 of the 4 total, all inline in that function).
+extern void lod_ni0e_gsm_free_probe(uint8_t* rdram, uint32_t slot_addr, uint32_t old_payload);
+extern void lod_ni0e_gsm_enq_begin(void);
+extern void lod_ni0e_gsm_enq_probe(uint8_t* rdram, uint32_t obj, uint32_t cmd, uint32_t target);
+
+// Round 2: dispatch-decision probe. Round 1 found near-zero 0x0E-entry object
+// dispatches during waterway gameplay for the pause manager (id 0x0AB) or the
+// actor/platform/NPC range (0x018-0x087). This logs whether object_dispatch1
+// even reaches these ids and whether the per-instance suspended bit
+// (obj+0x2 & 0x2000) is set, so we can tell "object absent" from "object
+// present but suspended." See docs/issue27-31-ni0e-findings.md.
+#include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <execinfo.h>
+
+extern uint32_t lod_current_map_overlay_rom(void);
+
+static bool lod_ni0e_dispatch_decision_focus_map(void) {
+    const uint32_t rom = lod_current_map_overlay_rom();
+    return rom == 0x007A2D70u || rom == 0x007932D0u || rom == 0x007D4420u ||
+           rom == 0x007D3C90u;
+}
+
+static bool lod_ni0e_dispatch_decision_id_of_interest(uint32_t id) {
+    return id == 0x0ABu || (id >= 0x018u && id <= 0x087u);
+}
+
+// Small ring of already-logged (id<<16|flags02) signatures so repeated
+// per-frame dispatches of the same steady-state object don't flood stderr.
+static uint32_t lod_ni0e_dispatch_decision_seen[64];
+static int lod_ni0e_dispatch_decision_seen_count = 0;
+static uint32_t lod_ni0e_dispatch_decision_calls = 0;
+static uint32_t lod_ni0e_dispatch_decision_logged = 0;
+
+static bool lod_ni0e_dispatch_decision_is_new(uint32_t sig) {
+    for (int i = 0; i < lod_ni0e_dispatch_decision_seen_count; i++) {
+        if (lod_ni0e_dispatch_decision_seen[i] == sig) {
+            return false;
+        }
+    }
+    if (lod_ni0e_dispatch_decision_seen_count < 64) {
+        lod_ni0e_dispatch_decision_seen[lod_ni0e_dispatch_decision_seen_count++] = sig;
+    }
+    return true;
+}
+
+static void lod_ni0e_dispatch_decision_probe(uint8_t* rdram, uint32_t obj) {
+    if (obj == 0 || lod_ni0e_dispatch_decision_logged >= 200u) {
+        return;
+    }
+    if (!lod_ni0e_dispatch_decision_focus_map()) {
+        return;
+    }
+    const uint32_t phys = obj & 0x1FFFFFFFu;
+    if (phys > 0x800000u - 0x14u) {
+        return;
+    }
+    const gpr obj_gpr = (gpr)(int32_t)obj;
+    const uint16_t flags00 = (uint16_t)MEM_HU(0x0, obj_gpr);
+    const uint32_t id = (uint32_t)(flags00 & 0x7FFu);
+    if (!lod_ni0e_dispatch_decision_id_of_interest(id)) {
+        return;
+    }
+    const uint16_t flags02 = (uint16_t)MEM_HU(0x2, obj_gpr);
+    lod_ni0e_dispatch_decision_calls++;
+    const uint32_t sig = (id << 16) | (uint32_t)flags02;
+    const bool new_sig = lod_ni0e_dispatch_decision_is_new(sig);
+    const bool periodic = (lod_ni0e_dispatch_decision_calls % 1200u) == 0u;
+    if (!new_sig && !periodic) {
+        return;
+    }
+    const uint32_t handler = (uint32_t)MEM_W(0x10, obj_gpr);
+    lod_ni0e_dispatch_decision_logged++;
+    fprintf(stderr,
+            "[NI0E_TRACE] dispatch-decision id=0x%03X obj=0x%08X flags00=0x%04X "
+            "flags02=0x%04X handler=0x%08X call=%u%s\n",
+            id, obj, (uint32_t)flags00, (uint32_t)flags02, handler,
+            lod_ni0e_dispatch_decision_calls, new_sig ? " (new)" : "");
+}
+
+// Round 3: dispatch-target probe. Round 2's dispatch-decision probe logs
+// obj/flags/handler at object_dispatch1 entry, before r25 (the dispatch
+// table 0x800AD640 lookup result) is computed; it never captured the actual
+// live jump target. Round-2 capture facts: 22 id-0x027 objects spawn and
+// dispatch through object_dispatch1 every frame in the focus maps, but the
+// round-1 0x0E-target hook (which only fires when r25's top byte is 0x0E)
+// never fired for them -- so whatever is really in table slot 0x027 right
+// now is not the ROM value 0x0E000000. This logs r25 itself at both
+// LOOKUP_FUNC call sites (map-ensure "hi" path and the direct path) for the
+// same id set (0x0AB, 0x018-0x087), independent of what the target turns
+// out to be.
+static uint32_t lod_ni0e_dispatch_target_calls = 0;
+static uint32_t lod_ni0e_dispatch_target_logged = 0;
+
+static void lod_ni0e_dispatch_target_probe(uint8_t* rdram, uint32_t obj, uint32_t target) {
+    if (obj == 0) {
+        return;
+    }
+    if (!lod_ni0e_dispatch_decision_focus_map()) {
+        return;
+    }
+    const uint32_t phys = obj & 0x1FFFFFFFu;
+    if (phys > 0x800000u - 0x14u) {
+        return;
+    }
+    const gpr obj_gpr = (gpr)(int32_t)obj;
+    const uint16_t flags00 = (uint16_t)MEM_HU(0x0, obj_gpr);
+    const uint32_t id = (uint32_t)(flags00 & 0x7FFu);
+    if (!lod_ni0e_dispatch_decision_id_of_interest(id)) {
+        return;
+    }
+    lod_ni0e_dispatch_target_calls++;
+    const bool periodic = (lod_ni0e_dispatch_target_calls % 1200u) == 0u;
+    if (lod_ni0e_dispatch_target_logged >= 40u && !periodic) {
+        return;
+    }
+    if (!periodic) {
+        lod_ni0e_dispatch_target_logged++;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] dispatch-target id=0x%03X obj=0x%08X target=0x%08X call=%u\n",
+            id, obj, target, lod_ni0e_dispatch_target_calls);
+}
+
+// Round 4: blanket fallback probe for object_createAndSetChild (func_80002410,
+// below), the single low-level "allocate + link + set dispatch handler"
+// primitive every object-creation path in the game funnels through (40+ call
+// sites across the overlays, plus the two scene-descriptor callers in
+// funcs_7.c already instrumented with the more detailed manager-exec/
+// manager-create probes). This is the fallback the round-4 task brief calls
+// for if the specific scene-descriptor creator couldn't be pinned down; since
+// it WAS pinned down (object_executeChildObject/object_activateChildren,
+// funcs_7.c), this is kept as a low-volume safety net: id-filtered (0x0AB,
+// 0x018-0x087) the same way the dispatch probes above are, so it stays
+// readable instead of being swamped by unrelated per-frame child creation.
+//
+// Round 5: de-gated from focus-map-only. id==0x0AB now always logs (global,
+// no throttle, rare event); the 0x018-0x087 actor range keeps the original
+// focus-map-gated sampling, plus a separate low-rate global sample (first 60
+// + every 600th) outside focus maps. See docs/issue27-31-ni0e-findings.md
+// Round 5.
+//
+// Round 6: replaced the round-5 split id-filtered streams with a single
+// session-wide sequential log, needed to diff the full object-creation
+// stream of a session where the pause manager (id 0x0AB) gets created
+// against the Henry-save-load session where it never appears. Every call is
+// logged unconditionally for the first 400 calls of the session (covers
+// session start through where a working session would have created the
+// pause manager); after that, only this round's interest set (0x0AB pause
+// manager plus 0x015, 0x170, 0x1A7, 0x1A8, 0x1A2, 0x027, 0x025) logs, plus a
+// sparse every-500th-call heartbeat so the raw creation rate stays visible.
+// One compact line per call. See docs/issue27-31-ni0e-findings.md Round 6.
+static uint32_t lod_ni0e_create_seq = 0;
+
+static bool lod_ni0e_create_is_interest_id(uint32_t id) {
+    switch (id) {
+        case 0x0ABu:
+        case 0x015u:
+        case 0x170u:
+        case 0x1A7u:
+        case 0x1A8u:
+        case 0x1A2u:
+        case 0x027u:
+        case 0x025u:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Round 7: the native-recompiled call chain never populates ctx->r31 for
+// these C-to-C calls (this recompiler emits real host calls, not MIPS jr
+// $ra returns), so the previously logged "ra=" field was always garbage.
+// Dropped it. In its place: for the small set of ids under active
+// suspicion (0x083, 0x084, 0x062, 0x196), capture a native host backtrace
+// right after the create line so we can see which C call site actually
+// produced this instance. Capped at 8 backtraces per session to keep the
+// log readable. See docs/issue27-31-ni0e-findings.md.
+static int lod_ni0e_create_bt_count = 0;
+
+static bool lod_ni0e_create_is_backtrace_id(uint32_t id) {
+    switch (id) {
+        case 0x083u:
+        case 0x084u:
+        case 0x062u:
+        case 0x196u:
+            return true;
+        default:
+            return false;
+    }
+}
+
+// Round 23: root-creation backtrace probe. The per-map framework build after
+// a map load begins with a PARENTLESS root create (parent=0, id=0x1AB per
+// the round-6 create probe above); on the fatal loaded-Henry transition this
+// build never starts (map loads, then zero creates). The creator of that
+// root is the transition sequencer this investigation has never been able
+// to name statically -- it is reached only via runtime function-pointer
+// dispatch, the same ceiling round 21 sec 10.4 and round 22 sec 11.3
+// document for the DMA-manager and GameStateMgr_dispatch chains. Log a
+// native backtrace on every parent==0 create so a healthy-transition
+// capture names the build-kicker function directly. Capped at 12
+// backtraces per session (round 7 precedent used 8; bumped slightly since
+// root creates are rarer than the round-7 interest ids). See
+// docs/issue27-31-fix-design.md section 11 and
+// docs/issue27-31-ni0e-findings.md Round 23.
+static int lod_ni0e_create_root_bt_count = 0;
+
+static void lod_ni0e_create_root_bt_probe(void) {
+    if (lod_ni0e_create_root_bt_count >= 12) {
+        return;
+    }
+    lod_ni0e_create_root_bt_count++;
+    void* frames[10];
+    int n = backtrace(frames, 10);
+    char** syms = backtrace_symbols(frames, n);
+    if (syms != NULL) {
+        for (int i = 1; i < n; i++) {
+            fprintf(stderr, "[NI0E_TRACE] create-root-bt %s\n", syms[i]);
+        }
+        free(syms);
+    }
+}
+
+static void lod_ni0e_create_probe(uint32_t parent, uint32_t word, uint32_t result) {
+    const uint32_t id = word & 0x7FFu;
+    const uint32_t map_rom = lod_current_map_overlay_rom();
+    lod_ni0e_create_seq++;
+
+    if (lod_ni0e_create_seq <= 400u || lod_ni0e_create_is_interest_id(id) ||
+        (lod_ni0e_create_seq % 500u) == 0u) {
+        fprintf(stderr,
+                "[NI0E_TRACE] create #%u parent=0x%08X id=0x%03X result=0x%08X map=0x%08X\n",
+                lod_ni0e_create_seq, parent, id, result, map_rom);
+    }
+
+    if (lod_ni0e_create_is_backtrace_id(id) && lod_ni0e_create_bt_count < 8) {
+        lod_ni0e_create_bt_count++;
+        void* frames[10];
+        int n = backtrace(frames, 10);
+        char** syms = backtrace_symbols(frames, n);
+        if (syms != NULL) {
+            for (int i = 1; i < n; i++) {
+                fprintf(stderr, "[NI0E_TRACE] create-bt %s\n", syms[i]);
+            }
+            free(syms);
+        }
+    }
+
+    if (parent == 0u) {
+        lod_ni0e_create_root_bt_probe();
+    }
+}
+
+// Round 5: object-destroy probe. func_800020E8 (below) is invoked from
+// GameStateMgr_dispatch (funcs_1.c/GameStateMgr_dispatch, 0x80002E3C) when a
+// queued object command has the 0x40000000 "cleanup/release" tag set (see
+// GSM notes in docs/issue27-31-ni0e-findings.md); the masked command payload
+// (a1 & ~0x40000000) is the object pointer being torn down. Confirmed by
+// cross-referencing func_800020E8's body: it decrements the SAME per-id live
+// instance counter at 0x801B3D60 that object_createAndSetChild increments,
+// frees all 16 alloc_data slots, clears the three figure pointers, and
+// finally zeroes the object's header id field (obj+0x0) -- the exact inverse
+// of object_allocate's pool-slot claim (id!=0 means "in use"). It does NOT
+// touch the parent/next/child links (obj+0x14/0x18/0x1C); destroyed objects
+// stay in the tree with id 0 until something else prunes them (matches the
+// round-3 census observation of stray id-0x000 nodes). Logged only for
+// id==0x0AB (pause manager), always (rare), captured at function entry
+// before the header field is cleared.
+static void lod_ni0e_manager_destroy_probe(uint8_t* rdram, uint32_t obj) {
+    if (obj == 0) {
+        return;
+    }
+    const uint32_t phys = obj & 0x1FFFFFFFu;
+    if (phys > 0x800000u - 0x18u) {
+        return;
+    }
+    const gpr obj_gpr = (gpr)(int32_t)obj;
+    const uint16_t flags00 = (uint16_t)MEM_HU(0x0, obj_gpr);
+    const uint32_t id = (uint32_t)(flags00 & 0x7FFu);
+    if (id != 0x0ABu) {
+        return;
+    }
+    const uint32_t parent = (uint32_t)MEM_W(0x14, obj_gpr);
+    const uint32_t map_rom = lod_current_map_overlay_rom();
+    fprintf(stderr, "[NI0E_TRACE] manager-destroy obj=0x%08X parent=0x%08X map_rom=0x%08X\n", obj,
+            parent, map_rom);
+}
+#endif
+
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+#include <stdbool.h>
+#include <stdio.h>
+
+extern uint32_t lod_current_map_overlay_rom(void);
+
+static inline bool lod_issue27_dispatch_addr_ok(uint32_t addr, uint32_t size) {
+    const uint32_t phys = addr & 0x1FFFFFFFu;
+    return phys <= 0x800000u && size <= 0x800000u - phys;
+}
+
+static inline gpr lod_issue27_dispatch_addr_gpr(uint32_t addr) {
+    return (gpr)(int32_t)addr;
+}
+
+#define LOD_ISSUE27_DISPATCH_MEM_W(offset, addr) MEM_W((offset), lod_issue27_dispatch_addr_gpr((addr)))
+#define LOD_ISSUE27_DISPATCH_MEM_H(offset, addr) MEM_H((offset), lod_issue27_dispatch_addr_gpr((addr)))
+#define LOD_ISSUE27_DISPATCH_MEM_HU(offset, addr) MEM_HU((offset), lod_issue27_dispatch_addr_gpr((addr)))
+
+static bool lod_issue27_dispatch_trace_obj(uint8_t* rdram, uint32_t obj) {
+    if (lod_current_map_overlay_rom() != 0x007D3C90u ||
+        obj == 0 || !lod_issue27_dispatch_addr_ok(obj, 0x74)) {
+        return false;
+    }
+    const uint16_t id = LOD_ISSUE27_DISPATCH_MEM_HU(0x00, obj) & 0x07FFu;
+    const uint32_t entry = (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x70, obj);
+    const uint16_t entry_id = (entry != 0 && lod_issue27_dispatch_addr_ok(entry, 0x20))
+        ? (LOD_ISSUE27_DISPATCH_MEM_HU(0x10, entry) & 0x07FFu) : 0;
+    return id == 0x01B9u || entry_id == 0x01B9u ||
+           entry == 0x802E3FE8u || entry == 0x802E4168u ||
+           entry == 0x802E4188u;
+}
+
+static void lod_issue27_dispatch_dump_obj(uint8_t* rdram, const char* tag,
+                                          uint32_t obj, uint32_t target) {
+    if (obj == 0 || !lod_issue27_dispatch_addr_ok(obj, 0x74)) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_DISPATCH] %s obj=0x%08X invalid target=0x%08X\n",
+                tag, obj, target);
+        return;
+    }
+    const uint32_t node = (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x24, obj);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_DISPATCH] %s obj=0x%08X target=0x%08X "
+            "id=0x%04X flags=0x%04X state={%04X,%04X,%04X} depth=%d "
+            "links={parent=0x%08X next=0x%08X child=0x%08X} node=0x%08X "
+            "data34=0x%08X data68=0x%08X data70=0x%08X func10=0x%08X\n",
+            tag, obj, target,
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x00, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x02, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x08, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x0A, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x0C, obj),
+            (int32_t)LOD_ISSUE27_DISPATCH_MEM_H(0x0E, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x14, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x18, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x1C, obj), node,
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x34, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x68, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x70, obj),
+            (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x10, obj));
+    if (node != 0 && lod_issue27_dispatch_addr_ok(node, 0x78)) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_DISPATCH] %s-node obj=0x%08X node=0x%08X "
+                "kind=0x%04X flags=0x%04X links={parent=0x%08X next=0x%08X} "
+                "dl=0x%08X fileId=0x%08X pos=(0x%08X,0x%08X,0x%08X)\n",
+                tag, obj, node,
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x00, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_HU(0x02, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x08, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x10, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x3C, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x40, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x50, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x54, node),
+                (uint32_t)LOD_ISSUE27_DISPATCH_MEM_W(0x58, node));
+    }
+}
+#endif
+
 RECOMP_FUNC void func_80001FFC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -208,6 +589,11 @@ L_800020CC:
 RECOMP_FUNC void func_800020E8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_NI0E_TRACE
+    // Captured before the body mutates a0/r4; see lod_ni0e_manager_destroy_probe
+    // above for why this is the object-destroy entry point.
+    lod_ni0e_manager_destroy_probe(rdram, (uint32_t)ctx->r4);
+#endif
     // 0x800020E8: addiu       $sp, $sp, -0x28
     ctx->r29 = ADD32(ctx->r29, -0X28);
     // 0x800020EC: sw          $s2, 0x20($sp)
@@ -778,6 +1164,10 @@ L_80002400:
 RECOMP_FUNC void object_createAndSetChild(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_NI0E_TRACE
+    const uint32_t ni0e_create_parent = (uint32_t)ctx->r4;
+    const uint32_t ni0e_create_word = (uint32_t)ctx->r5;
+#endif
     // 0x80002410: addiu       $sp, $sp, -0x20
     ctx->r29 = ADD32(ctx->r29, -0X20);
     // 0x80002414: sw          $ra, 0x14($sp)
@@ -951,6 +1341,9 @@ L_800024FC:
     // 0x800024FC: or          $v0, $a1, $zero
     ctx->r2 = ctx->r5 | 0;
 L_80002500:
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_create_probe(ni0e_create_parent, ni0e_create_word, (uint32_t)ctx->r2);
+#endif
     // 0x80002500: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
     // 0x80002504: addiu       $sp, $sp, 0x20
@@ -1776,6 +2169,25 @@ L_80002944:
 RECOMP_FUNC void object_dispatch1(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_NI0E_TRACE
+    const uint32_t ni0e_dispatch_obj = (uint32_t)ctx->r4;
+    lod_ni0e_dispatch_decision_probe(rdram, ni0e_dispatch_obj);
+#endif
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    const uint32_t issue27_dispatch_obj = (uint32_t)ctx->r4;
+    const bool issue27_dispatch_trace = lod_issue27_dispatch_trace_obj(rdram, issue27_dispatch_obj);
+    static uint32_t issue27_dispatch_log_count = 0;
+    uint32_t issue27_dispatch_log_index = 0;
+    bool issue27_dispatch_log = false;
+    if (issue27_dispatch_trace) {
+        issue27_dispatch_log_index = ++issue27_dispatch_log_count;
+        issue27_dispatch_log = issue27_dispatch_log_index <= 80u ||
+                               (issue27_dispatch_log_index % 180u) == 0u;
+        if (issue27_dispatch_log) {
+            lod_issue27_dispatch_dump_obj(rdram, "dispatch-entry", issue27_dispatch_obj, 0);
+        }
+    }
+#endif
     // 0x80002950: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x80002954: sw          $ra, 0x14($sp)
@@ -1833,11 +2245,27 @@ RECOMP_FUNC void object_dispatch1(uint8_t* rdram, recomp_context* ctx) {
     // 0x8000299C: jalr        $t9
     // 0x800029A0: nop
 
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_dispatch_log) {
+        lod_issue27_dispatch_dump_obj(rdram, "dispatch-call-pre-hi", issue27_dispatch_obj, (uint32_t)ctx->r25);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    if (((uint32_t)ctx->r25 & 0xFF000000u) == 0x0E000000u) {
+        lod_ni0e_check_dispatch(rdram, (uint32_t)ctx->r25, ni0e_dispatch_obj);
+    }
+    lod_ni0e_dispatch_target_probe(rdram, ni0e_dispatch_obj, (uint32_t)ctx->r25);
+#endif
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
         goto after_1;
     // 0x800029A0: nop
 
     after_1:
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_dispatch_log) {
+        lod_issue27_dispatch_dump_obj(rdram, "dispatch-call-post-hi", issue27_dispatch_obj, (uint32_t)ctx->r25);
+    }
+#endif
     // 0x800029A4: jal         0x8001123C
     // 0x800029A8: lw          $a0, 0x18($sp)
     ctx->r4 = MEM_W(ctx->r29, 0X18);
@@ -1876,11 +2304,27 @@ L_800029B8:
     // 0x800029D4: jalr        $t9
     // 0x800029D8: nop
 
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_dispatch_log) {
+        lod_issue27_dispatch_dump_obj(rdram, "dispatch-call-pre", issue27_dispatch_obj, (uint32_t)ctx->r25);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    if (((uint32_t)ctx->r25 & 0xFF000000u) == 0x0E000000u) {
+        lod_ni0e_check_dispatch(rdram, (uint32_t)ctx->r25, ni0e_dispatch_obj);
+    }
+    lod_ni0e_dispatch_target_probe(rdram, ni0e_dispatch_obj, (uint32_t)ctx->r25);
+#endif
     LOOKUP_FUNC(ctx->r25)(rdram, ctx);
         goto after_3;
     // 0x800029D8: nop
 
     after_3:
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_dispatch_log) {
+        lod_issue27_dispatch_dump_obj(rdram, "dispatch-call-post", issue27_dispatch_obj, (uint32_t)ctx->r25);
+    }
+#endif
 L_800029DC:
     // 0x800029DC: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
@@ -2607,6 +3051,15 @@ RECOMP_FUNC void func_80002D54(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void GameStateMgr_enqueue(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_NI0E_TRACE
+    // Round 22: snapshot a0/a1/a2 (obj/cmd/target) before any callee can
+    // clobber the caller-saved argument registers; see the gsm-enq probe
+    // call at this function's single exit point (L_80002E30) below.
+    const uint32_t lod_ni0e_gsm_enq_obj = (uint32_t)ctx->r4;
+    const uint32_t lod_ni0e_gsm_enq_cmd = (uint32_t)ctx->r5;
+    const uint32_t lod_ni0e_gsm_enq_target = (uint32_t)ctx->r6;
+    lod_ni0e_gsm_enq_begin();
+#endif
     // 0x80002D5C: addiu       $sp, $sp, -0x20
     ctx->r29 = ADD32(ctx->r29, -0X20);
     // 0x80002D60: sw          $ra, 0x14($sp)
@@ -2772,6 +3225,10 @@ L_80002E04:
     // 0x80002E2C: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
 L_80002E30:
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_enq_probe(rdram, lod_ni0e_gsm_enq_obj, lod_ni0e_gsm_enq_cmd,
+                            lod_ni0e_gsm_enq_target);
+#endif
     // 0x80002E30: addiu       $sp, $sp, 0x20
     ctx->r29 = ADD32(ctx->r29, 0X20);
     // 0x80002E34: jr          $ra
@@ -2900,6 +3357,9 @@ L_80002ECC:
     after_1:
     // 0x80002EE0: b           L_80002F0C
     // 0x80002EE4: sw          $zero, 0x4($s0)
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_free_probe(rdram, (uint32_t)ctx->r16, (uint32_t)MEM_W(0X4, ctx->r16));
+#endif
     MEM_W(0X4, ctx->r16) = 0;
         goto L_80002F0C;
     // 0x80002EE4: sw          $zero, 0x4($s0)
@@ -2923,6 +3383,9 @@ L_80002EE8:
     after_2:
     // 0x80002EF8: b           L_80002F0C
     // 0x80002EFC: sw          $zero, 0x4($s0)
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_free_probe(rdram, (uint32_t)ctx->r16, (uint32_t)MEM_W(0X4, ctx->r16));
+#endif
     MEM_W(0X4, ctx->r16) = 0;
         goto L_80002F0C;
     // 0x80002EFC: sw          $zero, 0x4($s0)
@@ -2937,6 +3400,9 @@ L_80002F00:
     ctx->r4 = ctx->r5 | 0;
     after_3:
     // 0x80002F08: sw          $zero, 0x4($s0)
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gsm_free_probe(rdram, (uint32_t)ctx->r16, (uint32_t)MEM_W(0X4, ctx->r16));
+#endif
     MEM_W(0X4, ctx->r16) = 0;
 L_80002F0C:
     // 0x80002F0C: lw          $s0, 0x0($s0)

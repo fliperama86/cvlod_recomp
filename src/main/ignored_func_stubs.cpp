@@ -77,6 +77,38 @@
 #define LOD_ENABLE_ISSUE23_TRACE 0
 #endif
 
+#ifndef LOD_ENABLE_ISSUE27_NI129_TRACE
+#define LOD_ENABLE_ISSUE27_NI129_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+#define LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+#define LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+#define LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+#define LOD_ENABLE_ISSUE27_STATE_SNAPSHOT 0
+#endif
+
+#ifndef LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE
+#define LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE 0
+#endif
+
+#define LOD_ENABLE_ISSUE_PROGRESS_TRACE \
+    (LOD_ENABLE_ISSUE23_TRACE || LOD_ENABLE_ISSUE27_NI129_TRACE || \
+     LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE || \
+     LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH || \
+     LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH || \
+     LOD_ENABLE_ISSUE27_STATE_SNAPSHOT || \
+     LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE)
+
 #ifndef LOD_ENABLE_ISSUE23_FORCE_ROLLOVER
 #define LOD_ENABLE_ISSUE23_FORCE_ROLLOVER 0
 #endif
@@ -95,6 +127,14 @@
 
 #ifndef LOD_FIX_NULL_OBJECT_DISPATCH_CHILD
 #define LOD_FIX_NULL_OBJECT_DISPATCH_CHILD 1
+#endif
+
+#ifndef LOD_FIX_PAIR126_INPUT_RELEASE
+#define LOD_FIX_PAIR126_INPUT_RELEASE 0
+#endif
+
+#ifndef LOD_FIX_PAIR126_POST_HANDOFF_RELEASE
+#define LOD_FIX_PAIR126_POST_HANDOFF_RELEASE 0
 #endif
 
 #ifndef LOD_ENABLE_INPUT_TRACE
@@ -243,9 +283,12 @@ static constexpr uint32_t LOD_B2_TRACE_RAM = 0x802A3B70;
 static constexpr uint32_t LOD_B2_TRACE_SIZE = 0x0000F3B2;
 static constexpr uint32_t LOD_B2_TRACE_FILE = 0x000000B2;
 #endif
-#if LOD_ENABLE_ISSUE23_TRACE
+#if LOD_ENABLE_ISSUE_PROGRESS_TRACE
 static constexpr uint32_t LOD_ISSUE23_SOURCE_MAP_ROM = 0x007D4420;
 static constexpr uint32_t LOD_ISSUE23_DEST_MAP_ROM = 0x0082E330;
+static constexpr uint32_t LOD_ISSUE27_PRE_HANDOFF_MAP_ROM = 0x0082E330;
+static constexpr uint32_t LOD_ISSUE27_POST_HARPY_MAP_ROM = 0x007D3C90;
+static constexpr uint32_t LOD_ISSUE27_HARPY_BOSS_MAP_ROM = 0x008363B0;
 static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size);
 static inline uint8_t lod_rdram_u8(uint8_t* rdram, uint32_t phys);
 static inline int16_t lod_rdram_s16(uint8_t* rdram, uint32_t phys);
@@ -255,10 +298,78 @@ static uint32_t lod_current_exec_flags(uint8_t* rdram);
 static uint32_t lod_current_ni_sys_ptr(uint8_t* rdram);
 static void lod_install_issue23_map_trace_wrappers(const char* reason);
 static void lod_install_issue23_progression_trace_wrappers(const char* reason);
+static void lod_install_issue27_portal_chain_trace_wrappers(const char* reason);
 
 static bool lod_issue23_map_rom(uint32_t rom) {
-    return rom == LOD_ISSUE23_SOURCE_MAP_ROM || rom == LOD_ISSUE23_DEST_MAP_ROM;
+#if LOD_ENABLE_ISSUE23_TRACE
+    if (rom == LOD_ISSUE23_SOURCE_MAP_ROM || rom == LOD_ISSUE23_DEST_MAP_ROM) {
+        return true;
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_NI129_TRACE
+    if (rom == LOD_ISSUE27_PRE_HANDOFF_MAP_ROM || rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return true;
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return true;
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    if (rom == LOD_ISSUE27_HARPY_BOSS_MAP_ROM ||
+        rom == LOD_ISSUE27_PRE_HANDOFF_MAP_ROM ||
+        rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return true;
+    }
+#endif
+    return false;
 }
+
+static const char* lod_issue23_trace_prefix(uint32_t rom) {
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    if (rom == LOD_ISSUE27_HARPY_BOSS_MAP_ROM) {
+        return "ISSUE27_BOSS";
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_NI129_TRACE
+    if (rom == LOD_ISSUE27_PRE_HANDOFF_MAP_ROM) {
+        return "ISSUE27_PRE";
+    }
+    if (rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return "ISSUE27";
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return "ISSUE27_PORTAL";
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+    if (rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return "ISSUE27_STATE";
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE
+    if (rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return "ISSUE27_PAUSE";
+    }
+#endif
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+    return "ISSUE27_WATCH";
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    return "ISSUE27_HANDOFF";
+#endif
+    (void)rom;
+    return "ISSUE23";
+}
+#endif
+#if LOD_FIX_PAIR126_POST_HANDOFF_RELEASE
+static inline bool lod_rdram_range_ok(uint32_t phys, uint32_t size);
+static int32_t lod_current_gamestate(uint8_t* rdram);
+extern "C" uint32_t lod_pair126_input_release_generation();
+extern "C" uint32_t lod_pair126_input_release_map_count();
 #endif
 static uint32_t lod_current_map_ovl_rom = 0;
 static uint32_t lod_current_map_ovl_size = 0;
@@ -276,7 +387,7 @@ extern "C" int lod_current_map_overlay_load_count() {
     return lod_map_ovl_load_count;
 }
 
-#if LOD_ENABLE_ISSUE23_TRACE
+#if LOD_ENABLE_ISSUE_PROGRESS_TRACE
 static recomp_func_t* lod_orig_issue23_map_dispatch = nullptr; // 0x802E3B70
 static recomp_func_t* lod_orig_issue23_map_camera = nullptr;   // 0x802E7F78
 
@@ -322,6 +433,17 @@ static recomp_func_t* lod_orig_issue23_flag_clear = nullptr; // 0x800048EC
 static recomp_func_t* lod_orig_issue23_flag_toggle = nullptr;// 0x80004918
 static recomp_func_t* lod_orig_issue23_clock_step = nullptr; // 0x8001BB3C
 static recomp_func_t* lod_orig_issue23_clock_reset = nullptr;// 0x800900C4
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+static recomp_func_t* lod_orig_issue27_handoff_func_8001B788 = nullptr;
+static recomp_func_t* lod_orig_issue27_transition_trigger_func_801530C8 = nullptr;
+#endif
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+static recomp_func_t* lod_orig_issue27_sceneLookup = nullptr;                  // 0x80005A30
+static recomp_func_t* lod_orig_issue27_gfx_emit_node_segment_commands = nullptr; // 0x80006990
+static recomp_func_t* lod_orig_issue27_map25_init = nullptr;                   // 0x802E3BE0
+static recomp_func_t* lod_orig_issue27_map25_update = nullptr;                 // 0x802E3D4C
+static bool lod_issue27_in_map25_init = false;
+#endif
 
 struct LodIssue23ClockSnapshot {
     int16_t h285c;
@@ -333,6 +455,7 @@ struct LodIssue23ClockSnapshot {
     uint32_t w2868;
     uint32_t w2908;
     uint32_t w2bc8;
+    uint32_t w2bd0;
 };
 
 static LodIssue23ClockSnapshot lod_issue23_clock_snapshot(uint8_t* rdram) {
@@ -347,6 +470,7 @@ static LodIssue23ClockSnapshot lod_issue23_clock_snapshot(uint8_t* rdram) {
         lod_issue23_u32(rdram, sys, 0x2868),
         lod_issue23_u32(rdram, sys, 0x2908),
         lod_issue23_u32(rdram, sys, 0x2BC8),
+        lod_issue23_u32(rdram, sys, 0x2BD0),
     };
 }
 
@@ -360,7 +484,8 @@ static bool lod_issue23_clock_same(const LodIssue23ClockSnapshot& a,
            a.h2866 == b.h2866 &&
            a.w2868 == b.w2868 &&
            a.w2908 == b.w2908 &&
-           a.w2bc8 == b.w2bc8;
+           a.w2bc8 == b.w2bc8 &&
+           a.w2bd0 == b.w2bd0;
 }
 
 static bool lod_issue23_trace_map_active() {
@@ -368,7 +493,28 @@ static bool lod_issue23_trace_map_active() {
 }
 
 static bool lod_issue23_progress_log_sample(uint32_t count) {
+#if LOD_ENABLE_ISSUE27_NI129_TRACE
+    if (lod_current_map_ovl_rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return count <= 20 || (count % 600) == 0;
+    }
+#endif
     return count <= 80 || (count % 120) == 0;
+}
+
+static bool lod_issue23_clock_should_log(uint32_t count, bool same,
+                                         const LodIssue23ClockSnapshot& before,
+                                         const LodIssue23ClockSnapshot& after) {
+#if LOD_ENABLE_ISSUE27_NI129_TRACE
+    if (lod_current_map_ovl_rom == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return lod_issue23_progress_log_sample(count) ||
+               (!same && (before.h2860 != after.h2860 ||
+                          before.h2862 != after.h2862));
+    }
+#else
+    (void)before;
+    (void)after;
+#endif
+    return !same || lod_issue23_progress_log_sample(count);
 }
 
 static bool lod_issue23_flag_interest(uint32_t base, uint32_t index) {
@@ -384,6 +530,89 @@ static uint32_t lod_issue23_flag_word(uint8_t* rdram, uint32_t base, uint32_t in
     const uint32_t phys = (base & 0x1FFFFFFFu) + ((index >> 5) * 4);
     return lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
 }
+
+static bool lod_issue23_trace_flag_active(uint32_t base, uint32_t index) {
+    if (!lod_issue23_flag_interest(base, index)) {
+        return false;
+    }
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+    return true;
+#else
+    return lod_issue23_trace_map_active();
+#endif
+}
+
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+static constexpr uint32_t LOD_ISSUE27_FLAG_BASE = 0x801CAA60;
+static constexpr uint32_t LOD_ISSUE27_FLAG_FIRST = 0x2A0;
+static constexpr uint32_t LOD_ISSUE27_FLAG_LAST = 0x2A9;
+
+static uint32_t lod_issue27_flag_range_pack(uint32_t word, uint32_t first,
+                                            uint32_t count) {
+    uint32_t pack = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const uint32_t flag = first + i;
+        if ((word & lod_issue23_flag_mask(flag)) != 0) {
+            pack |= (1u << i);
+        }
+    }
+    return pack;
+}
+
+static uint32_t lod_issue27_watch_word(uint8_t* rdram) {
+    return lod_issue23_flag_word(rdram, LOD_ISSUE27_FLAG_BASE,
+                                 LOD_ISSUE27_FLAG_FIRST);
+}
+
+static void lod_issue27_log_word_watch(const char* tag, uint32_t count,
+                                       uint8_t* rdram, uint32_t before_word,
+                                       uint32_t after_word, uint32_t ra,
+                                       const char* caller_symbol,
+                                       uintptr_t caller_offset) {
+    const LodIssue23ClockSnapshot clock = lod_issue23_clock_snapshot(rdram);
+    fprintf(stderr,
+            "[ISSUE27_FLAG_WORD] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "ni=0x%08X loaded0f=%d loaded0e=%d base=0x%08X range=0x%03X-0x%03X "
+            "before=0x%08X after=0x%08X pack2A0_2A9=0x%03X pack2A4_2A9=0x%02X "
+            "ra=0x%08X caller=%s+0x%lX clock={285c=%d 285e=%d 2860=%d 2862=%d "
+            "2864=%d 2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X 2bd0=0x%08X}\n",
+            tag, count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+            lod_current_ni_sys_ptr(rdram),
+            lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair(),
+            LOD_ISSUE27_FLAG_BASE, LOD_ISSUE27_FLAG_FIRST, LOD_ISSUE27_FLAG_LAST,
+            before_word, after_word,
+            lod_issue27_flag_range_pack(after_word, 0x2A0, 10),
+            lod_issue27_flag_range_pack(after_word, 0x2A4, 6),
+            ra, caller_symbol, (unsigned long)caller_offset,
+            clock.h285c, clock.h285e, clock.h2860, clock.h2862,
+            clock.h2864, clock.h2866, clock.w2868, clock.w2908,
+            clock.w2bc8, clock.w2bd0);
+}
+
+static void lod_issue27_watch_direct_word_change(uint8_t* rdram, const char* tag,
+                                                 uint32_t ra) {
+    static bool initialized = false;
+    static uint32_t last_word = 0;
+    static uint32_t count = 0;
+    const uint32_t word = lod_issue27_watch_word(rdram);
+    if (!initialized) {
+        initialized = true;
+        last_word = word;
+        lod_issue27_log_word_watch("baseline", ++count, rdram, word, word, ra,
+                                   "(baseline)", 0);
+        return;
+    }
+    if (word == last_word) {
+        return;
+    }
+
+    const uint32_t before = last_word;
+    last_word = word;
+    lod_issue27_log_word_watch(tag, ++count, rdram, before, word, ra,
+                               "(direct/periodic)", 0);
+}
+#endif
 
 static void lod_issue23_decode_host_caller(void* host_caller,
                                            const char** symbol_out,
@@ -408,24 +637,348 @@ static void lod_issue23_decode_host_caller(void* host_caller,
     *offset_out = offset;
 }
 
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH || LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+struct LodIssue27HandoffSnapshot {
+    LodIssue23ClockSnapshot clock;
+    int16_t h28d0;
+    int16_t h28d2;
+    int16_t h2874;
+    uint32_t flags_cab18;
+    uint32_t flags_2a_word;
+    uint32_t exec;
+    uint32_t ni;
+    int32_t gamestate;
+    int map_count;
+    uint32_t map_rom;
+    int loaded0f;
+    int loaded0e;
+    int16_t h2bb8;
+    int16_t h2bba;
+    uint32_t w2bcc;
+};
+
+static uint32_t lod_issue27_handoff_u32_phys(uint8_t* rdram, uint32_t phys) {
+    return lod_rdram_range_ok(phys, 4) ? lod_rdram_u32(rdram, phys) : 0;
+}
+
+static LodIssue27HandoffSnapshot lod_issue27_handoff_snapshot(uint8_t* rdram) {
+    constexpr uint32_t sys = 0x801C82C0;
+    constexpr uint32_t flags_cab18_phys = 0x001CAB18;
+    constexpr uint32_t flags_2a_word_phys = 0x001CAAB4;
+    return {
+        lod_issue23_clock_snapshot(rdram),
+        lod_issue23_s16(rdram, sys, 0x28D0),
+        lod_issue23_s16(rdram, sys, 0x28D2),
+        lod_issue23_s16(rdram, sys, 0x2874),
+        lod_issue27_handoff_u32_phys(rdram, flags_cab18_phys),
+        lod_issue27_handoff_u32_phys(rdram, flags_2a_word_phys),
+        lod_current_exec_flags(rdram),
+        lod_current_ni_sys_ptr(rdram),
+        lod_current_gamestate(rdram),
+        lod_map_ovl_load_count,
+        lod_current_map_ovl_rom,
+        lod_ni_overlay_loaded_0f_pair(),
+        lod_ni_overlay_loaded_0e_pair(),
+        lod_issue23_s16(rdram, sys, 0x2BB8),
+        lod_issue23_s16(rdram, sys, 0x2BBA),
+        lod_issue23_u32(rdram, sys, 0x2BCC),
+    };
+}
+
+static bool lod_issue27_handoff_important_change(const LodIssue27HandoffSnapshot& before,
+                                                 const LodIssue27HandoffSnapshot& after) {
+    return before.clock.h285c != after.clock.h285c ||
+           before.clock.h285e != after.clock.h285e ||
+           before.h28d0 != after.h28d0 ||
+           before.h28d2 != after.h28d2 ||
+           before.h2874 != after.h2874 ||
+           before.exec != after.exec ||
+           before.ni != after.ni ||
+           before.flags_cab18 != after.flags_cab18 ||
+           before.map_count != after.map_count ||
+           before.map_rom != after.map_rom ||
+           before.loaded0f != after.loaded0f ||
+           before.loaded0e != after.loaded0e ||
+           before.h2bb8 != after.h2bb8 ||
+           before.h2bba != after.h2bba ||
+           before.w2bcc != after.w2bcc;
+}
+
+static void lod_issue27_handoff_log(const char* tag,
+                                    const LodIssue27HandoffSnapshot& before,
+                                    const LodIssue27HandoffSnapshot& after,
+                                    uint32_t ra,
+                                    const char* caller_symbol,
+                                    uintptr_t caller_offset) {
+    static uint32_t count = 0;
+    count++;
+    fprintf(stderr,
+            "[ISSUE27_HANDOFF_GLOBAL] %s#%u map#%d map=0x%08X gs=%d "
+            "exec=0x%08X ni=0x%08X loaded0f=%d loaded0e=%d ra=0x%08X "
+            "caller=%s+0x%lX before={cab18=0x%08X flags2a=0x%08X "
+            "285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
+            "2874=%d 28d0=%d 28d2=%d 2bb8=%d 2bba=%d 2bcc=0x%08X} "
+            "after={cab18=0x%08X flags2a=0x%08X "
+            "285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
+            "2874=%d 28d0=%d 28d2=%d 2bb8=%d 2bba=%d 2bcc=0x%08X}\n",
+            tag, count, after.map_count, after.map_rom, after.gamestate,
+            after.exec, after.ni, after.loaded0f, after.loaded0e, ra,
+            caller_symbol, (unsigned long)caller_offset,
+            before.flags_cab18, before.flags_2a_word,
+            before.clock.h285c, before.clock.h285e, before.clock.h2860,
+            before.clock.h2862, before.clock.h2864, before.clock.h2866,
+            before.h2874, before.h28d0, before.h28d2, before.h2bb8, before.h2bba,
+            before.w2bcc,
+            after.flags_cab18, after.flags_2a_word,
+            after.clock.h285c, after.clock.h285e, after.clock.h2860,
+            after.clock.h2862, after.clock.h2864, after.clock.h2866,
+            after.h2874, after.h28d0, after.h28d2, after.h2bb8, after.h2bba,
+            after.w2bcc);
+}
+
+static void lod_issue27_handoff_log_if_changed(uint8_t* rdram, const char* tag,
+                                               const LodIssue27HandoffSnapshot& before,
+                                               uint32_t ra,
+                                               const char* caller_symbol,
+                                               uintptr_t caller_offset) {
+    const LodIssue27HandoffSnapshot after = lod_issue27_handoff_snapshot(rdram);
+    if (!lod_issue27_handoff_important_change(before, after)) {
+        return;
+    }
+    lod_issue27_handoff_log(tag, before, after, ra, caller_symbol, caller_offset);
+}
+
+static void lod_issue27_handoff_log_baseline(uint8_t* rdram, const char* tag) {
+    const LodIssue27HandoffSnapshot snap = lod_issue27_handoff_snapshot(rdram);
+    lod_issue27_handoff_log(tag, snap, snap, 0, "(baseline)", 0);
+}
+
+#if LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+static bool lod_issue27_state_snapshot_map_rom(uint32_t rom) {
+    return rom == LOD_ISSUE27_HARPY_BOSS_MAP_ROM ||
+           rom == LOD_ISSUE27_PRE_HANDOFF_MAP_ROM ||
+           rom == LOD_ISSUE27_POST_HARPY_MAP_ROM;
+}
+
+static uint32_t lod_issue27_state_flag_pack(uint32_t word, uint32_t first,
+                                            uint32_t count) {
+    uint32_t pack = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const uint32_t flag = first + i;
+        if ((word & lod_issue23_flag_mask(flag)) != 0) {
+            pack |= (1u << i);
+        }
+    }
+    return pack;
+}
+
+static void lod_issue27_state_snapshot_log(uint8_t* rdram, const char* tag,
+                                           uint32_t count, uint32_t ra) {
+    if (!lod_issue27_state_snapshot_map_rom(lod_current_map_ovl_rom)) {
+        return;
+    }
+
+    constexpr uint32_t sys = 0x801C82C0;
+    const LodIssue27HandoffSnapshot s = lod_issue27_handoff_snapshot(rdram);
+    const uint32_t sys_2968 = lod_issue23_u32(rdram, sys, 0x2968);
+    const uint32_t sys_2b10 = lod_issue23_u32(rdram, sys, 0x2B10);
+    const uint32_t sys_input = lod_issue23_u32(rdram, sys, 0x0538);
+    const int16_t h2b4e = lod_issue23_s16(rdram, sys, 0x2B4E);
+    const uint32_t sys_2b14 = lod_issue23_u32(rdram, sys, 0x2B14);
+    const uint32_t sys_2b0c = lod_issue23_u32(rdram, sys, 0x2B0C);
+    const uint32_t sys_007c = lod_issue23_u32(rdram, sys, 0x007C);
+    const uint32_t file_slot_1c = lod_issue23_u32(rdram, 0x801C8830, 0x1C * 4);
+    const uint32_t scene_head = lod_issue23_u32(rdram, 0x8019E5F0, 0);
+    const uint32_t focus = lod_issue27_handoff_u32_phys(rdram, 0x001CAC20);
+    const uint32_t focus24 = lod_issue27_handoff_u32_phys(rdram, 0x001CAC24);
+    const uint32_t focus28 = lod_issue27_handoff_u32_phys(rdram, 0x001CAC28);
+
+    fprintf(stderr,
+            "[ISSUE27_STATE] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "ni=0x%08X loaded0f=%d loaded0e=%d ra=0x%08X "
+            "flags={cab18=0x%08X flags2a=0x%08X pack2a0_2a9=0x%03X "
+            "pack2a4_2a9=0x%02X} "
+            "clock={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
+            "2868=0x%08X 2908=0x%08X} "
+            "handoff={2874=%d 28d0=%d 28d2=%d 2bb8=%d 2bba=%d 2bcc=0x%08X} "
+            "gates={2968=0x%08X 2b10=0x%08X 2b4e=%d input=0x%08X "
+            "2bc8=0x%08X 2bd0=0x%08X focus=0x%08X focus24=0x%08X focus28=0x%08X} "
+            "portal={2b14=0x%08X 2b0c=0x%08X 007c=0x%08X file1c=0x%08X scene=0x%08X}\n",
+            tag, count, s.map_count, s.map_rom, s.gamestate, s.exec,
+            s.ni, s.loaded0f, s.loaded0e, ra,
+            s.flags_cab18, s.flags_2a_word,
+            lod_issue27_state_flag_pack(s.flags_2a_word, 0x2A0, 10),
+            lod_issue27_state_flag_pack(s.flags_2a_word, 0x2A4, 6),
+            s.clock.h285c, s.clock.h285e, s.clock.h2860, s.clock.h2862,
+            s.clock.h2864, s.clock.h2866, s.clock.w2868, s.clock.w2908,
+            s.h2874, s.h28d0, s.h28d2, s.h2bb8, s.h2bba, s.w2bcc,
+            sys_2968, sys_2b10, h2b4e, sys_input,
+            s.clock.w2bc8, s.clock.w2bd0, focus, focus24, focus28,
+            sys_2b14, sys_2b0c, sys_007c, file_slot_1c, scene_head);
+}
+
+static void lod_issue27_state_snapshot_periodic(uint8_t* rdram, uint32_t ra) {
+    if (lod_current_map_ovl_rom != LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+        return;
+    }
+
+    static uint32_t count = 0;
+    count++;
+    if (count <= 12 || (count % 900) == 0) {
+        lod_issue27_state_snapshot_log(rdram, "sample", count, ra);
+    }
+}
+#endif
+#endif
+
+#if LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE
+static void lod_issue27_log_object_summary(uint8_t* rdram, const char* label,
+                                           uint32_t addr) {
+    const uint32_t phys = addr & 0x1FFFFFFF;
+    const bool ok = addr != 0 && lod_rdram_range_ok(phys, 0x74);
+    if (!ok) {
+        fprintf(stderr, " %s={addr=0x%08X ok=0}", label, addr);
+        return;
+    }
+
+    fprintf(stderr,
+            " %s={addr=0x%08X ok=1 state08=%u state09=%u id=0x%04X "
+            "funcId=%d funcPtr=0x%08X data34=0x%08X flags=0x%04X}",
+            label, addr,
+            (unsigned)lod_rdram_u8(rdram, phys + 0x08),
+            (unsigned)lod_rdram_u8(rdram, phys + 0x09),
+            (unsigned)(uint16_t)lod_rdram_s16(rdram, phys + 0x0C),
+            (int)lod_rdram_s16(rdram, phys + 0x0E),
+            lod_rdram_u32(rdram, phys + 0x10),
+            lod_rdram_u32(rdram, phys + 0x34),
+            (unsigned)(uint16_t)lod_rdram_s16(rdram, phys + 0x00));
+}
+
+static void lod_issue27_pause_gate_trace(uint8_t* rdram, uint16_t pif_buttons,
+                                         int8_t sx, int8_t sy) {
+    if (lod_current_map_ovl_rom != LOD_ISSUE27_POST_HARPY_MAP_ROM ||
+        lod_current_gamestate(rdram) != 3) {
+        return;
+    }
+
+    constexpr uint16_t PAUSE_BTNS = 0x1080; // Start or Recenter
+    constexpr uint32_t SYS_PHYS = 0x001C82C0;
+    constexpr uint32_t SYS_CONT0_PHYS = 0x001C87F4;
+    constexpr uint32_t PLAYER_CONT_DATA_PHYS = 0x000F35F0;
+    constexpr uint32_t PLAYER_CONT_CUR = PLAYER_CONT_DATA_PHYS + 0x04;
+    constexpr uint32_t PLAYER_CONT_PREV = PLAYER_CONT_DATA_PHYS + 0x12;
+
+    uint16_t sys_held = 0;
+    uint16_t sys_pressed = 0;
+    int16_t sys_joy_x = 0;
+    int16_t sys_joy_y = 0;
+    if (lod_rdram_range_ok(SYS_CONT0_PHYS, 0x0E)) {
+        sys_held = (uint16_t)lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x02);
+        sys_pressed = (uint16_t)lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x04);
+        sys_joy_x = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x06);
+        sys_joy_y = lod_rdram_s16(rdram, SYS_CONT0_PHYS + 0x08);
+    }
+
+    uint16_t player_held = 0;
+    uint16_t player_pressed = 0;
+    uint16_t player_prev_held = 0;
+    uint16_t player_prev_pressed = 0;
+    if (lod_rdram_range_ok(PLAYER_CONT_CUR, 0x0E) &&
+        lod_rdram_range_ok(PLAYER_CONT_PREV, 0x0E)) {
+        player_held = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x02);
+        player_pressed = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_CUR + 0x04);
+        player_prev_held = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_PREV + 0x02);
+        player_prev_pressed = (uint16_t)lod_rdram_s16(rdram, PLAYER_CONT_PREV + 0x04);
+    }
+
+    static uint32_t frame_count = 0;
+    static uint16_t last_pif_buttons = 0;
+    static uint16_t last_sys_held = 0;
+    static uint16_t last_sys_pressed = 0;
+    static uint16_t last_player_held = 0;
+    static uint16_t last_player_pressed = 0;
+    frame_count++;
+
+    const bool pause_seen =
+        ((pif_buttons | sys_held | sys_pressed | player_held | player_pressed |
+          player_prev_held | player_prev_pressed) & PAUSE_BTNS) != 0;
+    const bool input_changed =
+        pif_buttons != last_pif_buttons ||
+        sys_held != last_sys_held ||
+        sys_pressed != last_sys_pressed ||
+        player_held != last_player_held ||
+        player_pressed != last_player_pressed;
+    last_pif_buttons = pif_buttons;
+    last_sys_held = sys_held;
+    last_sys_pressed = sys_pressed;
+    last_player_held = player_held;
+    last_player_pressed = player_pressed;
+
+    if (!pause_seen && !input_changed && frame_count > 12 && (frame_count % 900) != 0) {
+        return;
+    }
+
+    const uint32_t focus24 = lod_issue27_handoff_u32_phys(rdram, 0x001CAC24);
+    const uint32_t focus28 = lod_issue27_handoff_u32_phys(rdram, 0x001CAC28);
+    const uint32_t focus68 = lod_issue23_u32(rdram, SYS_PHYS, 0x2968);
+    const uint32_t player_ptr_candidate = lod_issue23_u32(rdram, SYS_PHYS, 0x2634);
+
+    fprintf(stderr,
+            "[ISSUE27_PAUSE_GATE] frame#%u map#%d map=0x%08X "
+            "raw={btn=0x%04X sx=%d sy=%d pauseSeen=%d} "
+            "sysCtrl={held=0x%04X pressed=0x%04X joy=(%d,%d)} "
+            "playerCtrl={held=0x%04X pressed=0x%04X prevHeld=0x%04X prevPressed=0x%04X} "
+            "cvGateCand={freezeGameplay261e=%d freezePlayer2626=%d ptrPlayer2634=0x%08X "
+            "mapSetup2828=%d notMenu2842=%d currentMenu2844=%d cutFlags2858=0x%08X "
+            "controlMode286c=%d} "
+            "lodGate={w2b10=0x%08X h2b4e=%d w2bc8=0x%08X w2bcc=0x%08X w2bd0=0x%08X "
+            "focus24=0x%08X focus28=0x%08X focus68=0x%08X}",
+            frame_count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            pif_buttons, (int)sx, (int)sy, pause_seen ? 1 : 0,
+            sys_held, sys_pressed, (int)sys_joy_x, (int)sys_joy_y,
+            player_held, player_pressed, player_prev_held, player_prev_pressed,
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x261E),
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x2626),
+            player_ptr_candidate,
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x2828),
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x2842),
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x2844),
+            lod_issue23_u32(rdram, SYS_PHYS, 0x2858),
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x286C),
+            lod_issue23_u32(rdram, SYS_PHYS, 0x2B10),
+            (int)lod_issue23_s16(rdram, SYS_PHYS, 0x2B4E),
+            lod_issue23_u32(rdram, SYS_PHYS, 0x2BC8),
+            lod_issue23_u32(rdram, SYS_PHYS, 0x2BCC),
+            lod_issue23_u32(rdram, SYS_PHYS, 0x2BD0),
+            focus24, focus28, focus68);
+    lod_issue27_log_object_summary(rdram, "ptrPlayer2634Obj", player_ptr_candidate);
+    lod_issue27_log_object_summary(rdram, "focus24Obj", focus24);
+    lod_issue27_log_object_summary(rdram, "focus28Obj", focus28);
+    fprintf(stderr, "\n");
+}
+#endif
+
 static void lod_issue23_log_clock(const char* tag, uint32_t count, uint8_t* rdram,
                                   uint32_t ra, const LodIssue23ClockSnapshot& before,
                                   const LodIssue23ClockSnapshot& after) {
     fprintf(stderr,
-            "[ISSUE23_PROGRESS] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "[%s_PROGRESS] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
             "ni=0x%08X loaded0f=%d loaded0e=%d ra=0x%08X "
             "before={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
-            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X} "
+            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X 2bd0=0x%08X} "
             "after={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d "
-            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            "2868=0x%08X 2908=0x%08X 2bc8=0x%08X 2bd0=0x%08X}\n",
+            lod_issue23_trace_prefix(lod_current_map_ovl_rom),
             tag, count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
             lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
             lod_current_ni_sys_ptr(rdram),
             lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair(), ra,
             before.h285c, before.h285e, before.h2860, before.h2862,
-            before.h2864, before.h2866, before.w2868, before.w2908, before.w2bc8,
+            before.h2864, before.h2866, before.w2868, before.w2908,
+            before.w2bc8, before.w2bd0,
             after.h285c, after.h285e, after.h2860, after.h2862,
-            after.h2864, after.h2866, after.w2868, after.w2908, after.w2bc8);
+            after.h2864, after.h2866, after.w2868, after.w2908,
+            after.w2bc8, after.w2bd0);
 }
 
 static void lod_issue23_force_clock_rollover_if_enabled(uint8_t* rdram,
@@ -451,10 +1004,12 @@ static void lod_issue23_force_clock_rollover_if_enabled(uint8_t* rdram,
     fprintf(stderr,
             "[ISSUE23_FORCE] fast-forwarded clock before real rollover step "
             "count=%u map#%d map=0x%08X before={285c=%d 285e=%d 2860=%d "
-            "2862=%d 2864=%d 2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            "2862=%d 2864=%d 2866=%d 2868=0x%08X 2908=0x%08X "
+            "2bc8=0x%08X 2bd0=0x%08X}\n",
             count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
             before.h285c, before.h285e, before.h2860, before.h2862,
-            before.h2864, before.h2866, before.w2868, before.w2908, before.w2bc8);
+            before.h2864, before.h2866, before.w2868, before.w2908,
+            before.w2bc8, before.w2bd0);
 #else
     (void)rdram;
     (void)count;
@@ -469,11 +1024,12 @@ static void lod_issue23_log_flag(const char* op, uint32_t count, uint8_t* rdram,
     const LodIssue23ClockSnapshot clock = lod_issue23_clock_snapshot(rdram);
     const uint32_t mask = lod_issue23_flag_mask(index);
     fprintf(stderr,
-            "[ISSUE23_FLAG] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
+            "[%s_FLAG] %s#%u map#%d map=0x%08X gs=%d exec=0x%08X "
             "ni=0x%08X loaded0f=%d loaded0e=%d base=0x%08X flag=0x%03X "
             "wordOff=0x%X mask=0x%08X before=0x%08X after=0x%08X result=0x%08X "
             "ra=0x%08X caller=%s+0x%lX clock={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d "
-            "2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X}\n",
+            "2866=%d 2868=0x%08X 2908=0x%08X 2bc8=0x%08X 2bd0=0x%08X}\n",
+            lod_issue23_trace_prefix(lod_current_map_ovl_rom),
             op, count, lod_map_ovl_load_count, lod_current_map_ovl_rom,
             lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
             lod_current_ni_sys_ptr(rdram),
@@ -481,7 +1037,8 @@ static void lod_issue23_log_flag(const char* op, uint32_t count, uint8_t* rdram,
             base, index, (index >> 5) * 4, mask, before_word, after_word,
             result, ra, caller_symbol, (unsigned long)caller_offset,
             clock.h285c, clock.h285e, clock.h2860, clock.h2862,
-            clock.h2864, clock.h2866, clock.w2868, clock.w2908, clock.w2bc8);
+            clock.h2864, clock.h2866, clock.w2868, clock.w2908,
+            clock.w2bc8, clock.w2bd0);
 }
 
 static void lod_trace_issue23_flag_test(uint8_t* rdram, recomp_context* ctx) {
@@ -492,8 +1049,7 @@ static void lod_trace_issue23_flag_test(uint8_t* rdram, recomp_context* ctx) {
     lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
     const uint32_t base = (uint32_t)ctx->r4;
     const uint32_t index = (uint32_t)ctx->r5;
-    const bool trace = lod_issue23_trace_map_active() &&
-                       lod_issue23_flag_interest(base, index);
+    const bool trace = lod_issue23_trace_flag_active(base, index);
     const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
     const uint32_t ra = (uint32_t)ctx->r31;
 
@@ -503,8 +1059,14 @@ static void lod_trace_issue23_flag_test(uint8_t* rdram, recomp_context* ctx) {
 
     if (trace) {
         count++;
-        if ((index >= 0x2A1 && index <= 0x2A3) ||
-            lod_issue23_progress_log_sample(count)) {
+        const bool focused_map = lod_issue23_trace_map_active();
+        const bool focused_flag = focused_map && index >= 0x2A1 && index <= 0x2A3;
+#if LOD_ENABLE_ISSUE27_NI129_TRACE
+        const bool issue27_post = lod_current_map_ovl_rom == LOD_ISSUE27_POST_HARPY_MAP_ROM;
+#else
+        const bool issue27_post = false;
+#endif
+        if ((focused_flag && !issue27_post) || lod_issue23_progress_log_sample(count)) {
             lod_issue23_log_flag("test", count, rdram, base, index, before_word,
                                  before_word, (uint32_t)ctx->r2, ra,
                                  caller_symbol, caller_offset);
@@ -520,8 +1082,7 @@ static void lod_trace_issue23_flag_set(uint8_t* rdram, recomp_context* ctx) {
     lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
     const uint32_t base = (uint32_t)ctx->r4;
     const uint32_t index = (uint32_t)ctx->r5;
-    const bool trace = lod_issue23_trace_map_active() &&
-                       lod_issue23_flag_interest(base, index);
+    const bool trace = lod_issue23_trace_flag_active(base, index);
     const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
     const uint32_t ra = (uint32_t)ctx->r31;
 
@@ -535,6 +1096,13 @@ static void lod_trace_issue23_flag_set(uint8_t* rdram, recomp_context* ctx) {
         lod_issue23_log_flag("set", count, rdram, base, index, before_word,
                              after_word, after_word & lod_issue23_flag_mask(index), ra,
                              caller_symbol, caller_offset);
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+        if (base == LOD_ISSUE27_FLAG_BASE) {
+            lod_issue27_log_word_watch("set", count, rdram, before_word,
+                                       after_word, ra, caller_symbol,
+                                       caller_offset);
+        }
+#endif
     }
 }
 
@@ -546,8 +1114,7 @@ static void lod_trace_issue23_flag_clear(uint8_t* rdram, recomp_context* ctx) {
     lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
     const uint32_t base = (uint32_t)ctx->r4;
     const uint32_t index = (uint32_t)ctx->r5;
-    const bool trace = lod_issue23_trace_map_active() &&
-                       lod_issue23_flag_interest(base, index);
+    const bool trace = lod_issue23_trace_flag_active(base, index);
     const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
     const uint32_t ra = (uint32_t)ctx->r31;
 
@@ -561,6 +1128,13 @@ static void lod_trace_issue23_flag_clear(uint8_t* rdram, recomp_context* ctx) {
         lod_issue23_log_flag("clear", count, rdram, base, index, before_word,
                              after_word, after_word & lod_issue23_flag_mask(index), ra,
                              caller_symbol, caller_offset);
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+        if (base == LOD_ISSUE27_FLAG_BASE) {
+            lod_issue27_log_word_watch("clear", count, rdram, before_word,
+                                       after_word, ra, caller_symbol,
+                                       caller_offset);
+        }
+#endif
     }
 }
 
@@ -572,8 +1146,7 @@ static void lod_trace_issue23_flag_toggle(uint8_t* rdram, recomp_context* ctx) {
     lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
     const uint32_t base = (uint32_t)ctx->r4;
     const uint32_t index = (uint32_t)ctx->r5;
-    const bool trace = lod_issue23_trace_map_active() &&
-                       lod_issue23_flag_interest(base, index);
+    const bool trace = lod_issue23_trace_flag_active(base, index);
     const uint32_t before_word = trace ? lod_issue23_flag_word(rdram, base, index) : 0;
     const uint32_t ra = (uint32_t)ctx->r31;
 
@@ -587,6 +1160,13 @@ static void lod_trace_issue23_flag_toggle(uint8_t* rdram, recomp_context* ctx) {
         lod_issue23_log_flag("toggle", count, rdram, base, index, before_word,
                              after_word, after_word & lod_issue23_flag_mask(index), ra,
                              caller_symbol, caller_offset);
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+        if (base == LOD_ISSUE27_FLAG_BASE) {
+            lod_issue27_log_word_watch("toggle", count, rdram, before_word,
+                                       after_word, ra, caller_symbol,
+                                       caller_offset);
+        }
+#endif
     }
 }
 
@@ -594,6 +1174,14 @@ static void lod_trace_issue23_clock_step(uint8_t* rdram, recomp_context* ctx) {
     static uint32_t count = 0;
     const bool trace = lod_issue23_trace_map_active();
     const uint32_t ra = (uint32_t)ctx->r31;
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const LodIssue27HandoffSnapshot handoff_before =
+        lod_issue27_handoff_snapshot(rdram);
+#endif
     count++;
     const LodIssue23ClockSnapshot before =
         trace ? lod_issue23_clock_snapshot(rdram) : LodIssue23ClockSnapshot{};
@@ -605,10 +1193,21 @@ static void lod_trace_issue23_clock_step(uint8_t* rdram, recomp_context* ctx) {
         lod_orig_issue23_clock_step(rdram, ctx);
     }
 
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+    lod_issue27_watch_direct_word_change(rdram, "periodic-change", ra);
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    lod_issue27_handoff_log_if_changed(rdram, "clock-step", handoff_before,
+                                       ra, caller_symbol, caller_offset);
+#endif
+#if LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+    lod_issue27_state_snapshot_periodic(rdram, ra);
+#endif
+
     if (trace) {
         const LodIssue23ClockSnapshot after = lod_issue23_clock_snapshot(rdram);
         const bool same = lod_issue23_clock_same(before, after);
-        if (!same || lod_issue23_progress_log_sample(count)) {
+        if (lod_issue23_clock_should_log(count, same, before, after)) {
             lod_issue23_log_clock(same ? "clock-same" : "clock-change",
                                   count, rdram, ra, before, after);
         }
@@ -619,6 +1218,14 @@ static void lod_trace_issue23_clock_reset(uint8_t* rdram, recomp_context* ctx) {
     static uint32_t count = 0;
     const bool trace = lod_issue23_trace_map_active();
     const uint32_t ra = (uint32_t)ctx->r31;
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const LodIssue27HandoffSnapshot handoff_before =
+        lod_issue27_handoff_snapshot(rdram);
+#endif
     const LodIssue23ClockSnapshot before =
         trace ? lod_issue23_clock_snapshot(rdram) : LodIssue23ClockSnapshot{};
 
@@ -626,12 +1233,443 @@ static void lod_trace_issue23_clock_reset(uint8_t* rdram, recomp_context* ctx) {
         lod_orig_issue23_clock_reset(rdram, ctx);
     }
 
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+    lod_issue27_watch_direct_word_change(rdram, "reset-change", ra);
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    lod_issue27_handoff_log_if_changed(rdram, "clock-reset", handoff_before,
+                                       ra, caller_symbol, caller_offset);
+#endif
+
     if (trace) {
         count++;
         const LodIssue23ClockSnapshot after = lod_issue23_clock_snapshot(rdram);
         lod_issue23_log_clock("clock-reset", count, rdram, ra, before, after);
     }
 }
+
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+static constexpr uint32_t LOD_ISSUE27_SYS_BASE = 0x801C82C0;
+static constexpr uint32_t LOD_ISSUE27_FILE_PTR_ARRAY = 0x801C8830;
+static constexpr uint32_t LOD_ISSUE27_FILE_ID_CRYSTAL = 0x1C;
+static constexpr uint32_t LOD_ISSUE27_SCENE_HEAD_PTR = 0x8019E5F0;
+static constexpr uint32_t LOD_ISSUE27_DL_GLOW_LAMP = 0x060046F0;
+static constexpr uint32_t LOD_ISSUE27_DL_GLOW_PORTAL = 0x06004CF8;
+static constexpr uint32_t LOD_ISSUE27_DL_GLOW_ALT = 0x06004988;
+static constexpr uint32_t LOD_ISSUE27_GFX_DL_PTR = 0x800CE760;
+
+static bool lod_issue27_portal_trace_active() {
+    return lod_current_map_ovl_rom == LOD_ISSUE27_POST_HARPY_MAP_ROM;
+}
+
+static bool lod_issue27_portal_dl_target(uint32_t dl) {
+    return dl == LOD_ISSUE27_DL_GLOW_LAMP ||
+           dl == LOD_ISSUE27_DL_GLOW_PORTAL ||
+           dl == LOD_ISSUE27_DL_GLOW_ALT;
+}
+
+static uint32_t lod_issue27_file_slot_1c(uint8_t* rdram) {
+    return lod_issue23_u32(rdram, LOD_ISSUE27_FILE_PTR_ARRAY,
+                           LOD_ISSUE27_FILE_ID_CRYSTAL * 4);
+}
+
+static uint32_t lod_issue27_file_slot_for_node(uint8_t* rdram, uint32_t node) {
+    const uint32_t file_id = lod_issue23_u32(rdram, node, 0x40);
+    if (file_id >= 0x100) {
+        return 0;
+    }
+    return lod_issue23_u32(rdram, LOD_ISSUE27_FILE_PTR_ARRAY, file_id * 4);
+}
+
+static void lod_issue27_log_file_words(uint8_t* rdram, const char* label,
+                                       uint32_t file_base, uint32_t dl) {
+    if (file_base == 0 || (dl & 0xFF000000u) != 0x06000000u) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] %s file=0x%08X dl=0x%08X unavailable\n",
+                label, file_base, dl);
+        return;
+    }
+
+    const uint32_t addr = file_base + (dl & 0x00FFFFFFu);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] %s file=0x%08X dl=0x%08X addr=0x%08X "
+            "words={%08X,%08X,%08X,%08X}\n",
+            label, file_base, dl, addr,
+            lod_issue23_u32(rdram, addr, 0x00),
+            lod_issue23_u32(rdram, addr, 0x04),
+            lod_issue23_u32(rdram, addr, 0x08),
+            lod_issue23_u32(rdram, addr, 0x0C));
+}
+
+static void lod_issue27_log_portal_globals(uint8_t* rdram, const char* tag) {
+    const uint32_t file_slot = lod_issue27_file_slot_1c(rdram);
+    const uint32_t sys_2b14 = lod_issue23_u32(rdram, LOD_ISSUE27_SYS_BASE, 0x2B14);
+    const uint32_t sys_2b0c = lod_issue23_u32(rdram, LOD_ISSUE27_SYS_BASE, 0x2B0C);
+    const uint32_t sys_007c = lod_issue23_u32(rdram, LOD_ISSUE27_SYS_BASE, 0x007C);
+    const uint32_t scene_head = lod_issue23_u32(rdram, LOD_ISSUE27_SCENE_HEAD_PTR, 0);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] globals %s map#%d map=0x%08X gs=%d exec=0x%08X "
+            "ni=0x%08X fileSlot[1C]=0x%08X sys={2B14=0x%08X 2B0C=0x%08X "
+            "007C=0x%08X} sceneHeadPtr=0x%08X sceneHead=0x%08X loaded0f=%d loaded0e=%d\n",
+            tag, lod_map_ovl_load_count, lod_current_map_ovl_rom,
+            lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+            lod_current_ni_sys_ptr(rdram), file_slot, sys_2b14, sys_2b0c,
+            sys_007c, LOD_ISSUE27_SCENE_HEAD_PTR, scene_head,
+            lod_ni_overlay_loaded_0f_pair(), lod_ni_overlay_loaded_0e_pair());
+    lod_issue27_log_file_words(rdram, "slot1C.lamp", file_slot, LOD_ISSUE27_DL_GLOW_LAMP);
+    lod_issue27_log_file_words(rdram, "slot1C.portal", file_slot, LOD_ISSUE27_DL_GLOW_PORTAL);
+    lod_issue27_log_file_words(rdram, "slot1C.alt", file_slot, LOD_ISSUE27_DL_GLOW_ALT);
+}
+
+static void lod_issue27_log_glow_node(uint8_t* rdram, const char* tag,
+                                      uint32_t obj, uint32_t node) {
+    if (node == 0) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] node %s obj=0x%08X node=0x00000000\n",
+                tag, obj);
+        return;
+    }
+    const uint32_t phys = node & 0x1FFFFFFFu;
+    if (!lod_rdram_range_ok(phys, 0x78)) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] node %s obj=0x%08X node=0x%08X invalid\n",
+                tag, obj, node);
+        return;
+    }
+
+    const uint32_t file_id = lod_issue23_u32(rdram, node, 0x40);
+    const uint32_t file_slot = lod_issue27_file_slot_for_node(rdram, node);
+    const uint32_t dl = lod_issue23_u32(rdram, node, 0x3C);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] node %s obj=0x%08X node=0x%08X "
+            "kind=0x%04X flags=0x%04X links={parent=0x%08X prev=0x%08X "
+            "next=0x%08X child=0x%08X} colors={prim=0x%08X env=0x%08X} "
+            "dl=0x%08X fileId=0x%08X fileSlot=0x%08X anim={h5c=%d f50=%.3f "
+            "f54=%.3f f58=%.3f f5c=%.3f f60=%.3f f68=%.3f f6c=%.3f f70=%.3f}\n",
+            tag, obj, node,
+            lod_issue23_u16(rdram, node, 0x00),
+            lod_issue23_u16(rdram, node, 0x02),
+            lod_issue23_u32(rdram, node, 0x08),
+            lod_issue23_u32(rdram, node, 0x0C),
+            lod_issue23_u32(rdram, node, 0x10),
+            lod_issue23_u32(rdram, node, 0x14),
+            lod_issue23_u32(rdram, node, 0x18),
+            lod_issue23_u32(rdram, node, 0x24),
+            dl, file_id, file_slot,
+            lod_issue23_s16(rdram, node, 0x5C),
+            lod_issue23_f32(rdram, node, 0x50),
+            lod_issue23_f32(rdram, node, 0x54),
+            lod_issue23_f32(rdram, node, 0x58),
+            lod_issue23_f32(rdram, node, 0x5C),
+            lod_issue23_f32(rdram, node, 0x60),
+            lod_issue23_f32(rdram, node, 0x68),
+            lod_issue23_f32(rdram, node, 0x6C),
+            lod_issue23_f32(rdram, node, 0x70));
+    if (lod_issue27_portal_dl_target(dl)) {
+        lod_issue27_log_file_words(rdram, "node.file.dl", file_slot, dl);
+    }
+}
+
+static bool lod_issue27_node_interesting(uint8_t* rdram, uint32_t node,
+                                         uint32_t dl_arg) {
+    if (node == 0 || !lod_rdram_range_ok(node & 0x1FFFFFFFu, 0x44)) {
+        return false;
+    }
+    const uint32_t file_id = lod_issue23_u32(rdram, node, 0x40);
+    const uint32_t node_dl = lod_issue23_u32(rdram, node, 0x3C);
+    return file_id == LOD_ISSUE27_FILE_ID_CRYSTAL ||
+           lod_issue27_portal_dl_target(node_dl) ||
+           lod_issue27_portal_dl_target(dl_arg);
+}
+
+static void lod_issue27_dump_emitted_dl(uint8_t* rdram, const char* tag,
+                                        uint32_t before, uint32_t after,
+                                        uint32_t node, uint32_t dl_arg) {
+    if (before == 0 || after == 0 || after < before) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] gfx-dl %s node=0x%08X arg=0x%08X "
+                "before=0x%08X after=0x%08X invalid-range\n",
+                tag, node, dl_arg, before, after);
+        return;
+    }
+
+    uint32_t bytes = after - before;
+    if (bytes > 0x180) {
+        bytes = 0x180;
+    }
+    bool saw_segment = false;
+    bool saw_target = false;
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] gfx-dl %s node=0x%08X arg=0x%08X "
+            "before=0x%08X after=0x%08X dumped=0x%X\n",
+            tag, node, dl_arg, before, after, bytes);
+    for (uint32_t off = 0; off + 8 <= bytes; off += 8) {
+        const uint32_t w0 = lod_issue23_u32(rdram, before, off);
+        const uint32_t w1 = lod_issue23_u32(rdram, before, off + 4);
+        const bool segment = (w0 & 0xFFFF0000u) == 0xDB060000u;
+        const bool target = w0 == 0xDE000000u && lod_issue27_portal_dl_target(w1);
+        if (segment || target || lod_issue27_portal_dl_target(w1)) {
+            saw_segment = saw_segment || segment;
+            saw_target = saw_target || target;
+            fprintf(stderr,
+                    "[ISSUE27_PORTAL_CHAIN] gfx-cmd %s node=0x%08X "
+                    "ptr=0x%08X words={%08X,%08X}%s%s\n",
+                    tag, node, before + off, w0, w1,
+                    segment ? " segment" : "",
+                    target ? " target" : "");
+        }
+    }
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] gfx-dl-summary %s node=0x%08X "
+            "sawSegment=%d sawTarget=%d\n",
+            tag, node, saw_segment ? 1 : 0, saw_target ? 1 : 0);
+}
+
+static void lod_trace_issue27_sceneLookup(uint8_t* rdram, recomp_context* ctx) {
+    const bool trace = lod_issue27_portal_trace_active() &&
+                       (lod_issue27_in_map25_init ||
+                        ((uint32_t)ctx->r4 == 1 &&
+                         (uint32_t)ctx->r5 == lod_issue23_u32(rdram, LOD_ISSUE27_SCENE_HEAD_PTR, 0)));
+    const uint32_t arg_kind = (uint32_t)ctx->r4;
+    const uint32_t arg_parent = (uint32_t)ctx->r5;
+    if (trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] sceneLookup pre inMap25Init=%d "
+                "kind=0x%08X parent=0x%08X expectedParent=0x%08X\n",
+                lod_issue27_in_map25_init ? 1 : 0, arg_kind, arg_parent,
+                lod_issue23_u32(rdram, LOD_ISSUE27_SCENE_HEAD_PTR, 0));
+        lod_issue27_log_portal_globals(rdram, "sceneLookup-pre");
+    }
+
+    if (lod_orig_issue27_sceneLookup != nullptr) {
+        lod_orig_issue27_sceneLookup(rdram, ctx);
+    }
+
+    if (trace) {
+        const uint32_t node = (uint32_t)ctx->r2;
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] sceneLookup post kind=0x%08X "
+                "parent=0x%08X result=0x%08X\n",
+                arg_kind, arg_parent, node);
+        lod_issue27_log_glow_node(rdram, "sceneLookup-result", 0, node);
+    }
+}
+
+static void lod_trace_issue27_map25_init(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] map25-init pre#%u obj=0x%08X obj24=0x%08X "
+            "obj10=0x%08X obj34=0x%08X obj70=0x%08X\n",
+            count, obj,
+            lod_issue23_u32(rdram, obj, 0x24),
+            lod_issue23_u32(rdram, obj, 0x10),
+            lod_issue23_u32(rdram, obj, 0x34),
+            lod_issue23_u32(rdram, obj, 0x70));
+    lod_issue27_log_portal_globals(rdram, "map25-init-pre");
+    lod_issue27_in_map25_init = true;
+    if (lod_orig_issue27_map25_init != nullptr) {
+        lod_orig_issue27_map25_init(rdram, ctx);
+    }
+    lod_issue27_in_map25_init = false;
+    const uint32_t node = lod_issue23_u32(rdram, obj, 0x24);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] map25-init post#%u obj=0x%08X obj24=0x%08X "
+            "obj34={%08X,%08X,%08X} obj70=0x%08X\n",
+            count, obj, node,
+            lod_issue23_u32(rdram, obj, 0x34),
+            lod_issue23_u32(rdram, obj, 0x38),
+            lod_issue23_u32(rdram, obj, 0x3C),
+            lod_issue23_u32(rdram, obj, 0x70));
+    lod_issue27_log_glow_node(rdram, "map25-init-node", obj, node);
+    lod_issue27_log_portal_globals(rdram, "map25-init-post");
+}
+
+static void lod_trace_issue27_map25_update(uint8_t* rdram, recomp_context* ctx) {
+    static uint32_t count = 0;
+    count++;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t node = lod_issue23_u32(rdram, obj, 0x24);
+    const bool sample = count <= 20 || (count % 60) == 0 || node == 0;
+    if (sample) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] map25-update pre#%u obj=0x%08X node=0x%08X "
+                "obj70=0x%08X fileSlot1C=0x%08X\n",
+                count, obj, node, lod_issue23_u32(rdram, obj, 0x70),
+                lod_issue27_file_slot_1c(rdram));
+        lod_issue27_log_glow_node(rdram, "map25-update-pre-node", obj, node);
+    }
+    if (lod_orig_issue27_map25_update != nullptr) {
+        lod_orig_issue27_map25_update(rdram, ctx);
+    }
+    if (sample) {
+        lod_issue27_log_glow_node(rdram, "map25-update-post-node", obj,
+                                  lod_issue23_u32(rdram, obj, 0x24));
+    }
+}
+
+static void lod_trace_issue27_gfx_emit_node_segment_commands(uint8_t* rdram,
+                                                             recomp_context* ctx) {
+    const uint32_t node = (uint32_t)ctx->r4;
+    const uint32_t dl_arg = (uint32_t)ctx->r5;
+    const bool trace = lod_issue27_portal_trace_active() &&
+                       lod_issue27_node_interesting(rdram, node, dl_arg);
+    const uint32_t before = trace ? lod_issue23_u32(rdram, LOD_ISSUE27_GFX_DL_PTR, 0) : 0;
+    if (trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_CHAIN] gfx-emit pre node=0x%08X arg=0x%08X "
+                "nodeDL=0x%08X fileId=0x%08X fileSlot=0x%08X writePtr=0x%08X\n",
+                node, dl_arg,
+                lod_issue23_u32(rdram, node, 0x3C),
+                lod_issue23_u32(rdram, node, 0x40),
+                lod_issue27_file_slot_for_node(rdram, node),
+                before);
+        lod_issue27_log_glow_node(rdram, "gfx-emit-node", 0, node);
+    }
+
+    if (lod_orig_issue27_gfx_emit_node_segment_commands != nullptr) {
+        lod_orig_issue27_gfx_emit_node_segment_commands(rdram, ctx);
+    }
+
+    if (trace) {
+        const uint32_t after = lod_issue23_u32(rdram, LOD_ISSUE27_GFX_DL_PTR, 0);
+        lod_issue27_dump_emitted_dl(rdram, "post", before, after, node, dl_arg);
+    }
+}
+
+static void lod_install_issue27_portal_chain_wrapper(uint32_t vram,
+                                                     recomp_func_t* wrapper,
+                                                     recomp_func_t** original_out,
+                                                     const char* name,
+                                                     const char* reason) {
+    recomp_func_t* current = get_function((int32_t)vram);
+    if (current == wrapper) {
+        return;
+    }
+
+    *original_out = current;
+    recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_CHAIN] installed %s wrapper vram=0x%08X "
+            "reason=%s original=%p wrapper=%p map#%d map=0x%08X\n",
+            name, vram, reason, (void*)current, (void*)wrapper,
+            lod_map_ovl_load_count, lod_current_map_ovl_rom);
+}
+
+static void lod_install_issue27_portal_chain_trace_wrappers(const char* reason) {
+    lod_install_issue27_portal_chain_wrapper(0x80005A30,
+        lod_trace_issue27_sceneLookup, &lod_orig_issue27_sceneLookup,
+        "sceneLookup", reason);
+    lod_install_issue27_portal_chain_wrapper(0x80006990,
+        lod_trace_issue27_gfx_emit_node_segment_commands,
+        &lod_orig_issue27_gfx_emit_node_segment_commands,
+        "gfx_emit_node_segment_commands", reason);
+    lod_install_issue27_portal_chain_wrapper(0x802E3BE0,
+        lod_trace_issue27_map25_init, &lod_orig_issue27_map25_init,
+        "map_ovl_25_func_802E3BE0", reason);
+    lod_install_issue27_portal_chain_wrapper(0x802E3D4C,
+        lod_trace_issue27_map25_update, &lod_orig_issue27_map25_update,
+        "map_ovl_25_func_802E3D4C", reason);
+}
+#else
+static void lod_install_issue27_portal_chain_trace_wrappers(const char* reason) {
+    (void)reason;
+}
+#endif
+
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+static void lod_trace_issue27_handoff_func_8001B788(uint8_t* rdram,
+                                                    recomp_context* ctx) {
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+    const uint32_t ra = (uint32_t)ctx->r31;
+    const LodIssue27HandoffSnapshot before = lod_issue27_handoff_snapshot(rdram);
+
+    if (lod_orig_issue27_handoff_func_8001B788 != nullptr) {
+        lod_orig_issue27_handoff_func_8001B788(rdram, ctx);
+    }
+
+    lod_issue27_handoff_log_if_changed(rdram, "func_8001B788", before,
+                                       ra, caller_symbol, caller_offset);
+}
+
+static void lod_trace_issue27_transition_trigger_func_801530C8(uint8_t* rdram,
+                                                               recomp_context* ctx) {
+    void* host_caller = __builtin_return_address(0);
+    const char* caller_symbol = "(unknown)";
+    uintptr_t caller_offset = 0;
+    lod_issue23_decode_host_caller(host_caller, &caller_symbol, &caller_offset);
+
+    const uint32_t ra = (uint32_t)ctx->r31;
+    const uint32_t obj = (uint32_t)ctx->r4;
+    const uint32_t data = lod_issue23_u32(rdram, obj, 0x34);
+    const uint32_t extra = lod_issue23_u32(rdram, obj, 0x70);
+    const uint8_t dst0 = lod_issue23_u8(rdram, data, 0x02);
+    const uint8_t dst1 = lod_issue23_u8(rdram, data, 0x03);
+    const uint8_t route = lod_issue23_u8(rdram, data, 0x04);
+    const uint32_t route_entry = 0x80190460u + ((uint32_t)route * 8u);
+    const LodIssue27HandoffSnapshot before = lod_issue27_handoff_snapshot(rdram);
+
+    fprintf(stderr,
+            "[ISSUE27_TRANSITION_TRIGGER] pre obj=0x%08X data=0x%08X extra=0x%08X "
+            "dataBytes={%02X,%02X,%02X,%02X,%02X,%02X,%02X,%02X} "
+            "route=%u routeEntry={%04X,%04X,%02X,%02X,%02X,%02X} "
+            "obj={depth=%d flags40=0x%08X pos=(%.2f,%.2f,%.2f)} "
+            "sys={2874=%d 28d0=%d 28d2=%d 2bb8=%d 2bba=%d 2bcc=0x%08X} "
+            "clock={285c=%d 285e=%d 2860=%d 2862=%d 2864=%d 2866=%d} "
+            "ra=0x%08X caller=%s+0x%lX\n",
+            obj, data, extra,
+            lod_issue23_u8(rdram, data, 0), lod_issue23_u8(rdram, data, 1),
+            dst0, dst1, route,
+            lod_issue23_u8(rdram, data, 5), lod_issue23_u8(rdram, data, 6),
+            lod_issue23_u8(rdram, data, 7),
+            route,
+            lod_issue23_u16(rdram, route_entry, 0),
+            lod_issue23_u16(rdram, route_entry, 2),
+            lod_issue23_u8(rdram, route_entry, 4),
+            lod_issue23_u8(rdram, route_entry, 5),
+            lod_issue23_u8(rdram, route_entry, 6),
+            lod_issue23_u8(rdram, route_entry, 7),
+            lod_issue23_s16(rdram, obj, 0x0E),
+            lod_issue23_u32(rdram, obj, 0x40),
+            lod_issue23_f32(rdram, obj, 0x10),
+            lod_issue23_f32(rdram, obj, 0x14),
+            lod_issue23_f32(rdram, obj, 0x18),
+            lod_issue23_s16(rdram, 0x801C82C0, 0x2874),
+            before.h28d0, before.h28d2, before.h2bb8, before.h2bba,
+            before.w2bcc,
+            before.clock.h285c, before.clock.h285e, before.clock.h2860,
+            before.clock.h2862, before.clock.h2864, before.clock.h2866,
+            ra, caller_symbol, (unsigned long)caller_offset);
+
+    if (lod_orig_issue27_transition_trigger_func_801530C8 != nullptr) {
+        lod_orig_issue27_transition_trigger_func_801530C8(rdram, ctx);
+    }
+
+    lod_issue27_handoff_log_if_changed(rdram, "func_801530C8", before,
+                                       ra, caller_symbol, caller_offset);
+}
+
+static void lod_install_issue27_transition_trigger_trace_wrapper(const char* reason) {
+    recomp_func_t* current = get_function((int32_t)0x801530C8);
+    if (current == lod_trace_issue27_transition_trigger_func_801530C8) {
+        return;
+    }
+
+    lod_orig_issue27_transition_trigger_func_801530C8 = current;
+    recomp::overlays::add_loaded_function((int32_t)0x801530C8,
+        lod_trace_issue27_transition_trigger_func_801530C8);
+    fprintf(stderr,
+            "[ISSUE27_TRANSITION_TRIGGER] installed wrapper vram=0x801530C8 "
+            "reason=%s original=%p wrapper=%p map#%d map=0x%08X\n",
+            reason, (void*)current,
+            (void*)lod_trace_issue27_transition_trigger_func_801530C8,
+            lod_map_ovl_load_count, lod_current_map_ovl_rom);
+}
+#endif
 
 static void lod_install_issue23_progression_trace_wrapper(uint32_t vram,
                                                           recomp_func_t* wrapper,
@@ -646,7 +1684,8 @@ static void lod_install_issue23_progression_trace_wrapper(uint32_t vram,
     *original_out = current;
     recomp::overlays::add_loaded_function((int32_t)vram, wrapper);
     fprintf(stderr,
-            "[ISSUE23_PROGRESS] installed %s wrapper vram=0x%08X reason=%s original=%p wrapper=%p\n",
+            "[%s_PROGRESS] installed %s wrapper vram=0x%08X reason=%s original=%p wrapper=%p\n",
+            lod_issue23_trace_prefix(lod_current_map_ovl_rom),
             name, vram, reason, (void*)current, (void*)wrapper);
 }
 
@@ -669,7 +1708,25 @@ static void lod_install_issue23_progression_trace_wrappers(const char* reason) {
     lod_install_issue23_progression_trace_wrapper(0x800900C4,
         lod_trace_issue23_clock_reset, &lod_orig_issue23_clock_reset,
         "clock.reset", reason);
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    lod_install_issue23_progression_trace_wrapper(0x8001B788,
+        lod_trace_issue27_handoff_func_8001B788,
+        &lod_orig_issue27_handoff_func_8001B788,
+        "handoff.func_8001B788", reason);
+#endif
 }
+
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+extern "C" void lod_install_issue27_flag_word_watch_early() {
+    lod_install_issue23_progression_trace_wrappers("issue27-flag-word-watch-init");
+}
+#endif
+
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+extern "C" void lod_install_issue27_handoff_global_watch_early() {
+    lod_install_issue23_progression_trace_wrappers("issue27-handoff-global-watch-init");
+}
+#endif
 
 static bool lod_issue23_log_sample(uint32_t count) {
     return count <= 120 || (count % 60) == 0;
@@ -792,6 +1849,106 @@ static void lod_install_issue23_map_trace_wrappers(const char* reason) {
 }
 #endif
 
+#if LOD_FIX_PAIR126_POST_HANDOFF_RELEASE
+static recomp_func_t* lod_orig_pair126_post_handoff_ni_system_handler = nullptr;
+
+static constexpr uint32_t LOD_PAIR126_POST_HANDOFF_EXEC_FLAGS_PHYS = 0x001CABC8;
+static constexpr uint32_t LOD_PAIR126_POST_HANDOFF_TRANSITION_LOCKED_FLAGS = 0x20000000;
+static constexpr uint32_t LOD_PAIR126_POST_HANDOFF_CONTROLLABLE_FLAGS = 0x38000000;
+static constexpr uint32_t LOD_PAIR126_POST_HANDOFF_MISSING_GAMEPLAY_FLAGS =
+    LOD_PAIR126_POST_HANDOFF_CONTROLLABLE_FLAGS &
+    ~LOD_PAIR126_POST_HANDOFF_TRANSITION_LOCKED_FLAGS;
+static constexpr uint32_t LOD_PAIR126_POST_HANDOFF_MAP_WINDOW = 4;
+
+static uint32_t lod_pair126_post_handoff_last_generation = 0;
+static uint32_t lod_pair126_post_handoff_last_map_count = 0;
+
+static bool lod_pair126_post_handoff_releasable(uint8_t* rdram) {
+    if (lod_current_gamestate(rdram) != 3 ||
+        !lod_rdram_range_ok(LOD_PAIR126_POST_HANDOFF_EXEC_FLAGS_PHYS, 4)) {
+        return false;
+    }
+
+    const uint32_t before =
+        *(uint32_t*)(rdram + LOD_PAIR126_POST_HANDOFF_EXEC_FLAGS_PHYS);
+    return (before & LOD_PAIR126_POST_HANDOFF_TRANSITION_LOCKED_FLAGS) != 0 &&
+        (before & LOD_PAIR126_POST_HANDOFF_MISSING_GAMEPLAY_FLAGS) !=
+            LOD_PAIR126_POST_HANDOFF_MISSING_GAMEPLAY_FLAGS;
+}
+
+static void lod_pair126_release_post_handoff_if_needed(uint8_t* rdram) {
+    const uint32_t generation = lod_pair126_input_release_generation();
+    if (generation == 0) {
+        return;
+    }
+
+    const uint32_t pair126_map_count = lod_pair126_input_release_map_count();
+    const uint32_t current_map_count = (uint32_t)lod_map_ovl_load_count;
+    if (current_map_count <= pair126_map_count ||
+        current_map_count > pair126_map_count + LOD_PAIR126_POST_HANDOFF_MAP_WINDOW) {
+        return;
+    }
+
+    if (generation == lod_pair126_post_handoff_last_generation &&
+        current_map_count == lod_pair126_post_handoff_last_map_count) {
+        return;
+    }
+
+    if (!lod_pair126_post_handoff_releasable(rdram)) {
+        return;
+    }
+
+    uint32_t* exec_flags =
+        (uint32_t*)(rdram + LOD_PAIR126_POST_HANDOFF_EXEC_FLAGS_PHYS);
+    const uint32_t before = *exec_flags;
+    const uint32_t after = before | LOD_PAIR126_POST_HANDOFF_MISSING_GAMEPLAY_FLAGS;
+    *exec_flags = after;
+
+    lod_pair126_post_handoff_last_generation = generation;
+    lod_pair126_post_handoff_last_map_count = current_map_count;
+
+    static int release_log_count = 0;
+    release_log_count++;
+    if (release_log_count <= 8 || (release_log_count % 120) == 0) {
+        fprintf(stderr,
+                "[PAIR126_POST_HANDOFF_RELEASE_FIX] #%d gen=%u pair126_map#%u "
+                "current_map#%u map=0x%08X size=0x%X exec 0x%08X -> 0x%08X\n",
+                release_log_count, generation, pair126_map_count, current_map_count,
+                lod_current_map_ovl_rom, lod_current_map_ovl_size, before, after);
+    }
+}
+
+static void lod_fix_pair126_post_handoff_ni_system_handler(uint8_t* rdram,
+                                                           recomp_context* ctx) {
+    if (lod_orig_pair126_post_handoff_ni_system_handler != nullptr) {
+        lod_orig_pair126_post_handoff_ni_system_handler(rdram, ctx);
+    }
+    lod_pair126_release_post_handoff_if_needed(rdram);
+}
+
+extern "C" void lod_install_pair126_post_handoff_release_wrapper_early() {
+    constexpr uint32_t ni_system_handler_vram = 0x8001B9A0;
+    recomp_func_t* current = get_function((int32_t)ni_system_handler_vram);
+    if (current == lod_fix_pair126_post_handoff_ni_system_handler) {
+        return;
+    }
+
+    lod_orig_pair126_post_handoff_ni_system_handler = current;
+    recomp::overlays::add_loaded_function((int32_t)ni_system_handler_vram,
+        lod_fix_pair126_post_handoff_ni_system_handler);
+
+    static int install_log_count = 0;
+    install_log_count++;
+    if (install_log_count <= 2) {
+        fprintf(stderr,
+                "[PAIR126_POST_HANDOFF_RELEASE_FIX] installed ni_system_handler "
+                "wrapper original=%p wrapper=%p\n",
+                (void*)current,
+                (void*)lod_fix_pair126_post_handoff_ni_system_handler);
+    }
+}
+#endif
+
 static bool lod_decode_rdram_phys_addr(uint32_t addr, uint32_t size, uint32_t* phys_out) {
     if (size > 0x800000) {
         return false;
@@ -888,19 +2045,55 @@ void func_80012ED0(uint8_t* rdram, recomp_context* ctx) {
                 lod_map_ovl_load_count++;
                 lod_current_map_ovl_rom = rom_start;
                 lod_current_map_ovl_size = full_size;
-#if LOD_ENABLE_ISSUE23_TRACE
+#if LOD_ENABLE_ISSUE_PROGRESS_TRACE
                 if (lod_issue23_map_rom(rom_start)) {
                     fprintf(stderr,
-                            "[ISSUE23_MAP] map#%d rom=0x%08X dst=0x%08X full=0x%X requested=0x%X "
+                            "[%s_MAP] map#%d rom=0x%08X dst=0x%08X full=0x%X requested=0x%X "
                             "ctrl=0x%08X gs=%d exec=0x%08X ni=0x%08X\n",
+                            lod_issue23_trace_prefix(rom_start),
                             lod_map_ovl_load_count, rom_start, vram_dest, full_size, size,
                             ctrl, lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
                             lod_current_ni_sys_ptr(rdram));
-                    lod_install_issue23_progression_trace_wrappers("issue23-map-load");
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+                    const uint32_t issue27_flags = lod_issue27_watch_word(rdram);
+                    fprintf(stderr,
+                            "[ISSUE27_FLAG_WORD] map-load#%d map#%d map=0x%08X "
+                            "gs=%d exec=0x%08X word=0x%08X pack2A0_2A9=0x%03X "
+                            "pack2A4_2A9=0x%02X\n",
+                            lod_map_ovl_load_count, lod_map_ovl_load_count, rom_start,
+                            lod_current_gamestate(rdram), lod_current_exec_flags(rdram),
+                            issue27_flags,
+                            lod_issue27_flag_range_pack(issue27_flags, 0x2A0, 10),
+                            lod_issue27_flag_range_pack(issue27_flags, 0x2A4, 6));
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+                    lod_issue27_handoff_log_baseline(rdram, "map-load");
+                    lod_install_issue27_transition_trigger_trace_wrapper("issue-map-load");
+#endif
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+                    if (rom_start == LOD_ISSUE27_POST_HARPY_MAP_ROM) {
+                        lod_issue27_log_portal_globals(rdram, "map-load");
+                        lod_install_issue27_portal_chain_trace_wrappers("post-harpy-map-load");
+                    }
+#endif
+#if LOD_ENABLE_ISSUE23_TRACE || LOD_ENABLE_ISSUE27_NI129_TRACE || \
+    LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH || LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+                    lod_install_issue23_progression_trace_wrappers("issue-map-load");
+#endif
                 }
+#if LOD_ENABLE_ISSUE27_STATE_SNAPSHOT
+                if (lod_issue27_state_snapshot_map_rom(rom_start)) {
+                    lod_issue27_state_snapshot_log(rdram, "map-load",
+                                                   (uint32_t)lod_map_ovl_load_count, 0);
+                    lod_install_issue23_progression_trace_wrappers(
+                        "issue27-state-snapshot-map-load");
+                }
+#endif
+#if LOD_ENABLE_ISSUE23_TRACE
                 if (rom_start == LOD_ISSUE23_DEST_MAP_ROM) {
                     lod_install_issue23_map_trace_wrappers("map42-load");
                 }
+#endif
 #endif
 #if LOD_ENABLE_B2_ASSET_TRACE
                 if (rom_start == LOD_B2_TRACE_MAP_ROM) {
@@ -7256,6 +8449,10 @@ void __osSiRawStartDma_recomp(uint8_t* rdram, recomp_context* ctx) {
                 WR_MEM_B(pif, response_start + 1, buttons & 0xFF);
                 WR_MEM_B(pif, response_start + 2, sx);
                 WR_MEM_B(pif, response_start + 3, sy);
+
+#if LOD_ENABLE_ISSUE27_PAUSE_GATE_TRACE
+                lod_issue27_pause_gate_trace(rdram, buttons, (int8_t)sx, (int8_t)sy);
+#endif
 
 #if LOD_ENABLE_INPUT_TRACE
                 {

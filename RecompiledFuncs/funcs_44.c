@@ -2,6 +2,220 @@
 #include "funcs.h"
 #include "lod_symbols.h"
 
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+#include <stdbool.h>
+#include <stdio.h>
+
+extern uint32_t lod_current_map_overlay_rom(void);
+
+static inline bool lod_issue27_recomp_addr_ok(uint32_t addr, uint32_t size) {
+    const uint32_t phys = addr & 0x1FFFFFFFu;
+    return phys <= 0x800000u && size <= 0x800000u - phys;
+}
+
+static inline float lod_issue27_recomp_f32(uint32_t bits) {
+    union {
+        uint32_t u;
+        float f;
+    } cvt;
+    cvt.u = bits;
+    return cvt.f;
+}
+
+static inline gpr lod_issue27_recomp_addr_gpr(uint32_t addr) {
+    return (gpr)(int32_t)addr;
+}
+
+#define LOD_ISSUE27_RECOMP_MEM_W(offset, addr) MEM_W((offset), lod_issue27_recomp_addr_gpr((addr)))
+#define LOD_ISSUE27_RECOMP_MEM_H(offset, addr) MEM_H((offset), lod_issue27_recomp_addr_gpr((addr)))
+#define LOD_ISSUE27_RECOMP_MEM_HU(offset, addr) MEM_HU((offset), lod_issue27_recomp_addr_gpr((addr)))
+
+static bool lod_issue27_recomp_map25_entry(uint8_t* rdram, uint32_t entry) {
+    if (lod_current_map_overlay_rom() != 0x007D3C90u ||
+        entry == 0 || !lod_issue27_recomp_addr_ok(entry, 0x20)) {
+        return false;
+    }
+    const uint16_t id = LOD_ISSUE27_RECOMP_MEM_HU(0x10, entry) & 0x07FFu;
+    return id == 0x01B9u || id == 0x022Eu ||
+           (entry >= 0x802E3FE8u && entry <= 0x802E41A8u);
+}
+
+static void lod_issue27_recomp_dump_entry(uint8_t* rdram, const char* tag,
+                                          uint32_t entry) {
+    if (entry == 0 || !lod_issue27_recomp_addr_ok(entry, 0x20)) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] %s entry=0x%08X invalid\n",
+                tag, entry);
+        return;
+    }
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_SPAWN] %s entry=0x%08X flags0=0x%04X flags2=0x%04X "
+            "pos=(%.2f,%.2f,%.2f) id10=0x%04X h12=0x%04X h14=0x%04X "
+            "h16=0x%04X w18=0x%08X w1C=0x%08X\n",
+            tag, entry,
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x00, entry), (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x02, entry),
+            lod_issue27_recomp_f32((uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x04, entry)),
+            lod_issue27_recomp_f32((uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x08, entry)),
+            lod_issue27_recomp_f32((uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x0C, entry)),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x10, entry), (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x12, entry),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x14, entry), (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x16, entry),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x18, entry), (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x1C, entry));
+}
+
+static void lod_issue27_recomp_dump_obj(uint8_t* rdram, const char* tag,
+                                        uint32_t obj) {
+    if (obj == 0 || !lod_issue27_recomp_addr_ok(obj, 0x74)) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] %s obj=0x%08X invalid\n",
+                tag, obj);
+        return;
+    }
+    fprintf(stderr,
+            "[ISSUE27_PORTAL_SPAWN] %s obj=0x%08X id=0x%04X flags=0x%04X "
+            "funcinfo={0x%04X,0x%04X,0x%04X} depth=%d destroy=0x%08X "
+            "parent=0x%08X next=0x%08X child=0x%08X obj24=0x%08X "
+            "data34=0x%08X data68=0x%08X data6c=0x%08X data70=0x%08X\n",
+            tag, obj, (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x00, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x02, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x08, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x0A, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_HU(0x0C, obj), (int32_t)LOD_ISSUE27_RECOMP_MEM_H(0x0E, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x10, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x14, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x18, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x1C, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x24, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x34, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x68, obj), (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x6C, obj),
+            (uint32_t)LOD_ISSUE27_RECOMP_MEM_W(0x70, obj));
+}
+#endif
+
+#if LOD_ENABLE_NI0E_TRACE
+#include <stdbool.h>
+#include <stdio.h>
+
+// Round 2: spawn probe for func_80142FA8 (object_createAndSetChild wrapper,
+// below), independent of the ISSUE27 flag. Round 1 found essentially no
+// 0x0E-range dispatches for the actor/platform/NPC id range (0x018-0x087) or
+// the pause manager (0x0AB) during waterway gameplay; this checks whether
+// these objects are even being spawned in the focus maps. Mirrors the
+// LOD_ISSUE27_RECOMP_MEM_* pattern above but is self-contained under
+// LOD_ENABLE_NI0E_TRACE. See docs/issue27-31-ni0e-findings.md.
+extern uint32_t lod_current_map_overlay_rom(void);
+
+static inline bool lod_ni0e_spawn_addr_ok(uint32_t addr, uint32_t size) {
+    const uint32_t phys = addr & 0x1FFFFFFFu;
+    return addr != 0 && phys <= 0x800000u && size <= 0x800000u - phys;
+}
+
+static inline gpr lod_ni0e_spawn_addr_gpr(uint32_t addr) {
+    return (gpr)(int32_t)addr;
+}
+
+#define LOD_NI0E_SPAWN_MEM_W(offset, addr) MEM_W((offset), lod_ni0e_spawn_addr_gpr((addr)))
+#define LOD_NI0E_SPAWN_MEM_HU(offset, addr) MEM_HU((offset), lod_ni0e_spawn_addr_gpr((addr)))
+
+static bool lod_ni0e_spawn_focus_map(void) {
+    const uint32_t rom = lod_current_map_overlay_rom();
+    return rom == 0x007A2D70u || rom == 0x007932D0u || rom == 0x007D4420u ||
+           rom == 0x007D3C90u;
+}
+
+static bool lod_ni0e_spawn_id_of_interest(uint32_t id_arg) {
+    const uint32_t id = id_arg & 0x7FFu;
+    return id == 0x0ABu || (id >= 0x018u && id <= 0x087u);
+}
+
+static void lod_ni0e_spawn_dump_obj(uint8_t* rdram, const char* tag, uint32_t obj) {
+    if (!lod_ni0e_spawn_addr_ok(obj, 0x38)) {
+        fprintf(stderr, "[NI0E_TRACE] %s obj=0x%08X invalid\n", tag, obj);
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] %s obj=0x%08X id=0x%04X flags=0x%04X handler=0x%08X "
+            "parent=0x%08X next=0x%08X child=0x%08X data34=0x%08X\n",
+            tag, obj,
+            (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x0, obj), (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x2, obj),
+            (uint32_t)LOD_NI0E_SPAWN_MEM_W(0x10, obj), (uint32_t)LOD_NI0E_SPAWN_MEM_W(0x14, obj),
+            (uint32_t)LOD_NI0E_SPAWN_MEM_W(0x18, obj), (uint32_t)LOD_NI0E_SPAWN_MEM_W(0x1C, obj),
+            (uint32_t)LOD_NI0E_SPAWN_MEM_W(0x34, obj));
+}
+
+static uint32_t lod_ni0e_spawn_calls = 0;
+
+// Round 3: widened spawn logging (all ids in a focus map, not just the
+// id-of-interest range) plus a live spawn-result export. The census in
+// main.cpp hardcodes root 0x8031AC78, which round-2 found stale for live
+// sessions (only one id-0 node reachable from it even though spawns prove a
+// live tree exists). This global always holds the most recent non-null
+// spawn result seen in a focus map so the census can walk its +0x14 parent
+// chain up to the real live root instead. Declared non-static so main.cpp
+// can pick it up via `extern "C"`.
+uint32_t lod_ni0e_last_spawn_obj = 0;
+static uint32_t lod_ni0e_spawn_all_calls = 0;
+
+// Round 4: gate probe for func_801420A8 (the spawn-entry gate, below). Round
+// 3 established that the one NI-class map entry (0x802E8AE8, id10=0x2025)
+// never reaches func_80142FA8; this logs EVERY gate evaluation in a focus
+// map so we can see the entry's raw fields and the gate's verdict directly,
+// instead of inferring it from absence downstream. The gate's ~13 early-exit
+// branches all key off flags0 (+0x00) plus a global "story/chapter" state
+// byte it reads at RDRAM 0x801CAB34 (sys+0x2874, `lui v1,0x801D / lh
+// v1,-0x54CC(v1)`, funcs_44.c ~0x801420E0); logging that global alongside
+// flags0/id10 lets the specific branch be reconstructed offline without
+// instrumenting all 13 goto sites individually. Cap: first 120 + every
+// 200th.
+static uint32_t lod_ni0e_gate_calls = 0;
+
+static void lod_ni0e_gate_probe(uint8_t* rdram, uint32_t entry, int32_t result) {
+    if (!lod_ni0e_spawn_focus_map()) {
+        return;
+    }
+    lod_ni0e_gate_calls++;
+    if (lod_ni0e_gate_calls > 120u && (lod_ni0e_gate_calls % 200u) != 0u) {
+        return;
+    }
+    if (!lod_ni0e_spawn_addr_ok(entry, 0x20)) {
+        fprintf(stderr, "[NI0E_TRACE] gate entry=0x%08X invalid result=%d call=%u\n", entry,
+                result, lod_ni0e_gate_calls);
+        return;
+    }
+    const uint32_t flags0 = (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x0, entry);
+    const uint32_t id10 = (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x10, entry);
+    const uint32_t gamestate_addr = (0x801Du << 16) - 0x54CCu;  // RDRAM 0x801CAB34
+    const uint32_t gamestate = (uint32_t)(uint16_t)LOD_NI0E_SPAWN_MEM_HU(0x0, gamestate_addr);
+    fprintf(stderr,
+            "[NI0E_TRACE] gate entry=0x%08X flags0=0x%04X id10=0x%04X gamestate=0x%04X "
+            "result=%d call=%u\n",
+            entry, flags0, id10, gamestate, result, lod_ni0e_gate_calls);
+}
+
+// Round 4: iterator skip-before-gate probe. All five gate-calling iterator
+// functions below (func_80141BEC/func_80141D04/func_80141F00/func_80142AA0/
+// func_80142C38) share the same per-entry skip conditions that bypass
+// func_801420A8 entirely: id10 (+0x10, signed) == -1 (empty/deleted slot),
+// or flags2 (+0x02) bit 0x8000 set (per-instance disabled), or (in the
+// func_80141D04/func_80141F00 trigger-list variant) a proximity check via
+// func_80142388 failing / flags2 bit 0x1000 already set, or (in the
+// func_80142AA0/func_80142C38 variant) flags2 bit 0x1000 set outright. Cap
+// 60 total, shared across all call sites/reasons.
+static uint32_t lod_ni0e_gate_skip_calls = 0;
+
+static void lod_ni0e_gate_skip_probe(uint8_t* rdram, uint32_t entry, const char* reason) {
+    if (!lod_ni0e_spawn_focus_map() || lod_ni0e_gate_skip_calls >= 60u) {
+        return;
+    }
+    lod_ni0e_gate_skip_calls++;
+    if (!lod_ni0e_spawn_addr_ok(entry, 0x20)) {
+        fprintf(stderr, "[NI0E_TRACE] gate-iter-skip entry=0x%08X reason=%s invalid\n", entry,
+                reason);
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] gate-iter-skip entry=0x%08X reason=%s flags0=0x%04X flags2=0x%04X "
+            "id10=0x%04X\n",
+            entry, reason, (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x0, entry),
+            (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x2, entry),
+            (uint32_t)LOD_NI0E_SPAWN_MEM_HU(0x10, entry));
+}
+#endif  // LOD_ENABLE_NI0E_TRACE
+
 RECOMP_FUNC void func_80141BEC(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -42,6 +256,9 @@ L_80141C24:
     if (ctx->r19 == ctx->r24) {
         // 0x80141C28: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "id-sentinel");
+#endif
             goto L_80141CBC;
     }
     goto skip_0;
@@ -56,6 +273,9 @@ L_80141C24:
     if (ctx->r8 != 0) {
         // 0x80141C38: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x8000");
+#endif
             goto L_80141CBC;
     }
     goto skip_1;
@@ -266,6 +486,9 @@ L_80141D44:
     if (ctx->r19 == ctx->r24) {
         // 0x80141D48: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "id-sentinel");
+#endif
             goto L_80141E0C;
     }
     goto skip_0;
@@ -280,6 +503,9 @@ L_80141D44:
     if (ctx->r8 != 0) {
         // 0x80141D58: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x8000");
+#endif
             goto L_80141E0C;
     }
     goto skip_1;
@@ -311,6 +537,9 @@ L_80141D44:
     // 0x80141D74: b           L_80141E08
     // 0x80141D78: sh          $t2, 0x2($s1)
     MEM_H(0X2, ctx->r17) = ctx->r10;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "trigger-check-fail");
+#endif
         goto L_80141E08;
     // 0x80141D78: sh          $t2, 0x2($s1)
     MEM_H(0X2, ctx->r17) = ctx->r10;
@@ -323,6 +552,9 @@ L_80141D80:
     if (ctx->r12 != 0) {
         // 0x80141D88: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x1000");
+#endif
             goto L_80141E0C;
     }
     goto skip_3;
@@ -523,6 +755,40 @@ L_80141E64:
     // 0x80141E7C: addiu       $sp, $sp, 0x30
     ctx->r29 = ADD32(ctx->r29, 0X30);
 ;}
+#if LOD_ENABLE_NI0E_TRACE
+// Round 13: activation-chain producer #2a (0x8019D198, the "activation
+// control block" +0x18 field bgState_activate's AND-gate also requires; see
+// docs/issue27-31-fix-design.md section 4.3 and
+// docs/issue27-31-ni0e-findings.md Round 13). func_80141E80 below tests
+// "still pending?" via func_801424C4 on (a) *(obj+0x38 != 0 ? obj :
+// *(obj+0x34))+0x38 and (b) obj+0x34 directly (only reached if (a) returned
+// not-pending); only when BOTH calls return 0 does it increment 0x8019D198
+// and finalize. The guard probe logs both func_801424C4 results (0 =
+// pending-clear, nonzero = still pending) plus which of the two checks
+// short-circuited (if any). Cap: first 40 + every 600th.
+static uint32_t lod_ni0e_actprod2a_guard_calls = 0;
+
+static void lod_ni0e_actprod2a_guard_probe(uint32_t obj, int32_t check1_result,
+                                            int32_t check2_result, const char* outcome) {
+    lod_ni0e_actprod2a_guard_calls++;
+    if (lod_ni0e_actprod2a_guard_calls > 40u && (lod_ni0e_actprod2a_guard_calls % 600u) != 0u) {
+        return;
+    }
+    fprintf(stderr,
+            "[NI0E_TRACE] activation-prod2a-guard #%u obj=0x%08X check1=%d check2=%d "
+            "outcome=%s map_rom=0x%08X\n",
+            lod_ni0e_actprod2a_guard_calls, obj, check1_result, check2_result, outcome,
+            lod_current_map_overlay_rom());
+}
+
+// Increment-site probe: always logs (rare -- only fires when both checks
+// above pass). Logs the pre/post value of 0x8019D198 itself.
+static void lod_ni0e_actprod2a_incr_probe(uint32_t before, uint32_t after) {
+    fprintf(stderr,
+            "[NI0E_TRACE] activation-prod2a gate2_before=0x%08X gate2_after=0x%08X map_rom=0x%08X\n",
+            before, after, lod_current_map_overlay_rom());
+}
+#endif  // LOD_ENABLE_NI0E_TRACE
 RECOMP_FUNC void func_80141E80(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
@@ -558,6 +824,9 @@ RECOMP_FUNC void func_80141E80(uint8_t* rdram, recomp_context* ctx) {
     if (ctx->r2 != 0) {
         // 0x80141EA8: lw          $a2, 0x18($sp)
         ctx->r6 = MEM_W(ctx->r29, 0X18);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_actprod2a_guard_probe((uint32_t)ctx->r6, (int32_t)ctx->r2, -2, "pending-check1");
+#endif
             goto L_80141EF0;
     }
     // 0x80141EA8: lw          $a2, 0x18($sp)
@@ -568,7 +837,9 @@ L_80141EB0:
     // 0x80141EB0: beq         $a0, $zero, L_80141EC8
     if (ctx->r4 == 0) {
         // 0x80141EB4: nop
-    
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_actprod2a_guard_probe((uint32_t)ctx->r6, 0, -2, "clear-fire-check2-null");
+#endif
             goto L_80141EC8;
     }
     // 0x80141EB4: nop
@@ -585,10 +856,16 @@ L_80141EB0:
     if (ctx->r2 != 0) {
         // 0x80141EC4: lw          $a2, 0x18($sp)
         ctx->r6 = MEM_W(ctx->r29, 0X18);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_actprod2a_guard_probe((uint32_t)ctx->r6, 0, (int32_t)ctx->r2, "pending-check2");
+#endif
             goto L_80141EF0;
     }
     // 0x80141EC4: lw          $a2, 0x18($sp)
     ctx->r6 = MEM_W(ctx->r29, 0X18);
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_actprod2a_guard_probe((uint32_t)ctx->r6, 0, 0, "clear-fire");
+#endif
 L_80141EC8:
     // 0x80141EC8: lui         $v0, 0x801A
     ctx->r2 = S32(0X801A << 16);
@@ -604,6 +881,9 @@ L_80141EC8:
     ctx->r24 = ADD32(ctx->r15, 0X1);
     // 0x80141EE0: sw          $t8, 0x18($v0)
     MEM_W(0X18, ctx->r2) = ctx->r24;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_actprod2a_incr_probe((uint32_t)ctx->r15, (uint32_t)ctx->r24);
+#endif
     // 0x80141EE4: addiu       $a0, $a2, 0x8
     ctx->r4 = ADD32(ctx->r6, 0X8);
     // 0x80141EE8: jalr        $t9
@@ -660,6 +940,9 @@ L_80141F34:
     if (ctx->r19 == ctx->r14) {
         // 0x80141F38: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "id-sentinel");
+#endif
             goto L_80141FFC;
     }
     goto skip_0;
@@ -674,6 +957,9 @@ L_80141F34:
     if (ctx->r24 != 0) {
         // 0x80141F48: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x8000");
+#endif
             goto L_80141FFC;
     }
     goto skip_1;
@@ -705,6 +991,9 @@ L_80141F34:
     // 0x80141F64: b           L_80141FF8
     // 0x80141F68: sh          $t0, 0x2($s1)
     MEM_H(0X2, ctx->r17) = ctx->r8;
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "trigger-check-fail");
+#endif
         goto L_80141FF8;
     // 0x80141F68: sh          $t0, 0x2($s1)
     MEM_H(0X2, ctx->r17) = ctx->r8;
@@ -717,6 +1006,9 @@ L_80141F70:
     if (ctx->r10 != 0) {
         // 0x80141F78: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x1000");
+#endif
             goto L_80141FFC;
     }
     goto skip_3;
@@ -950,6 +1242,19 @@ L_80142090:
 RECOMP_FUNC void func_801420A8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    const uint32_t issue27_entry = (uint32_t)ctx->r4;
+    const bool issue27_trace = lod_issue27_recomp_map25_entry(rdram, issue27_entry);
+    if (issue27_trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] gate pre entry=0x%08X map=0x%08X\n",
+                issue27_entry, lod_current_map_overlay_rom());
+        lod_issue27_recomp_dump_entry(rdram, "gate-pre", issue27_entry);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    const uint32_t ni0e_gate_entry = (uint32_t)ctx->r4;
+#endif
     // 0x801420A8: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x801420AC: sw          $ra, 0x14($sp)
@@ -1542,6 +1847,17 @@ L_80142374:
     // 0x80142374: addiu       $v0, $zero, 0x1
     ctx->r2 = ADD32(0, 0X1);
 L_80142378:
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] gate post entry=0x%08X result=%d\n",
+                issue27_entry, (int32_t)ctx->r2);
+        lod_issue27_recomp_dump_entry(rdram, "gate-post", issue27_entry);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_gate_probe(rdram, ni0e_gate_entry, (int32_t)ctx->r2);
+#endif
     // 0x80142378: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
     // 0x8014237C: addiu       $sp, $sp, 0x18
@@ -2770,6 +3086,9 @@ L_80142ADC:
     if (ctx->r20 == ctx->r15) {
         // 0x80142AE0: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "id-sentinel");
+#endif
             goto L_80142B7C;
     }
     goto skip_0;
@@ -2784,6 +3103,9 @@ L_80142ADC:
     if (ctx->r24 != 0) {
         // 0x80142AF0: andi        $t9, $v0, 0x1000
         ctx->r25 = ctx->r2 & 0X1000;
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x8000");
+#endif
             goto L_80142B78;
     }
     // 0x80142AF0: andi        $t9, $v0, 0x1000
@@ -2792,6 +3114,9 @@ L_80142ADC:
     if (ctx->r25 != 0) {
         // 0x80142AF8: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x1000");
+#endif
             goto L_80142B7C;
     }
     goto skip_1;
@@ -3088,6 +3413,9 @@ L_80142C74:
     if (ctx->r20 == ctx->r15) {
         // 0x80142C78: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "id-sentinel");
+#endif
             goto L_80142D14;
     }
     goto skip_0;
@@ -3102,6 +3430,9 @@ L_80142C74:
     if (ctx->r24 != 0) {
         // 0x80142C88: andi        $t9, $v0, 0x1000
         ctx->r25 = ctx->r2 & 0X1000;
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x8000");
+#endif
             goto L_80142D10;
     }
     // 0x80142C88: andi        $t9, $v0, 0x1000
@@ -3110,6 +3441,9 @@ L_80142C74:
     if (ctx->r25 != 0) {
         // 0x80142C90: lhu         $v0, 0x0($s1)
         ctx->r2 = MEM_HU(ctx->r17, 0X0);
+#if LOD_ENABLE_NI0E_TRACE
+        lod_ni0e_gate_skip_probe(rdram, (uint32_t)ctx->r17, "flags2-0x1000");
+#endif
             goto L_80142D14;
     }
     goto skip_1;
@@ -3748,6 +4082,59 @@ RECOMP_FUNC void func_80142F9C(uint8_t* rdram, recomp_context* ctx) {
 RECOMP_FUNC void func_80142FA8(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    const uint32_t issue27_parent = (uint32_t)ctx->r4;
+    const uint32_t issue27_id_arg = (uint32_t)ctx->r5;
+    const uint32_t issue27_entry = (uint32_t)ctx->r6;
+    const uint32_t issue27_aux = (uint32_t)ctx->r7;
+    const bool issue27_trace = lod_issue27_recomp_map25_entry(rdram, issue27_entry) ||
+                               (lod_current_map_overlay_rom() == 0x007D3C90u &&
+                                ((issue27_id_arg & 0x07FFu) == 0x01B9u ||
+                                 (issue27_id_arg & 0x07FFu) == 0x022Eu));
+    if (issue27_trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] spawn pre parent=0x%08X idArg=0x%08X "
+                "entry=0x%08X aux=0x%08X map=0x%08X\n",
+                issue27_parent, issue27_id_arg, issue27_entry, issue27_aux,
+                lod_current_map_overlay_rom());
+        lod_issue27_recomp_dump_entry(rdram, "spawn-pre", issue27_entry);
+        lod_issue27_recomp_dump_obj(rdram, "spawn-parent", issue27_parent);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    const uint32_t ni0e_spawn_parent = (uint32_t)ctx->r4;
+    const uint32_t ni0e_spawn_id_arg = (uint32_t)ctx->r5;
+    const uint32_t ni0e_spawn_entry = (uint32_t)ctx->r6;
+    const uint32_t ni0e_spawn_aux = (uint32_t)ctx->r7;
+    // Round 3: cache the focus-map check once so the widened all-ids probe
+    // (below) and the existing id-of-interest probe share it.
+    const bool ni0e_spawn_in_focus_map = lod_ni0e_spawn_focus_map();
+    bool ni0e_spawn_trace = false;
+    uint32_t ni0e_spawn_log_index = 0;
+    bool ni0e_spawn_all_trace = false;
+    uint32_t ni0e_spawn_all_log_index = 0;
+    if (ni0e_spawn_in_focus_map) {
+        // Round 3: widened spawn probe. Round 2 only logged spawns for ids
+        // 0x0AB/0x018-0x087; this covers every spawn attempt in a focus map
+        // (compact one-liner, see the post-spawn block) so ids like 0x027
+        // (the 22-object waterway population) are visible too.
+        ni0e_spawn_all_log_index = ++lod_ni0e_spawn_all_calls;
+        ni0e_spawn_all_trace = ni0e_spawn_all_log_index <= 200u ||
+                               (ni0e_spawn_all_log_index % 100u) == 0u;
+    }
+    if (ni0e_spawn_in_focus_map && lod_ni0e_spawn_id_of_interest(ni0e_spawn_id_arg)) {
+        ni0e_spawn_log_index = ++lod_ni0e_spawn_calls;
+        ni0e_spawn_trace = ni0e_spawn_log_index <= 80u || (ni0e_spawn_log_index % 300u) == 0u;
+        if (ni0e_spawn_trace) {
+            fprintf(stderr,
+                    "[NI0E_TRACE] spawn-pre parent=0x%08X idArg=0x%08X entry=0x%08X "
+                    "aux=0x%08X map=0x%08X call=%u\n",
+                    ni0e_spawn_parent, ni0e_spawn_id_arg, ni0e_spawn_entry, ni0e_spawn_aux,
+                    lod_current_map_overlay_rom(), ni0e_spawn_log_index);
+            lod_ni0e_spawn_dump_obj(rdram, "spawn-pre-parent", ni0e_spawn_parent);
+        }
+    }
+#endif
     // 0x80142FA8: addiu       $sp, $sp, -0x18
     ctx->r29 = ADD32(ctx->r29, -0X18);
     // 0x80142FAC: sw          $ra, 0x14($sp)
@@ -4089,6 +4476,41 @@ L_80143138:
     // 0x80143138: or          $v0, $v1, $zero
     ctx->r2 = ctx->r3 | 0;
 L_8014313C:
+#if LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE
+    if (issue27_trace) {
+        fprintf(stderr,
+                "[ISSUE27_PORTAL_SPAWN] spawn post parent=0x%08X idArg=0x%08X "
+                "entry=0x%08X aux=0x%08X result=0x%08X\n",
+                issue27_parent, issue27_id_arg, issue27_entry, issue27_aux,
+                (uint32_t)ctx->r2);
+        lod_issue27_recomp_dump_entry(rdram, "spawn-post-entry", issue27_entry);
+        lod_issue27_recomp_dump_obj(rdram, "spawn-result", (uint32_t)ctx->r2);
+    }
+#endif
+#if LOD_ENABLE_NI0E_TRACE
+    if (ni0e_spawn_in_focus_map) {
+        const uint32_t ni0e_spawn_result = (uint32_t)ctx->r2;
+        // Export the freshest live spawn result regardless of id or the
+        // print-rate cap below, so main.cpp's census can always walk from
+        // it; see the comment on lod_ni0e_last_spawn_obj's declaration.
+        if (ni0e_spawn_result != 0) {
+            lod_ni0e_last_spawn_obj = ni0e_spawn_result;
+        }
+        if (ni0e_spawn_all_trace) {
+            fprintf(stderr,
+                    "[NI0E_TRACE] spawn id=0x%03X entry=0x%08X result=0x%08X\n",
+                    ni0e_spawn_id_arg & 0x7FFu, ni0e_spawn_entry, ni0e_spawn_result);
+        }
+    }
+    if (ni0e_spawn_trace) {
+        fprintf(stderr,
+                "[NI0E_TRACE] spawn-post parent=0x%08X idArg=0x%08X entry=0x%08X "
+                "aux=0x%08X result=0x%08X call=%u\n",
+                ni0e_spawn_parent, ni0e_spawn_id_arg, ni0e_spawn_entry, ni0e_spawn_aux,
+                (uint32_t)ctx->r2, ni0e_spawn_log_index);
+        lod_ni0e_spawn_dump_obj(rdram, "spawn-post-result", (uint32_t)ctx->r2);
+    }
+#endif
     // 0x8014313C: lw          $ra, 0x14($sp)
     ctx->r31 = MEM_W(ctx->r29, 0X14);
     // 0x80143140: addiu       $sp, $sp, 0x18

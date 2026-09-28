@@ -2504,22 +2504,247 @@ static std::string ascii_lower(std::string value) {
     return value;
 }
 
-static bool lod_env_flag_enabled(const char* name) {
-    const char* value = std::getenv(name);
-    if (value == nullptr || value[0] == '\0') {
-        return false;
+static std::string trim_copy(std::string_view value) {
+    size_t begin = 0;
+    while (begin < value.size() &&
+           std::isspace(static_cast<unsigned char>(value[begin]))) {
+        begin++;
     }
 
-    std::string normalized = ascii_lower(value);
-    return normalized != "0" && normalized != "false" && normalized != "off" && normalized != "no";
+    size_t end = value.size();
+    while (end > begin &&
+           std::isspace(static_cast<unsigned char>(value[end - 1]))) {
+        end--;
+    }
+
+    return std::string{value.substr(begin, end - begin)};
+}
+
+static std::optional<bool> parse_bool_text(std::string_view value) {
+    std::string normalized = ascii_lower(trim_copy(value));
+    if (normalized == "1" || normalized == "true" || normalized == "yes" ||
+        normalized == "on" || normalized == "enabled") {
+        return true;
+    }
+    if (normalized == "0" || normalized == "false" || normalized == "no" ||
+        normalized == "off" || normalized == "disabled") {
+        return false;
+    }
+    return std::nullopt;
+}
+
+static std::optional<bool> lod_env_flag_value(const char* name) {
+    const char* value = std::getenv(name);
+    if (value == nullptr || value[0] == '\0') {
+        return std::nullopt;
+    }
+
+    std::string normalized = ascii_lower(trim_copy(value));
+    return normalized != "0" && normalized != "false" && normalized != "off" &&
+           normalized != "no" && normalized != "disabled";
 }
 
 // Declared in overlays.cpp. Set during lod_on_init once RDRAM exists.
 extern uint8_t* rdram_ptr_for_debug;
 
-static bool lod_infinite_health_cheat_enabled() {
-    static const bool enabled = lod_env_flag_enabled("LOD_CHEAT_INFINITE_HEALTH");
+enum class LodCheatWriteWidth {
+    U8,
+    U16,
+};
+
+struct LodCheatCode {
+    uint32_t address;
+    uint16_t value;
+    LodCheatWriteWidth width;
+    uint32_t repeat_count = 1;
+    uint32_t repeat_stride = 0;
+};
+
+struct LodCheatDef {
+    const char* key;
+    const char* env;
+    const char* label;
+    const char* codes_text;
+    const LodCheatCode* codes;
+    size_t code_count;
+};
+
+static constexpr LodCheatCode kCheatInfiniteHealth[] = {
+    {0x801CAB3Au, 0x2AF8u, LodCheatWriteWidth::U16},
+};
+
+static constexpr LodCheatCode kCheatInvincibility[] = {
+    {0x8002A9D0u, 0x1000u, LodCheatWriteWidth::U16},
+};
+
+static constexpr LodCheatCode kCheatNoDamage[] = {
+    {0x8008B81Cu, 0x2400u, LodCheatWriteWidth::U16},
+};
+
+static constexpr LodCheatCode kCheatMaxPower[] = {
+    {0x801CAE23u, 0x0002u, LodCheatWriteWidth::U8},
+};
+
+static constexpr LodCheatCode kCheatInfiniteRedJewels[] = {
+    {0x801CAB45u, 0x0064u, LodCheatWriteWidth::U8},
+};
+
+static constexpr LodCheatCode kCheatInfiniteMoney[] = {
+    {0x801CAB42u, 0xFFFFu, LodCheatWriteWidth::U16},
+};
+
+static constexpr LodCheatCode kCheatHaveAllItems[] = {
+    {0x801CAB47u, 0x0001u, LodCheatWriteWidth::U8, 0x2Au, 1u},
+};
+
+#define LOD_CHEAT_DEF(key, env, label, codes_text, codes_array) \
+    {key, env, label, codes_text, codes_array, sizeof(codes_array) / sizeof((codes_array)[0])}
+
+static constexpr LodCheatDef kLodCheatDefs[] = {
+    LOD_CHEAT_DEF("infinite_health", "LOD_CHEAT_INFINITE_HEALTH",
+                  "Infinite health", "811CAB3A 2AF8", kCheatInfiniteHealth),
+    LOD_CHEAT_DEF("invincibility", "LOD_CHEAT_INVINCIBILITY",
+                  "Invincibility", "8102A9D0 1000", kCheatInvincibility),
+    LOD_CHEAT_DEF("no_damage", "LOD_CHEAT_NO_DAMAGE",
+                  "No damage", "8108B81C 2400", kCheatNoDamage),
+    LOD_CHEAT_DEF("max_power", "LOD_CHEAT_MAX_POWER",
+                  "Max power-ups", "801CAE23 0002", kCheatMaxPower),
+    LOD_CHEAT_DEF("infinite_red_jewels", "LOD_CHEAT_INFINITE_RED_JEWELS",
+                  "Infinite red jewels", "801CAB45 0064", kCheatInfiniteRedJewels),
+    LOD_CHEAT_DEF("infinite_money", "LOD_CHEAT_INFINITE_MONEY",
+                  "Infinite money", "811CAB42 FFFF", kCheatInfiniteMoney),
+    LOD_CHEAT_DEF("have_all_items", "LOD_CHEAT_HAVE_ALL_ITEMS",
+                  "Have all and infinite items", "50002A01 0000 + 801CAB47 0001",
+                  kCheatHaveAllItems),
+};
+
+#undef LOD_CHEAT_DEF
+
+static constexpr size_t kLodCheatDefCount = sizeof(kLodCheatDefs) / sizeof(kLodCheatDefs[0]);
+static std::array<bool, kLodCheatDefCount> g_lod_enabled_cheats{};
+
+static std::filesystem::path cheats_config_path(const std::filesystem::path& config_path) {
+    return config_path / "cheats.cfg";
+}
+
+static std::string normalized_cheat_key(std::string_view raw_key) {
+    std::string key = ascii_lower(trim_copy(raw_key));
+    std::replace(key.begin(), key.end(), '-', '_');
+    return key;
+}
+
+static std::optional<size_t> find_lod_cheat_index(std::string_view raw_key) {
+    const std::string key = normalized_cheat_key(raw_key);
+    for (size_t i = 0; i < kLodCheatDefCount; i++) {
+        if (key == kLodCheatDefs[i].key) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
+static std::string default_cheats_config_text() {
+    std::ostringstream out;
+    out << "# Castlevania: Legacy of Darkness Recompiled testing cheats.\n";
+    out << "# All cheats are disabled by default. Uncomment a line and set it to true to enable it.\n";
+    out << "# Environment variables with matching names still override this file for diagnostics.\n";
+    out << "#\n";
+    out << "# Example:\n";
+    out << "# infinite_health = true\n";
+    out << "#\n";
+    for (const LodCheatDef& cheat : kLodCheatDefs) {
+        out << "# " << cheat.key << " = false";
+        const size_t key_len = std::strlen(cheat.key);
+        const size_t padding = key_len < 24 ? 24 - key_len : 1;
+        out << std::string(padding, ' ');
+        out << "# " << cheat.env << ", " << cheat.codes_text << "\n";
+    }
+    return out.str();
+}
+
+static void write_default_cheats_config_if_missing(const std::filesystem::path& config_path) {
+    const std::filesystem::path path = cheats_config_path(config_path);
+    if (std::filesystem::exists(path)) {
+        return;
+    }
+
+    std::ofstream f(path);
+    if (!f) {
+        fprintf(stderr, "[CHEAT] Failed to create %s\n", path.string().c_str());
+        return;
+    }
+    f << default_cheats_config_text();
+    fprintf(stderr, "[CHEAT] Created default cheat config: %s\n", path.string().c_str());
+}
+
+static std::array<bool, kLodCheatDefCount> load_cheats_config(const std::filesystem::path& config_path) {
+    write_default_cheats_config_if_missing(config_path);
+
+    std::array<bool, kLodCheatDefCount> enabled{};
+    const std::filesystem::path path = cheats_config_path(config_path);
+    std::ifstream f(path);
+    if (f) {
+        std::string line;
+        int line_number = 0;
+        while (std::getline(f, line)) {
+            line_number++;
+
+            size_t comment_pos = line.find('#');
+            if (comment_pos != std::string::npos) {
+                line.resize(comment_pos);
+            }
+
+            const size_t equals_pos = line.find('=');
+            if (equals_pos == std::string::npos) {
+                continue;
+            }
+
+            const std::string key = trim_copy(std::string_view{line}.substr(0, equals_pos));
+            const std::string value_text = trim_copy(std::string_view{line}.substr(equals_pos + 1));
+            if (key.empty() || value_text.empty()) {
+                continue;
+            }
+
+            std::optional<bool> value = parse_bool_text(value_text);
+            if (!value.has_value()) {
+                fprintf(stderr,
+                        "[CHEAT] Invalid boolean in %s:%d for key %s: %s\n",
+                        path.string().c_str(), line_number, key.c_str(), value_text.c_str());
+                continue;
+            }
+
+            std::optional<size_t> cheat_index = find_lod_cheat_index(key);
+            if (!cheat_index.has_value()) {
+                fprintf(stderr, "[CHEAT] Unknown key in cheats.cfg ignored: %s\n", key.c_str());
+                continue;
+            }
+
+            enabled[*cheat_index] = *value;
+        }
+    }
+
+    for (size_t i = 0; i < kLodCheatDefCount; i++) {
+        if (std::optional<bool> env_value = lod_env_flag_value(kLodCheatDefs[i].env)) {
+            enabled[i] = *env_value;
+        }
+    }
+
     return enabled;
+}
+
+static bool lod_any_debug_cheat_enabled() {
+    return std::any_of(g_lod_enabled_cheats.begin(), g_lod_enabled_cheats.end(),
+                       [](bool enabled) { return enabled; });
+}
+
+static void lod_write_guest_u8(uint8_t* rdram, uint32_t guest_addr, uint8_t value) {
+    constexpr uint32_t rdram_size = 0x00800000;
+    uint32_t phys = guest_addr & 0x1FFFFFFF;
+    if (phys >= rdram_size) {
+        return;
+    }
+
+    rdram[phys ^ 3] = value;
 }
 
 static void lod_write_guest_u16(uint8_t* rdram, uint32_t guest_addr, uint16_t value) {
@@ -2532,8 +2757,598 @@ static void lod_write_guest_u16(uint8_t* rdram, uint32_t guest_addr, uint16_t va
     *reinterpret_cast<uint16_t*>(rdram + (phys ^ 2)) = value;
 }
 
+static void lod_apply_cheat_code(uint8_t* rdram, const LodCheatCode& code) {
+    const uint32_t repeat_count = std::max<uint32_t>(code.repeat_count, 1u);
+    for (uint32_t i = 0; i < repeat_count; i++) {
+        const uint32_t addr = code.address + i * code.repeat_stride;
+        switch (code.width) {
+        case LodCheatWriteWidth::U8:
+            lod_write_guest_u8(rdram, addr, static_cast<uint8_t>(code.value & 0xFFu));
+            break;
+        case LodCheatWriteWidth::U16:
+            lod_write_guest_u16(rdram, addr, code.value);
+            break;
+        }
+    }
+}
+
+#ifndef LOD_ENABLE_NI0E_TRACE
+#define LOD_ENABLE_NI0E_TRACE 0
+#endif
+
+#ifndef LOD_FIX_HENRY_LOAD_HANDOFF
+#define LOD_FIX_HENRY_LOAD_HANDOFF 0
+#endif
+
+#ifndef LOD_FIX_DMA_COMPLETION
+#define LOD_FIX_DMA_COMPLETION 0
+#endif
+
+#if LOD_ENABLE_NI0E_TRACE
+// Issue #27/#31 unified 0x0E hypothesis: per-VI watch on the fade stepper
+// (sys+0x8E mode, +0x94 counter, +0x96 duration). Logs on any change, plus a
+// heartbeat every 900 frames while a fade is pending (mode != 0); if the
+// counter is not moving between heartbeats while mode != 0, the pair-224
+// fade stepper is not running for this room. See
+// docs/issue27-31-ni0e-findings.md.
+static inline uint8_t lod_ni0e_rdram_u8(uint8_t* rdram, uint32_t phys) {
+    return rdram[phys ^ 3];
+}
+
+static inline uint16_t lod_ni0e_rdram_u16(uint8_t* rdram, uint32_t phys) {
+    return ((uint16_t)lod_ni0e_rdram_u8(rdram, phys) << 8) |
+           (uint16_t)lod_ni0e_rdram_u8(rdram, phys + 1);
+}
+
+static inline uint32_t lod_ni0e_rdram_u32(uint8_t* rdram, uint32_t phys) {
+    return ((uint32_t)lod_ni0e_rdram_u16(rdram, phys) << 16) |
+           (uint32_t)lod_ni0e_rdram_u16(rdram, phys + 2);
+}
+
+// sys base 0x801C82C0 -> RDRAM phys 0x001C82C0.
+static constexpr uint32_t LOD_NI0E_SYS_BASE_PHYS = 0x001C82C0;
+static constexpr uint32_t LOD_NI0E_FADE_MODE_OFF = 0x8E;
+static constexpr uint32_t LOD_NI0E_FADE_COUNTER_OFF = 0x94;
+static constexpr uint32_t LOD_NI0E_FADE_DURATION_OFF = 0x96;
+static constexpr uint32_t LOD_NI0E_FADE_HEARTBEAT_FRAMES = 900;
+
+static void lod_ni0e_fade_watch_vi_callback() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+
+    const uint16_t mode = lod_ni0e_rdram_u16(rdram, LOD_NI0E_SYS_BASE_PHYS + LOD_NI0E_FADE_MODE_OFF);
+    const uint16_t counter = lod_ni0e_rdram_u16(rdram, LOD_NI0E_SYS_BASE_PHYS + LOD_NI0E_FADE_COUNTER_OFF);
+    const uint16_t duration = lod_ni0e_rdram_u16(rdram, LOD_NI0E_SYS_BASE_PHYS + LOD_NI0E_FADE_DURATION_OFF);
+
+    static uint16_t last_mode = 0;
+    static uint16_t last_counter = 0;
+    static uint16_t last_duration = 0;
+    static bool have_last = false;
+    static uint32_t frame_count = 0;
+    static uint32_t heartbeat_frames = 0;
+
+    frame_count++;
+
+    const bool changed = !have_last || mode != last_mode || counter != last_counter ||
+                          duration != last_duration;
+    if (changed) {
+        fprintf(stderr,
+                "[NI0E_TRACE] fade-change frame=%u mode=0x%04X counter=%u duration=%u\n",
+                frame_count, mode, counter, duration);
+        last_mode = mode;
+        last_counter = counter;
+        last_duration = duration;
+        have_last = true;
+    }
+
+    if (mode != 0) {
+        heartbeat_frames++;
+        if (heartbeat_frames >= LOD_NI0E_FADE_HEARTBEAT_FRAMES) {
+            heartbeat_frames = 0;
+            fprintf(stderr,
+                    "[NI0E_TRACE] fade-heartbeat frame=%u mode=0x%04X counter=%u duration=%u\n",
+                    frame_count, mode, counter, duration);
+        }
+    } else {
+        heartbeat_frames = 0;
+    }
+}
+
+// Round 13: host-side activation-chain gate watch. Complements the static
+// probes in RecompiledFuncs/funcs_45.c (bgState_activate's AND-gate),
+// funcs_47.c (ovl47_gateProducer, producer #1) and funcs_44.c/funcs_43.c
+// (producer #2, two call sites) -- see docs/issue27-31-fix-design.md
+// section 4 and docs/issue27-31-ni0e-findings.md Round 13. Watches the two
+// gate words at 0x8019D194/0x8019D198 (the "activation control block"
+// +0x14/+0x18) plus sys+0x2908 exec flags every VI, logging only on change,
+// so it catches any increment from a site the static probes miss.
+extern "C" uint32_t lod_current_map_overlay_rom(void);
+
+static constexpr uint32_t LOD_NI0E_ACTGATE_BLOCK_PHYS = 0x0019D180u;
+static constexpr uint32_t LOD_NI0E_ACTGATE_GATE1_OFF = 0x14u;
+static constexpr uint32_t LOD_NI0E_ACTGATE_GATE2_OFF = 0x18u;
+static constexpr uint32_t LOD_NI0E_ACTGATE_EXEC_OFF = 0x2908u;
+
+static void lod_ni0e_activation_watch_vi_callback() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+
+    const uint32_t gate1 =
+        lod_ni0e_rdram_u32(rdram, LOD_NI0E_ACTGATE_BLOCK_PHYS + LOD_NI0E_ACTGATE_GATE1_OFF);
+    const uint32_t gate2 =
+        lod_ni0e_rdram_u32(rdram, LOD_NI0E_ACTGATE_BLOCK_PHYS + LOD_NI0E_ACTGATE_GATE2_OFF);
+    const uint32_t exec_flags =
+        lod_ni0e_rdram_u32(rdram, LOD_NI0E_SYS_BASE_PHYS + LOD_NI0E_ACTGATE_EXEC_OFF);
+
+    static uint32_t last_gate1 = 0;
+    static uint32_t last_gate2 = 0;
+    static uint32_t last_exec = 0;
+    static bool have_last = false;
+    static uint32_t frame_count = 0;
+
+    frame_count++;
+
+    const bool changed =
+        !have_last || gate1 != last_gate1 || gate2 != last_gate2 || exec_flags != last_exec;
+    if (changed) {
+        fprintf(stderr,
+                "[NI0E_TRACE] activation-watch frame=%u gate1=0x%08X gate2=0x%08X "
+                "exec=0x%08X map_rom=0x%08X\n",
+                frame_count, gate1, gate2, exec_flags, lod_current_map_overlay_rom());
+        last_gate1 = gate1;
+        last_gate2 = gate2;
+        last_exec = exec_flags;
+        have_last = true;
+    }
+}
+
+// Round 18 (Task A): host-side ring-pending watch. Complements the new
+// funcs_7.c/funcs_8.c ring-enq/ring-done probes: watches the async DMA/
+// decompress request ring (round 17/18's traced func_800116BC/
+// func_800120DC chain) from the host side every VI, logging on any change.
+// The single global DMA-manager object pointer lives at RDRAM 0x800C1600
+// (func_80011D80 stores it there once at init; func_800119CC/func_80010EA0
+// read it fresh every enqueue call -- see funcs_7.c); the ring descriptor
+// itself is that object's own +0x34 field. Watches:
+//   - the literal "pending flag" region the task brief named, RDRAM
+//     0x800C160C -- this round found it is actually a DIFFERENT, unrelated
+//     allocator-bookkeeping global (func_80012ED0's in-flight scratch, read/
+//     rewritten by func_80011754/func_800119CC/func_80011974), not part of
+//     the ring itself; see docs/issue27-31-ni0e-findings.md Round 18. Kept
+//     here verbatim per the task brief's explicit instruction regardless.
+//   - the ring's own read-index (+0x844) and pending-count (+0x846), which
+//     directly show whether the consumer is advancing at all;
+//   - the head-of-queue slot's fileid/completionPtr (entry+0x854/+0x858),
+//     so a stuck queue's *first* stuck entry is visible without needing a
+//     game-code probe to fire again.
+// Logs only on change (matching the fade/activation watches above), plus a
+// heartbeat every 900 frames while the ring is non-empty so a stall shows
+// up even if nothing about the head entry itself changes.
+static constexpr uint32_t LOD_NI0E_RING_DMA_OBJ_PTR_PHYS = 0x000C1600u;
+static constexpr uint32_t LOD_NI0E_RING_PENDING_FLAG_PHYS = 0x000C160Cu;
+static constexpr uint32_t LOD_NI0E_RING_DESC_OFF = 0x34u;
+static constexpr uint32_t LOD_NI0E_RING_READIDX_OFF = 0x844u;
+static constexpr uint32_t LOD_NI0E_RING_PENDING_OFF = 0x846u;
+static constexpr uint32_t LOD_NI0E_RING_SLOT_STRIDE = 20u;
+static constexpr uint32_t LOD_NI0E_RING_SLOT_BASE_OFF = 0x848u;
+static constexpr uint32_t LOD_NI0E_RING_HEARTBEAT_FRAMES = 900u;
+
+static void lod_ni0e_ring_pending_watch_vi_callback() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+
+    const uint32_t pending_flag = lod_ni0e_rdram_u32(rdram, LOD_NI0E_RING_PENDING_FLAG_PHYS);
+
+    const uint32_t dma_obj = lod_ni0e_rdram_u32(rdram, LOD_NI0E_RING_DMA_OBJ_PTR_PHYS);
+    uint32_t desc = 0;
+    uint16_t readidx = 0;
+    uint16_t pending = 0;
+    uint32_t head_fileid = 0;
+    uint32_t head_completion_ptr = 0;
+    bool have_ring = false;
+    if (dma_obj >= 0x80000000u && dma_obj < 0x80800000u) {
+        desc = lod_ni0e_rdram_u32(rdram, (dma_obj & 0x1FFFFFFFu) + LOD_NI0E_RING_DESC_OFF);
+        if (desc >= 0x80000000u && desc < 0x80800000u) {
+            const uint32_t desc_phys = desc & 0x1FFFFFFFu;
+            readidx = lod_ni0e_rdram_u16(rdram, desc_phys + LOD_NI0E_RING_READIDX_OFF);
+            pending = lod_ni0e_rdram_u16(rdram, desc_phys + LOD_NI0E_RING_PENDING_OFF);
+            const uint32_t entry = desc_phys + (uint32_t)readidx * LOD_NI0E_RING_SLOT_STRIDE;
+            head_fileid = lod_ni0e_rdram_u32(rdram, entry + LOD_NI0E_RING_SLOT_BASE_OFF + 0xCu);
+            head_completion_ptr =
+                lod_ni0e_rdram_u32(rdram, entry + LOD_NI0E_RING_SLOT_BASE_OFF + 0x10u);
+            have_ring = true;
+        }
+    }
+
+    static uint32_t last_pending_flag = 0;
+    static uint16_t last_readidx = 0;
+    static uint16_t last_pending = 0;
+    static uint32_t last_head_fileid = 0;
+    static uint32_t last_head_completion_ptr = 0;
+    static bool have_last = false;
+    static uint32_t frame_count = 0;
+    static uint32_t heartbeat_frames = 0;
+
+    frame_count++;
+
+    // Round 19 (Task B/C.1): desc-life-host. Task B asked who writes RDRAM
+    // 0x800C1600/+0x34; the static read (funcs_7.c's own new desc-life
+    // probe, hooked directly at func_80011D80's store) found exactly one
+    // writer anywhere in RecompiledFuncs/*.c. This is the redundant
+    // host-side half of the same check the task brief asked for
+    // ("if none static, add a host per-VI change-watch..." -- kept even
+    // though a static writer WAS found, since it also catches anything
+    // that writes through a path the static grep could miss, e.g. any
+    // future DMA-manager rework): every VI, independently of the rest of
+    // this callback's own change-detection below, compares the raw global
+    // object pointer (dma_obj, RDRAM 0x800C1600) and the descriptor it
+    // resolves to (desc, dma_obj+0x34) against their previous-VI values and
+    // logs old -> new whenever either changes. Always (rare) -- this should
+    // fire at most a handful of times per session.
+    static uint32_t last_dma_obj_seen = 0;
+    static uint32_t last_desc_seen = 0;
+    static bool have_last_desc_seen = false;
+    const bool desc_changed = !have_last_desc_seen || dma_obj != last_dma_obj_seen ||
+                               desc != last_desc_seen;
+    if (desc_changed) {
+        fprintf(stderr,
+                "[NI0E_TRACE] desc-life-host frame=%u old_obj=0x%08X new_obj=0x%08X "
+                "old_desc=0x%08X new_desc=0x%08X map_rom=0x%08X\n",
+                frame_count, last_dma_obj_seen, dma_obj, last_desc_seen, desc,
+                lod_current_map_overlay_rom());
+        last_dma_obj_seen = dma_obj;
+        last_desc_seen = desc;
+        have_last_desc_seen = true;
+    }
+
+    const bool changed = !have_last || pending_flag != last_pending_flag ||
+                          readidx != last_readidx || pending != last_pending ||
+                          head_fileid != last_head_fileid ||
+                          head_completion_ptr != last_head_completion_ptr || desc_changed;
+    if (changed) {
+        fprintf(stderr,
+                "[NI0E_TRACE] ring-pending frame=%u pending_flag_0x800C160C=0x%08X "
+                "desc=0x%08X readidx=%u pending=%u head_fileid=0x%02X "
+                "head_completion_ptr=0x%08X map_rom=0x%08X\n",
+                frame_count, pending_flag, desc, readidx, pending, head_fileid,
+                head_completion_ptr, lod_current_map_overlay_rom());
+        last_pending_flag = pending_flag;
+        last_readidx = readidx;
+        last_pending = pending;
+        last_head_fileid = head_fileid;
+        last_head_completion_ptr = head_completion_ptr;
+        have_last = true;
+    }
+
+    if (have_ring && pending != 0) {
+        heartbeat_frames++;
+        if (heartbeat_frames >= LOD_NI0E_RING_HEARTBEAT_FRAMES) {
+            heartbeat_frames = 0;
+            fprintf(stderr,
+                    "[NI0E_TRACE] ring-pending-heartbeat frame=%u desc=0x%08X readidx=%u "
+                    "pending=%u head_fileid=0x%02X head_completion_ptr=0x%08X map_rom=0x%08X\n",
+                    frame_count, desc, readidx, pending, head_fileid, head_completion_ptr,
+                    lod_current_map_overlay_rom());
+        }
+    } else {
+        heartbeat_frames = 0;
+    }
+}
+
+// Round 22: GSM command-queue node-pool occupancy watch (task 3c). Passive,
+// change-only per-VI scan of the whole pool (RDRAM 0x801B1D60..0x801B3D60,
+// 1024 8-byte slots -- see the "gsm-alloc"/"gsm-free"/"gsm-enq" probes and
+// geometry writeup in src/main/ni_overlay_loader.cpp and
+// docs/issue27-31-fix-design.md section 11). This is the cheapest possible
+// signal for "is occupancy climbing across transitions": a 4KB linear scan
+// once per VI (60/sec), only logging when the occupied count actually
+// changes from the previous VI.
+extern "C" uint32_t lod_ni0e_gsm_pool_occupied_count(uint8_t* rdram);
+static constexpr uint32_t LOD_NI0E_GSM_POOL_SLOT_COUNT_MAIN = 1024u;
+
+static void lod_ni0e_gsm_pool_watch_vi_callback() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+
+    static uint32_t frame_count = 0;
+    static uint32_t last_occupied = 0xFFFFFFFFu;
+    frame_count++;
+
+    const uint32_t occupied = lod_ni0e_gsm_pool_occupied_count(rdram);
+    if (occupied != last_occupied) {
+        fprintf(stderr,
+                "[NI0E_TRACE] gsm-pool frame=%u occupied=%u/%u map_rom=0x%08X\n",
+                frame_count, occupied, LOD_NI0E_GSM_POOL_SLOT_COUNT_MAIN,
+                lod_current_map_overlay_rom());
+        last_occupied = occupied;
+    }
+}
+
+// Round 2: object census. Round 1 established that the 0x0E TLB window never
+// remaps during waterway gameplay (stuck on pair 150) and that the pause
+// manager object (id 0x0AB) is never dispatched even though Start is pressed.
+// This probe walks the live object tree every 600 VIs (only while in one of
+// the four focus maps) to answer "does an id-0x0AB object even exist in this
+// room, and if so what does it look like." See docs/issue27-31-ni0e-findings.md.
+extern "C" uint32_t lod_current_map_overlay_rom(void);
+
+#if LOD_FIX_HENRY_LOAD_HANDOFF
+// Issue #27/#31 root fix: see the LOD_FIX_HENRY_LOAD_HANDOFF block in
+// src/main/ni_overlay_loader.cpp for the full explanation. Called once per
+// VI from lod_debug_cheats_vi_callback below.
+extern "C" void lod_fix_henry_load_handoff_tick(uint8_t* rdram);
+#endif
+
+static constexpr uint32_t LOD_NI0E_FOCUS_MAPS[] = {
+    0x007A2D70u, 0x007932D0u, 0x007D4420u, 0x007D3C90u,
+};
+
+static bool lod_ni0e_in_focus_map(uint32_t map_rom) {
+    for (uint32_t focus : LOD_NI0E_FOCUS_MAPS) {
+        if (focus == map_rom) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static constexpr uint32_t LOD_NI0E_OBJECT_TREE_ROOT = 0x8031AC78u;
+static constexpr uint32_t LOD_NI0E_CENSUS_INTERVAL_VI = 600;
+static constexpr int LOD_NI0E_CENSUS_MAX_NODES = 512;
+static constexpr int LOD_NI0E_CENSUS_MAX_DISTINCT_IDS = 160;
+static constexpr uint16_t LOD_NI0E_CENSUS_PAUSE_MGR_ID = 0x0ABu;
+
+static bool lod_ni0e_census_ptr_ok(uint32_t ptr) {
+    return ptr >= 0x80000000u && ptr < 0x80800000u;
+}
+
+struct LodNi0eCensusIdCount {
+    uint16_t id;
+    uint16_t count;
+};
+
+// Round 3: census root fix. Round 2 found that walking the hardcoded root
+// 0x8031AC78 only ever reaches one node with id 0, even though the spawn
+// probe (funcs_44.c) proves a live object tree exists (22 id-0x027 objects
+// alone in the waterway). The spawn probe now exports the most recent live
+// spawn result as lod_ni0e_last_spawn_obj (funcs_44.c); this walks that
+// object's +0x14 parent link up to the topmost ancestor (max 16 hops,
+// validating each pointer) and uses that as the DFS root instead, falling
+// back to the hardcoded root when no spawn has been observed yet.
+extern "C" uint32_t lod_ni0e_last_spawn_obj;
+
+static constexpr int LOD_NI0E_CENSUS_ROOT_MAX_HOPS = 16;
+static constexpr uint32_t LOD_NI0E_OBJ_PARENT_OFF = 0x14u;
+
+static uint32_t lod_ni0e_census_find_root(uint8_t* rdram, bool* out_spawn_derived) {
+    *out_spawn_derived = false;
+    uint32_t node = lod_ni0e_last_spawn_obj;
+    if (!lod_ni0e_census_ptr_ok(node)) {
+        return LOD_NI0E_OBJECT_TREE_ROOT;
+    }
+    for (int hop = 0; hop < LOD_NI0E_CENSUS_ROOT_MAX_HOPS; hop++) {
+        const uint32_t phys = node & 0x1FFFFFFFu;
+        const uint32_t parent = lod_ni0e_rdram_u32(rdram, phys + LOD_NI0E_OBJ_PARENT_OFF);
+        if (!lod_ni0e_census_ptr_ok(parent)) {
+            break;
+        }
+        node = parent;
+    }
+    *out_spawn_derived = true;
+    return node;
+}
+
+// Round 3: host-side dispatch-table dump. Piggybacks the census's 600-VI
+// cadence. Round 2 could not tell whether the live dispatch table at
+// 0x800AD640 (funcs_1.c object_dispatch1's table base) still holds the ROM
+// value for the ids of interest; this reads the live RDRAM words directly.
+// Also dumps how many file_ptr_array (0x801C8830, 256 u32 slots) entries are
+// non-zero and where the first few live, since overlay-loader state feeds
+// the same dispatch/spawn chain.
+static constexpr uint32_t LOD_NI0E_DISPATCH_TABLE_PHYS = 0x000AD640u;
+static constexpr uint32_t LOD_NI0E_TABLE_DUMP_IDS[] = {0x027u, 0x028u, 0x0ABu, 0x170u, 0x1A2u};
+static constexpr uint32_t LOD_NI0E_FILEPTR_ARRAY_PHYS = 0x001C8830u;
+static constexpr int LOD_NI0E_FILEPTR_SLOTS = 256;
+static constexpr int LOD_NI0E_FILEPTR_SLOTS_LISTED = 16;
+
+static void lod_ni0e_table_dump(uint8_t* rdram) {
+    char line[320];
+    size_t len = 0;
+    line[0] = '\0';
+    for (size_t i = 0; i < sizeof(LOD_NI0E_TABLE_DUMP_IDS) / sizeof(LOD_NI0E_TABLE_DUMP_IDS[0]); i++) {
+        const uint32_t id = LOD_NI0E_TABLE_DUMP_IDS[i];
+        const uint32_t word = lod_ni0e_rdram_u32(rdram, LOD_NI0E_DISPATCH_TABLE_PHYS + 4u * id);
+        const int written = snprintf(line + len, sizeof(line) - len,
+                                      "%stable id=0x%03X -> 0x%08X", (i == 0) ? "" : " ", id, word);
+        if (written > 0) {
+            len += (size_t)written;
+        }
+    }
+    fprintf(stderr, "[NI0E_TRACE] %s\n", line);
+
+    int nonzero_count = 0;
+    char slots_text[160];
+    size_t slots_len = 0;
+    slots_text[0] = '\0';
+    int listed = 0;
+    for (int i = 0; i < LOD_NI0E_FILEPTR_SLOTS; i++) {
+        const uint32_t val = lod_ni0e_rdram_u32(rdram, LOD_NI0E_FILEPTR_ARRAY_PHYS + 4u * (uint32_t)i);
+        if (val == 0) {
+            continue;
+        }
+        nonzero_count++;
+        if (listed < LOD_NI0E_FILEPTR_SLOTS_LISTED) {
+            const int written = snprintf(slots_text + slots_len, sizeof(slots_text) - slots_len,
+                                          "%s%X", (listed == 0) ? "" : ",", i);
+            if (written > 0) {
+                slots_len += (size_t)written;
+            }
+            listed++;
+        }
+    }
+    fprintf(stderr, "[NI0E_TRACE] fileptr count=%d slots=%s\n", nonzero_count, slots_text);
+}
+
+// Round 5: run the census in EVERY map (not just the four focus maps), same
+// 600-VI cadence, so the pause manager's lifecycle is visible from session
+// start (round-4 capture fact: the manager-exec/manager-create probes never
+// fired because manager creation, or its failure, happens before the first
+// focus map is ever entered). Outside the focus maps this only prints the
+// summary line (root/nodes/ids) plus a lightweight 0x0AB presence line; the
+// focus-map behavior (host-side table dump + the detailed 0x0AB dump) is
+// unchanged. See docs/issue27-31-ni0e-findings.md Round 5.
+static void lod_ni0e_object_census(uint8_t* rdram, uint32_t map_rom) {
+    static uint32_t vi_counter = 0;
+    vi_counter++;
+    if (vi_counter < LOD_NI0E_CENSUS_INTERVAL_VI) {
+        return;
+    }
+    vi_counter = 0;
+
+    const bool focus = lod_ni0e_in_focus_map(map_rom);
+
+    if (focus) {
+        // Round 3: piggyback the host-side dispatch-table/file_ptr_array dump
+        // on this same 600-VI cadence. Focus maps only (unchanged).
+        lod_ni0e_table_dump(rdram);
+    }
+
+    bool root_spawn_derived = false;
+    const uint32_t census_root = lod_ni0e_census_find_root(rdram, &root_spawn_derived);
+
+    // Explicit stack DFS (child then next); bounding total pops to
+    // LOD_NI0E_CENSUS_MAX_NODES is the cycle guard (no visited-set needed).
+    uint32_t stack[LOD_NI0E_CENSUS_MAX_NODES];
+    int sp = 0;
+    if (lod_ni0e_census_ptr_ok(census_root)) {
+        stack[sp++] = census_root;
+    }
+
+    int visited = 0;
+    static LodNi0eCensusIdCount ids[LOD_NI0E_CENSUS_MAX_DISTINCT_IDS];
+    int id_count = 0;
+    uint32_t obj_0ab_addr = 0;
+
+    while (sp > 0 && visited < LOD_NI0E_CENSUS_MAX_NODES) {
+        const uint32_t node = stack[--sp];
+        if (!lod_ni0e_census_ptr_ok(node)) {
+            continue;
+        }
+        visited++;
+
+        const uint32_t phys = node & 0x1FFFFFFFu;
+        const uint16_t flags00 = lod_ni0e_rdram_u16(rdram, phys + 0x00);
+        const uint16_t id = flags00 & 0x7FFu;
+
+        bool found = false;
+        for (int i = 0; i < id_count; i++) {
+            if (ids[i].id == id) {
+                ids[i].count++;
+                found = true;
+                break;
+            }
+        }
+        if (!found && id_count < LOD_NI0E_CENSUS_MAX_DISTINCT_IDS) {
+            ids[id_count].id = id;
+            ids[id_count].count = 1;
+            id_count++;
+        }
+
+        if (id == LOD_NI0E_CENSUS_PAUSE_MGR_ID && obj_0ab_addr == 0) {
+            obj_0ab_addr = node;
+        }
+
+        const uint32_t next = lod_ni0e_rdram_u32(rdram, phys + 0x18);
+        const uint32_t child = lod_ni0e_rdram_u32(rdram, phys + 0x1C);
+        if (lod_ni0e_census_ptr_ok(next) && sp < LOD_NI0E_CENSUS_MAX_NODES) {
+            stack[sp++] = next;
+        }
+        if (lod_ni0e_census_ptr_ok(child) && sp < LOD_NI0E_CENSUS_MAX_NODES) {
+            stack[sp++] = child;
+        }
+    }
+
+    // Build "ids=001x1,0ABx1,018x4,..." summary text.
+    char ids_text[2048];
+    size_t ids_text_len = 0;
+    ids_text[0] = '\0';
+    for (int i = 0; i < id_count; i++) {
+        if (ids_text_len + 16 >= sizeof(ids_text)) {
+            break;
+        }
+        const int written = snprintf(ids_text + ids_text_len, sizeof(ids_text) - ids_text_len,
+                                      "%s%03Xx%u", (i == 0) ? "" : ",", ids[i].id, ids[i].count);
+        if (written > 0) {
+            ids_text_len += (size_t)written;
+        }
+    }
+
+    fprintf(stderr,
+            "[NI0E_TRACE] census map=0x%08X nodes=%d distinct_ids=%d root=0x%08X (%s) ids=%s\n",
+            map_rom, visited, id_count, census_root,
+            root_spawn_derived ? "spawn-derived" : "fallback", ids_text);
+
+    if (focus) {
+        // Focus maps: unchanged full detail dump.
+        if (obj_0ab_addr == 0) {
+            fprintf(stderr, "[NI0E_TRACE] census: id 0x0AB ABSENT\n");
+        } else {
+            const uint32_t phys = obj_0ab_addr & 0x1FFFFFFFu;
+            const uint16_t flags00 = lod_ni0e_rdram_u16(rdram, phys + 0x00);
+            const uint16_t flags02 = lod_ni0e_rdram_u16(rdram, phys + 0x02);
+            const uint16_t funcinfo08 = lod_ni0e_rdram_u16(rdram, phys + 0x08);
+            const uint16_t funcinfo0a = lod_ni0e_rdram_u16(rdram, phys + 0x0A);
+            const uint16_t funcinfo0c = lod_ni0e_rdram_u16(rdram, phys + 0x0C);
+            const uint32_t handler = lod_ni0e_rdram_u32(rdram, phys + 0x10);
+            const uint32_t data34 = lod_ni0e_rdram_u32(rdram, phys + 0x34);
+            fprintf(stderr,
+                    "[NI0E_TRACE] census: id 0x0AB obj=0x%08X flags00=0x%04X flags02=0x%04X "
+                    "funcinfo={0x%04X,0x%04X,0x%04X} handler=0x%08X data34=0x%08X\n",
+                    obj_0ab_addr, flags00, flags02, funcinfo08, funcinfo0a, funcinfo0c, handler,
+                    data34);
+        }
+    } else {
+        // Round 5: outside focus maps, just a lightweight presence line.
+        if (obj_0ab_addr == 0) {
+            fprintf(stderr, "[NI0E_TRACE] census: id 0x0AB ABSENT map=0x%08X\n", map_rom);
+        } else {
+            fprintf(stderr, "[NI0E_TRACE] census: id 0x0AB PRESENT obj=0x%08X map=0x%08X\n",
+                    obj_0ab_addr, map_rom);
+        }
+    }
+}
+
+static void lod_ni0e_object_census_vi_callback() {
+    uint8_t* rdram = rdram_ptr_for_debug;
+    if (rdram == nullptr) {
+        return;
+    }
+    lod_ni0e_object_census(rdram, lod_current_map_overlay_rom());
+}
+#endif  // LOD_ENABLE_NI0E_TRACE
+
 static void lod_debug_cheats_vi_callback() {
-    if (!lod_infinite_health_cheat_enabled()) {
+#if LOD_ENABLE_NI0E_TRACE
+    lod_ni0e_fade_watch_vi_callback();
+    lod_ni0e_activation_watch_vi_callback();
+    lod_ni0e_object_census_vi_callback();
+    lod_ni0e_ring_pending_watch_vi_callback();
+    lod_ni0e_gsm_pool_watch_vi_callback();
+#endif
+
+#if LOD_FIX_HENRY_LOAD_HANDOFF
+    lod_fix_henry_load_handoff_tick(rdram_ptr_for_debug);
+#endif
+
+    if (!lod_any_debug_cheat_enabled()) {
         return;
     }
 
@@ -2542,13 +3357,21 @@ static void lod_debug_cheats_vi_callback() {
         return;
     }
 
-    // GameShark/Action Replay "Infinite Energy" for LoD USA:
-    // 811CAB3A 2AF8. Re-apply every VI just like the original cheat device.
-    lod_write_guest_u16(rdram, 0x801CAB3Au, 0x2AF8u);
-    static bool logged = false;
-    if (!logged) {
-        fprintf(stderr, "[CHEAT] Infinite health applied at 0x801CAB3A\n");
-        logged = true;
+    static std::array<bool, kLodCheatDefCount> logged{};
+    for (size_t i = 0; i < kLodCheatDefCount; i++) {
+        if (!g_lod_enabled_cheats[i]) {
+            continue;
+        }
+
+        const LodCheatDef& cheat = kLodCheatDefs[i];
+        for (size_t code_index = 0; code_index < cheat.code_count; code_index++) {
+            lod_apply_cheat_code(rdram, cheat.codes[code_index]);
+        }
+
+        if (!logged[i]) {
+            fprintf(stderr, "[CHEAT] %s applied: %s\n", cheat.label, cheat.codes_text);
+            logged[i] = true;
+        }
     }
 }
 
@@ -3187,8 +4010,14 @@ int main(int argc, char** argv) {
     } else {
         fprintf(stderr, "[CONFIG] Config path: %s\n", config_path.string().c_str());
     }
-    if (lod_infinite_health_cheat_enabled()) {
-        fprintf(stderr, "[CHEAT] Infinite health enabled: writing 0x2AF8 to 0x801CAB3A each VI\n");
+    g_lod_enabled_cheats = load_cheats_config(config_path);
+    fprintf(stderr, "[CHEAT] Config path: %s\n",
+            cheats_config_path(config_path).string().c_str());
+    for (size_t i = 0; i < kLodCheatDefCount; i++) {
+        if (g_lod_enabled_cheats[i]) {
+            fprintf(stderr, "[CHEAT] %s enabled: applying %s each VI\n",
+                    kLodCheatDefs[i].label, kLodCheatDefs[i].codes_text);
+        }
     }
     recomp::register_config_path(config_path);
     if (g_cli_options.save_path.has_value()) {
@@ -3335,7 +4164,20 @@ int main(int argc, char** argv) {
         .events_callbacks = events_callbacks,
         .error_handling_callbacks = error_handling_callbacks,
         .threads_callbacks = threads_callbacks,
-        .message_queue_control = { .requeue_timer = false, .requeue_sp = true, .requeue_si = true, .requeue_dp = true },
+        // LOD_FIX_DMA_COMPLETION (default OFF; ON in build-ni0e): the async
+        // DMA/decompress ring's completion message (osEPiStartDma -> PI ->
+        // enqueue_external_message_src(..., EventMessageSource::Pi)) is the
+        // *only* notification of a one-shot ROM read the blocking game-thread
+        // osRecvMesg in DMA_readWrite (funcs_12.c:5497) will ever receive for
+        // that request. Unlike timer/sp/si/dp (all requeue-on-block here),
+        // ultramodern's own default leaves requeue_pi=false, so if do_send()
+        // ever fails to deliver a PI completion on its first attempt (queue
+        // sanity-check fail or a stale unclaimed message left in the depth-1
+        // static dmaMessageQ at RDRAM 0x800C5D18), the message is dropped
+        // forever and the waiting game thread blocks forever: the observed
+        // hang. See docs/issue27-31-fix-design.md, "Async completion loss:
+        // lowest-level analysis".
+        .message_queue_control = { .requeue_timer = false, .requeue_sp = true, .requeue_si = true, .requeue_pi = (LOD_FIX_DMA_COMPLETION != 0), .requeue_dp = true },
     };
 
     fprintf(stderr, "[LodRecomp] Calling recomp::start()...\n");

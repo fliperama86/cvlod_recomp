@@ -219,6 +219,67 @@ Regression checks:
 
 Status: user-validated in the intro lantern/table scene; promoted to default-on compatibility fixes.
 
+## Issue #27 Post-Harpy Portal Crystal (2026-07-03)
+
+Status: active investigation. User can reach the post-Harpy room, but LodRecomp is missing the bright crystal/portal that appears in original hardware/emulator behavior.
+
+Current evidence:
+
+- OpenEmu savestate `portal.oesavestate/State` is gzip-compressed and stores RDRAM byte-swapped; decode N64 CPU bytes with `raw[(addr & 0x1fffffff) ^ 3]`. Earlier `1,25` transition and `exec=0x20011021` readings were decode mistakes.
+- Correct OpenEmu-good handoff state uses the same map transition that LodRecomp now logs: pending/current destination `25,1`, map overlay ROM `0x007D3C90`, `exec=0x38000000`, flags word `0x9B400800`, `285c=0`, `285e=1`, `2874=3`, and `28d0/2bb8=25`, `28d2/2bba=1`.
+- Latest LodRecomp trace confirms `func_801530C8` queues `2bb8=25, 2bba=1`, `func_8001B788` copies that to `28d0=25, 28d2=1`, and the final map load is the correct post-Harpy map overlay `0x007D3C90`.
+- 2026-07-03 root-cause analysis closed out the pair-129 direction. Direct savestate comparison (mupen64plus RDRAM at file offset `0x1BC`, host-LE words) shows the `data+0x28`/`data+0x30` nodes are byte-identical between OpenEmu-good and the `repro_issue27_portal_nodes_20260703_114413.log` dumps, including the animated floats. The doc's earlier `exec=0x20011021` reading was another byte-order decode artifact; the OpenEmu-good exec is `0x38000000`, same as LodRecomp. The `2860=7, 2862=38` milestone is just when the user saved, not a trigger.
+- Pair 129 is the day/time controller, not the portal. Its embedded strings are UTF-16 `DAY LEFT`/`DAYS LEFT`, its runtime-built local DL (`0x0F000C58..`) is the days-left banner quad, and its state 1 (`0F0000C8`) only reruns the banner build on day change gated by flag `0x2A0` and `obj+0x3C`. Both good and bad states sit identically in state 1.
+- Secondary real defect found while comparing: the banner DL built by `ni_ovl_129_func_0F000938` embeds pointers translated by `0x800A93C0`. OpenEmu-good holds physical results (`01004008 00331CD8`, `DE000000 00331D18/00331D70`); LodRecomp holds untranslated `0x0F000CD8/0x0F000D18/0x0F000D70` because the recomp passes TLB-mapped `0x0F` addresses through raw (see comment at `ni_overlay_loader.cpp` `ni_overlay_on_tlb_map`). RT64's `g_tlb_segment_0f` shim only covers this when `segments[0xF] == 0`. This affects the days-left banner, not the crystal.
+- The actual crystal/portal renderer was identified from the OpenEmu-good state. Map `0x007D3C90` is `map_ovl_25`. Its init (`map_ovl_25_func_802E3BE0`) allocates a scene node via `sceneLookup(1, *(0x8019E5F0))` (`0x80005A30`) and its per-frame func (`map_ovl_25_func_802E3D4C`) random-walk animates `node+0x5C`. The good state has kind-`0x1001` glow nodes (six wall lamps at x=±66 plus the portal) whose `+0x3C` DLs are `0x060046F0`, `0x06004CF8`, `0x06004988`, `+0x18` prim color from `sys+0x2B0C` (`0x7B8080FF`), `+0x24` env/fog from `sys+0x7C` (`0x202020FF`), and `+0x40` = NI logical file id `0x1C` from `sys+0x2B14`.
+- The per-frame emitter (`gfx_emit_node_segment_commands`, `0x80006990`) reads `file_ptr_array[node+0x40]` (`0x801C8830 + 4*0x1C`) and emits `G_MOVEWORD SEGMENT` + `G_DL 0x0600xxxx` into the frame DL. The OpenEmu-good frame buffers at `0x801B4700`/`0x801BE700` contain exactly this sequence (`FA 7B8080FF`, `F8 202020FF`, `DA <mtx>`, `DB060018 803442E8`, `DE 060046F0/06004CF8`), and `file_ptr_array[0x1C] = 0x803442E8` holds real glow display lists at `+0x46F0/+0x4CF8/+0x4988`.
+- First focused LodRecomp portal-chain trace ruled out the top Claude candidates for the six wall lamps: by `map_ovl_25_func_802E3BE0`, `file_ptr_array[0x1C]`, `sys+0x2B14`, colors, scene head, and `sceneLookup` are all valid. LodRecomp creates exactly six `0x022E` lamp objects with `obj+0x70 = 0x802E4028..0x802E40C8`, all DL `0x060046F0`.
+- OpenEmu-good object scan found the portal nodes are owned by generic map objects, not by `map_ovl_25_func_802E3BE0`: object template `0x1B9` (`obj ID 0x11B9`) at map entries `0x802E3FE8`, `0x802E4168`, and `0x802E4188` owns the three `0x06004CF8` nodes. The six lamps remain template `0x22E`.
+- Latest LodRecomp trace rules out the map-entry gate/spawn/init path. The three `0x1B9` portal objects spawn and initialize scene nodes (`0x802EFCB8`, `0x802F0278`, `0x802F0330`) with kind `0x1001`, colors `0x7B8080FF`/`0x202020FF`, DL `0x06004CF8`, file id `0x1C`, and valid file slot `0x8034D5E8`. The frame emitter writes the expected `DB060018 8034D5E8` plus `DE000000 06004CF8` command pairs.
+- 2026-07-03 RT64 focused trace rules out the `G_DL` follow/guard path for the known portal/glow sub-DLs. `0x06004988` resolves to physical `0x00351F70`, passes guards, and returns with `delta=5` draw calls; `0x06004CF8` resolves to `0x003522E0`, passes guards, and returns with `delta=2`; `0x060048A0` resolves to `0x00351E88`, passes guards, and returns with `delta=1`. No guard-skip or prefix-skip appears for these targets. The portal is still visually absent, so the remaining break is after successful draw-call creation: render state, alpha, transform/culling, vertex/material interpretation, or command handling inside the generated draw calls.
+- Latest RT64 draw trace rules out missing draw-call emission for the visible portal chain. `0x06004CF8` produces on-screen orthographic draw calls such as `screen=(107.62,129.54)-(198.71,165.10)` with `scissorVisible=10`; `0x06004988` mostly creates off-screen perspective calls; `0x060048A0` creates on-screen orthographic glow-shell calls with `scissorVisible=12`, `tex=off`, and primitive alpha `0.000`.
+- 2026-07-06 low-noise state snapshots after the user reached the bad room show the gameplay handoff globals match the OpenEmu-good state: post-Harpy map `0x007D3C90`, `exec=0x38000000` after the first clock step, `flags2a=0x9B400800`, `2874=3`, `28d0/28d2=25/1`, `2bb8/2bba=25/1`, and `2bcc=0`. The portal asset fields also settle correctly by sample 900: `2b14=0x1C`, `2b0c=0x7B8080FF`, `007c=0x202020FF`, `file_ptr_array[0x1C]=0x8034D5E8`, scene head `0x802EF2A8`. Because the user also reports that pause does not work after loading this room, the current lead is no longer a pure visibility/alpha issue. Pause-gate trace confirmed Start reaches the raw PIF path, `sys.controllers[0]`, and `playerControllerData` in the bad room, so SDL/input mapping is not the blocker. The provisional CV64-offset gate fields do not line up with LoD (`ptrPlayer` candidate stays zero), so the next trace should identify and wrap the actual LoD gameplay menu manager/pause gate function rather than guessing system-work offsets.
+- The same trace crashed later with SIGSEGV in macOS objc autorelease pool teardown, after repeated portal trace spam. Last MIPS lookups include `0x0F000000`, `0x0F0000C8`, and repeated `0x800048A0`. Treat this as a diagnostic-run side effect until reproduced without heavy trace logging.
+
+2026-07-17 static analysis resolved the previous "Next action" item 1: the LoD pause gate is now fully identified, and the portal invisibility has a concrete state-level explanation. Findings (all from recompiled sources, the CV64 decomp reference, and re-parsing `portal.oesavestate`; no LodRecomp code changed):
+
+- The LoD gameplay menu manager is NI pair 47. Dispatch-table object id `0x0AB` points at `ni_ovl_047_func_0F002F10`, which is the CV64 `GameplayMenuManager_outsideMenuLoop` equivalent. The manager's function list lives at pair-47 data `+0x58C4`; the outside-menu loop is list index 11, and the menu-open state is index 9 (`0F002C98`).
+- Pause flow in `0F002F10`: it reads pressed buttons at `0x801C87F8` (sys+`0x538`) with mask `0x1080` (Start or Recenter). Gates: the request latch `mgrData+0x1A8` must be 0 and the per-frame countdown s16 `mgrData+0x1A4` must be below -14 (`0x1A4` decrements every frame after map entry and fires the map-entry fade-in `func_80010558(0x4000, 0xA, ...)` when it crosses 0; `mgrData+0x1A6` counts up in lockstep). On a valid press: latch set to 1 plus a 10-frame fade-out-to-black request. While latched, each frame calls `func_800105BC`; only when it returns 0 does the manager jump to state 9 and open the menu. Every failure mode here is silent: a swallowed press leaves the latch at 1 and all later presses are ignored with no visual reaction, which matches the report exactly.
+- `func_80010558`/`func_800105BC` are the CV64 `Fade_SetSettings`/`Fade_IsFading` equivalents operating on sys+`0x8E` (mode), `+0x90..0x92` (RGB), `+0x94` (counter), `+0x96` (duration). The stepper and fullscreen-rectangle drawer (CV64 `Fade_Calc`, called unconditionally from `end_frame()` in the gamestate loop) lives in NI pair 224 on the `0x0E` TLB side (`ni_ovl_224`, fade math around `0x0E001F64..0x0E002154`). If that end-of-frame `0x0E` call resolves against the wrong resident pair in this room (0x0E residency is room-dependent; the July trace showed pair 205 resident there), fades stop stepping and pause dies exactly this way while everything else keeps running. Pause working in other rooms (the item-menu input script opens it) fits a room-dependent resolution problem, not a broken mechanism.
+- Good-state fade reference from `portal.oesavestate`: sys+`0x8E=0`, `+0x94=0`, `+0x96=0xC` (idle after a 12-frame fade), pressed word at sys+`0x538` clean.
+- Portal object `0x1B9` is common code, no NI files (file-info entry is NULL): class dispatcher `0x8014FE10`, state table `0x80190330`. State 0 (`0x8014FE80`) selects per-map data (dedicated map-25 case). State 1 (`0x80150024`) gates on `func_80150260` (the traced "init1B9"). State 2 (`0x8015011C`) runs per frame: color refresh from sys+`0x2B0C`/`+0x7C`, then `func_80150560` (glow on/off: sub-state byte `data+0x6`; sub-state 1 polls save-event flag `data+0x8` via `0x800048A0(0x801CAA60, flag)` and toggles via `0x801523AC`/`0x801523D0`; sub-state 0 means settled), then `func_801506A0` (external command consumer via obj+`0x64`), then a sub-kind switch on `data+0x4` (3 = warp portal, `func_80150CEC` with its own sub-state machine). The repeated `0x800048A0` lookups in the July crash log are this per-frame flag polling, i.e. normal.
+- Good-state portal ground truth (parsed 2026-07-17): the three `0x1B9` objects sit at `0x8031E3F4`/`0x8031E8F0`/`0x8031E964`, all in state 2, sub-kind 3, with `data34` pointing into map-overlay data (`0x802E3EFC`/`0x802E3F44`/`0x802E3F68`). The visible portal is the `0x802E3FE8`-entry object: sub-state `data+0x6=0`, intensity float obj+`0x48` = 28.0 (`0x41E00000`; ramp target `data+0xC`=28.0, rates 0.6 and 0.02), on-latch obj+`0x54` set, halo handle `0x8019D1F4` at node+`0x74`/obj+`0x68`. The two dormant ones hold obj+`0x48` = 0.0 (one polls flag `0x2A3`, one has role byte `data+0x5=2`). So "crystal visible" is literally "obj+0x48 ramped from 0 to 28"; a LodRecomp portal stuck at 0.0 reproduces every existing observation, including RT64 seeing correctly-placed glow draw calls with primitive alpha 0.000.
+
+Next action:
+
+1. Wrap `ni_ovl_047_func_0F002F10` with a default-off map-25 trace logging: call count, `mgrData+0x1A4/0x1A6/0x1A8`, sys+`0x538` pressed, and sys+`0x8E/0x94/0x96` per frame. Expectations: if it is never called, the manager object stopped running; if the countdown never drops below -14 or keeps resetting, the map-entry handshake is stuck; if a press latches `0x1A8=1` but sys+`0x94` never advances toward sys+`0x96`, the pair-224 fade stepper is not running or resolves to the wrong pair.
+2. Wrap the pair-224 fade-calc entry (`ni_ovl_224` end-frame path) to log invocations plus which pair the NI loader believes is resident at the `0x0E` slot at that moment, in both a known-good room and map 25.
+3. Extend the existing `LOD_ENABLE_ISSUE27_PORTAL_CHAIN_TRACE` object dumps with obj+`0x48` (intensity), obj+`0x54` (on-latch), `data+0x6/0x7` (sub-state), and `data+0xC` (target) for the three `0x1B9` objects, sampled about once per second. Compare directly against the good values above; the first divergence is the root cause. Note the July `/tmp/lod_issue27` logs were cleaned by macOS, so fresh captures are needed.
+
+## Issue #31 Underground Waterway invisible actors + dead pause; unified 0x0E hypothesis (2026-07-21)
+
+GH issue #31 (Henry scenario, Underground Waterway, v0.2.25/0.2.26 Windows): moving platforms and Edward are invisible but collidable, and pause is dead in that area. Reporter's `LodRecomp.log` and controller-pak save archived at `/tmp/lod_issue31/` (re-download from the issue if cleaned).
+
+Why this unifies with Issue #27:
+
+- Same paired signature in a second room and scenario: non-rendering entities plus dead pause. Both symptom families live on the NI `0x0E` overlay side: actor objects (ids `0x018-0x087`) all dispatch through `0x0E000000`, and the fade stepper that pause completion depends on is `0x0E`-side code (pair 224 by static analysis).
+- Reporter log shows thousands of `0x0F` TLB maps during gameplay (pairs 129/126/47/24/76 cycling) and exactly one `0x0E` map in the whole session (pair 149 at boot). No fingerprint-miss warnings, so the game simply is not calling `osMapTLB` for `0x0E` during gameplay in these maps. The July #27 trace showed `loaded0e=205` in the bad room. On hardware a TLB entry persists until remapped, and the game keeps its own record of the resident `0x0E` file (NI system object at sys+`0x295C`), so the game can legitimately skip remapping; the recomp's single `loaded_0e_pair` slot (`ni_overlay_loader.cpp:161`, updated only inside the `osMapTLB` hook) can diverge from what the game believes is resident. Any divergence makes every `0x0E` call silently run the wrong pair's code at matching offsets: actors stop animating/drawing without crashing, the fade counter never steps, pause swallows the first Start press and ignores the rest.
+- Reporter log ends with `recomp::start() returned` followed by `0xC0000005` at address `0x30` during teardown, mirroring the macOS objc teardown SIGSEGV from July diagnostic runs. Treat the teardown crash as a separate shutdown-order bug; do not conflate it with the room issue.
+
+Hypotheses, ranked:
+
+1. `0x0E` window desync: game dispatches `0x0E` code trusting its own bookkeeping while the recomp window holds a different pair (last cutscene/textbox swap, or clobbered by another load path).
+2. Game maps `0x0E` through a path the recomp does not hook in these overlay-system variants (`OVLSYS-DMA` variants rom `0x745230`/`0x75A570`/`0x7639A0`).
+3. Fingerprint misidentification loading the wrong pair index at `0x0E`.
+
+Plan:
+
+- Phase A (instrumentation, default-off `LOD_ENABLE_NI0E_TRACE`): unsampled `0x0E` slot event log (map/unload/clobber with pair, paddrs, map rom, gamestate); a divergence detector comparing `loaded_0e_pair` against the game's own resident-file record at every dispatch into the `0x0E` window; fade-word watch (sys+`0x8E/0x94/0x96` transitions per VI) plus the pair-47 pause-gate probe (`mgrData+0x1A4/0x1A6/0x1A8`, sys+`0x538`); actor-dispatch probe for maps `0x007A2D70/0x007932D0/0x007D4420/0x007D3C90`. Research prerequisite: locate the game-side dispatch helper for `0x0E` entries and the NI-system field recording the resident `0x0E` file.
+- Phase B (repro): back up the local pak save, install the reporter's `castlevania2.n64.us.bin`, load their save in the Henry scenario and reach the waterway; capture traces (RSS monitored).
+- Phase C (fix, only after evidence): keep the recomp `0x0E` window synced to the game's own source of truth (resync on dispatch or stop the clobbering path). No gameplay hacks, no forced states.
+- Phase D (validation): #31 waterway renders platforms/Edward and pause works; #27 room shows the portal and pause works; regressions: boot, save screen, item menu (pair-99 persist), map transitions, Tower route; RSS stable; then update GH issues.
+- Phase E (separate): reproduce and fix the teardown crash after `recomp::start()` returns.
+
 What changed:
 
 - Added `LOD_FIX_RUN_DL_STALE_NI_FALLBACK`, default ON. When RT64 sees a stale `0x0E/0x0F` NI `G_DL` target that is outside the currently loaded pair or fails the active-GBI guard, it can resolve the display list from recently swapped-out NI overlay snapshots instead of skipping or parsing stale bytes.
@@ -238,6 +299,58 @@ Regression checks:
 - Watch the intro lantern/table section: the lantern vampire should be visible during the target shot, the table should render, and nearby characters should not flicker black.
 - If a future intro/model render regression appears, first compare `LOD_FIX_RUN_DL_STALE_NI_FALLBACK=0/1` and `LOD_FIX_INTRO_6C_MODEL38_TLB=0/1` before adding one-off asset remaps.
 - For issue #20-style regressions, inspect `G_DL` caller, target, current pair, and fallback pair first. A target can be inside the current loaded NI span and still be wrong if the display task refers to a previous pair at the same `0x0E/0x0F` offset.
+
+### Issue #31 repro with reporter save
+
+The reporter's controller-pak save that reaches the Henry-scenario Underground
+Waterway is archived at `/Users/dudu/Projects/recomp/issue31_artifacts/castlevania2.n64.us.bin`.
+Steps to reproduce with `LOD_ENABLE_NI0E_TRACE` instrumentation:
+
+1. Back up the current local save before overwriting it. The save path is
+   printed at startup as `[SAVE] Save file path: ...`
+   (`lib/N64ModernRuntime/librecomp/src/pi.cpp:120-134`). By default (no
+   `portable.txt` next to the executable, no `--save-path`/`--save-dir` CLI
+   override) it resolves to:
+   - macOS: `~/Library/Application Support/LodRecomp/saves/castlevania2.n64.us.bin`
+     (`lod::get_application_support_directory()` in `src/main/support_apple.mm`,
+     joined with `saves/` per `set_save_file_path(u8"", recomp::current_game_id())`
+     at `pi.cpp:279`; `recomp::current_game_id()` returns `castlevania2.n64.us`,
+     matching the `.game_id` registered in `src/main/main.cpp:2389`, hence the
+     `.bin` filename).
+   - Windows: `%APPDATA%\LodRecomp\saves\castlevania2.n64.us.bin`.
+   - Linux / no `APPDATA`/no Application Support: `~/.lodrecomp/saves/castlevania2.n64.us.bin`.
+
+   This repo's `./build` directory ships a `build/portable.txt`, which puts
+   `find_portable_config_path()` (`src/main/main.cpp:3341`) in control instead:
+   the save then lives at `build/saves/castlevania2.n64.us.bin` (confirmed
+   present at that path in this checkout). Back up whichever file applies
+   (e.g. `cp build/saves/castlevania2.n64.us.bin build/saves/castlevania2.n64.us.bin.bak-preissue31`)
+   before overwriting it.
+2. Copy the reporter's save over the active save path:
+   `cp /Users/dudu/Projects/recomp/issue31_artifacts/castlevania2.n64.us.bin build/saves/castlevania2.n64.us.bin`
+   (adjust the destination if not using the portable `build/` checkout).
+3. Build with the trace flag on:
+   `cmake -B build-ni0e -DCMAKE_BUILD_TYPE=Release -DLOD_ENABLE_NI0E_TRACE=ON`
+   then `cmake --build build-ni0e --target LodRecomp -j8`. Then launch, load the
+   Henry scenario save, and navigate to the Underground Waterway
+   (map overlays `0x007A2D70` / `0x007932D0` / `0x007D4420`).
+4. Capture stderr to a file, e.g.
+   `build-ni0e/LodRecomp 2> /tmp/ni0e_repro.log` (or redirect the `.app`
+   binary's stderr the same way), then:
+   - `grep MISMATCH /tmp/ni0e_repro.log`: greppable marker the divergence
+     detector prints when a positively-identified resident-pair field
+     disagrees with `loaded_0e_pair` (not wired for this pass; see
+     `docs/issue27-31-ni0e-findings.md` section b for why).
+   - `grep 'NI0E_TRACE\] fade-heartbeat' /tmp/ni0e_repro.log`: the fade
+     stepper heartbeat; if `counter=` does not change between consecutive
+     heartbeat lines while `mode=` stays nonzero, the pair-224 fade stepper is
+     not advancing in that room.
+   - `grep 'NI0E_TRACE\] slot-event' /tmp/ni0e_repro.log`: every `0x0E`
+     TLB map/unload/miss event for the session, to see whether `0x0E` is ever
+     remapped after boot in the bad room.
+   - `grep 'NI0E_TRACE\] dispatch' /tmp/ni0e_repro.log`: sampled per-dispatch
+     snapshots of `loaded_0e_pair` plus the `sys+0x295C` object window, for
+     correlating against the slot-event log.
 
 ## Issue #23 Henry Coffin Black Screen / Pair-126 Transition Lock (2026-06-27)
 
@@ -469,7 +582,14 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_ENABLE_ITEM_MENU_INPUT_SCRIPT` | off | Debug-only controller/PIF input to load a save, open pause, and select Item for menu-rendering repros | Use with CFB snapshots for pause/item menu regressions |
 | `LOD_ENABLE_PAUSE_ITEM_TRACE` | off | Debug-only pause/item NI overlay and text-object tracing | Enable only when item-menu state or text creation regresses |
 | `LOD_ENABLE_CFB_SNAPSHOT` | off | Debug-only internal VI color framebuffer PPM snapshots | Use for visual regressions where OS screenshots are unreliable |
-| `LOD_CHEAT_INFINITE_HEALTH` | off | Runtime env-var cheat for repro survival; applies LoD USA GameShark-equivalent `811CAB3A 2AF8` once per VI without changing recompiled code | Use only for boss/crash route reproduction when dying blocks investigation |
+| `cheats.cfg` | all lines commented/off | Player-facing config file generated beside `graphics.json`; uncomment `key = true` to enable default-off testing cheats | Prefer this for user-accessible cheat toggles; env vars still override for diagnostics |
+| `LOD_CHEAT_INFINITE_HEALTH` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `811CAB3A 2AF8` once per VI | Use only for boss/crash route reproduction when dying blocks investigation |
+| `LOD_CHEAT_INVINCIBILITY` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `8102A9D0 1000` once per VI | Use only when damage reactions or death block route reproduction |
+| `LOD_CHEAT_NO_DAMAGE` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `8108B81C 2400` once per VI | Alternative to invincibility for route testing |
+| `LOD_CHEAT_MAX_POWER` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `801CAE23 0002` once per VI | Use for boss-route testing when low power blocks reproduction |
+| `LOD_CHEAT_INFINITE_RED_JEWELS` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `801CAB45 0064` once per VI | Use only when sub-weapon resource limits block repro |
+| `LOD_CHEAT_INFINITE_MONEY` | off | Runtime cheat override; applies LoD USA GameShark-equivalent `811CAB42 FFFF` once per VI | Avoid for Renon behavior repros unless money is not part of the bug |
+| `LOD_CHEAT_HAVE_ALL_ITEMS` | off | Runtime cheat override; applies LoD USA GameShark-equivalent repeat write `50002A01 0000` / `801CAB47 0001` once per VI | Broad state mutation, prefer targeted cheats first |
 | `LOD_POST_RDRAM_GUARD_SIZE` | `0x10000` | CMake cache variable for the zero-filled post-RDRAM guard at `rdram+0x80800000`; `0x20000` survived one 180s fast-idle diagnostic run | Keep default at `0x10000`; A/B test `0x20000` when validating open-bus/guard-width hypothesis |
 | `LOD_ENABLE_BOOT_GS_SKIP` | off | Debug-only; never a permanent fix | Use only for downstream comparison, never as baseline |
 
@@ -645,3 +765,6 @@ Parallel audio work is now a real milestone: generated audio RSP is wired, the l
 ## Active Tower of Sorcery Hypotheses
 - Validate whether the balanced scene-node/data pool minimums prevent the first failed item-name textbox through the user's Tower save route at Original refresh.
 - If pool usage still climbs to the new limit, investigate object/platform lifecycle leaks in Tower rather than increasing the pools again blindly.
+
+## Issue #27 diagnostic caveat
+- Diagnostic caveat: generated-code probes must sign-extend 32-bit MIPS pointers back to `gpr` before using `MEM_*`; zero-extended `uint32_t` helper addresses map 4GB too high and can cause probe-only crashes.

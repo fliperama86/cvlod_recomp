@@ -62,6 +62,15 @@ extern "C" void lod_install_input_action_trace_wrappers_early();
 #if LOD_ENABLE_NI24_WRITER_TRACE
 extern "C" void lod_install_ni24_writer_trace_wrappers_early();
 #endif
+#if LOD_FIX_PAIR126_POST_HANDOFF_RELEASE
+extern "C" void lod_install_pair126_post_handoff_release_wrapper_early();
+#endif
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+extern "C" void lod_install_issue27_flag_word_watch_early();
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+extern "C" void lod_install_issue27_handoff_global_watch_early();
+#endif
 
 // Decompressed NI file address table (used by rt64_render_context.cpp for segment 6 resolution)
 uint32_t ni_decompressed_addrs[1024] = {};
@@ -640,5 +649,18 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     // Debug-only object schedule writer tracing for the NI pair-24 Fog Lake
     // null-dispatch diagnosis. Disabled by default.
     lod_install_ni24_writer_trace_wrappers_early();
+#endif
+#if LOD_FIX_PAIR126_POST_HANDOFF_RELEASE
+    // Keep pair126 map handoffs from relocking gameplay flags after the
+    // background/map reset inside ni_system_handler.
+    lod_install_pair126_post_handoff_release_wrapper_early();
+#endif
+#if LOD_ENABLE_ISSUE27_FLAG_WORD_WATCH
+    // Debug-only global watcher for the post-Harpy progression flag word.
+    lod_install_issue27_flag_word_watch_early();
+#endif
+#if LOD_ENABLE_ISSUE27_HANDOFF_GLOBAL_WATCH
+    // Debug-only watcher for Harpy handoff globals.
+    lod_install_issue27_handoff_global_watch_early();
 #endif
 }
