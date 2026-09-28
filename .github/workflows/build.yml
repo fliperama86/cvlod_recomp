@@ -132,6 +132,8 @@ jobs:
           $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows\bin"
           if (Test-Path $vcpkgBin) { Copy-Item (Join-Path $vcpkgBin "*.dll") "stage\$name\" -ErrorAction SilentlyContinue }
           python tools\copy_release_assets.py "stage\$name\assets"
+          # Let the crash handler symbolize native stacks from the build's PDB.
+          $env:_NT_SYMBOL_PATH = (Resolve-Path build-win\RelWithDebInfo).Path
           python tools\ci_smoke.py --cwd "stage\$name" --seconds 5 --log "$env:RUNNER_TEMP\lodrecomp-smoke.log" -- ".\LodRecomp.exe"
           Copy-Item .github\release\README-windows.txt "stage\$name\README.txt"
           Compress-Archive -Path "stage\$name" -DestinationPath "$name.zip" -CompressionLevel Optimal

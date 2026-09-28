@@ -10,6 +10,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
 #else
 #include <unistd.h>
 #endif
@@ -3719,6 +3721,40 @@ static void report_crash_details(void* fault_addr) {
 }
 
 #ifdef _WIN32
+// Symbol name and line for a crash address when a PDB is reachable (next to
+// the executable or via _NT_SYMBOL_PATH); empty otherwise.
+static void append_crash_symbol(DWORD64 addr, char* out, size_t out_size) {
+    out[0] = '\0';
+    static bool sym_ready = false;
+    static bool sym_tried = false;
+    if (!sym_tried) {
+        sym_tried = true;
+        SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_FAIL_CRITICAL_ERRORS);
+        sym_ready = SymInitialize(GetCurrentProcess(), nullptr, TRUE) != FALSE;
+    }
+    if (!sym_ready) {
+        return;
+    }
+    alignas(SYMBOL_INFO) char buffer[sizeof(SYMBOL_INFO) + 256] = {};
+    SYMBOL_INFO* symbol = reinterpret_cast<SYMBOL_INFO*>(buffer);
+    symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+    symbol->MaxNameLen = 255;
+    DWORD64 displacement = 0;
+    if (!SymFromAddr(GetCurrentProcess(), addr, &displacement, symbol)) {
+        return;
+    }
+    IMAGEHLP_LINE64 line = {};
+    line.SizeOfStruct = sizeof(line);
+    DWORD line_displacement = 0;
+    if (SymGetLineFromAddr64(GetCurrentProcess(), addr, &line_displacement, &line)) {
+        const char* file = strrchr(line.FileName, '\\');
+        snprintf(out, out_size, " (%s+0x%llX %s:%lu)", symbol->Name, static_cast<unsigned long long>(displacement),
+                 file != nullptr ? file + 1 : line.FileName, static_cast<unsigned long>(line.LineNumber));
+    } else {
+        snprintf(out, out_size, " (%s+0x%llX)", symbol->Name, static_cast<unsigned long long>(displacement));
+    }
+}
+
 static void describe_crash_address(const char* tag, DWORD64 addr) {
     HMODULE module = nullptr;
     char path[MAX_PATH] = {};
@@ -3727,8 +3763,10 @@ static void describe_crash_address(const char* tag, DWORD64 addr) {
         module != nullptr && GetModuleFileNameA(module, path, MAX_PATH) > 0) {
         const char* name = strrchr(path, '\\');
         name = (name != nullptr) ? name + 1 : path;
-        fprintf(stderr, "  %s 0x%016llX = %s+0x%llX\n", tag, static_cast<unsigned long long>(addr), name,
-                static_cast<unsigned long long>(addr - reinterpret_cast<DWORD64>(module)));
+        char symbol[512];
+        append_crash_symbol(addr, symbol, sizeof(symbol));
+        fprintf(stderr, "  %s 0x%016llX = %s+0x%llX%s\n", tag, static_cast<unsigned long long>(addr), name,
+                static_cast<unsigned long long>(addr - reinterpret_cast<DWORD64>(module)), symbol);
     } else {
         fprintf(stderr, "  %s 0x%016llX = <unknown module>\n", tag, static_cast<unsigned long long>(addr));
     }
