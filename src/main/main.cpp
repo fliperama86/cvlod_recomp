@@ -2847,6 +2847,7 @@ static const char* rom_validation_error_name(recomp::RomValidationError error) {
 #ifdef __ANDROID__
 namespace lod::android {
     void request_rom_picker_from_java();
+    std::string get_files_dir();
 }
 #endif
 
@@ -2941,6 +2942,24 @@ static std::filesystem::path discover_rom_path(const std::filesystem::path& conf
     std::filesystem::path bundle_parent_rom = find_rom_in_directory(lod::get_bundle_directory().parent_path());
     if (!bundle_parent_rom.empty()) {
         return bundle_parent_rom;
+    }
+#endif
+
+#ifdef __ANDROID__
+    // copyUriToCache() in MainActivity.java writes the SAF-picked ROM to filesDir/rom.z64.
+    // Check that explicit path so a cold-start after a successful previous pick finds the ROM
+    // even when rom_path.txt has not been written yet (e.g. after a force-kill mid-validation).
+    {
+        std::string files_dir = lod::android::get_files_dir();
+        if (!files_dir.empty()) {
+            std::filesystem::path android_rom = std::filesystem::path(files_dir) / "rom.z64";
+            std::error_code ec;
+            if (std::filesystem::exists(android_rom, ec) && !ec) {
+                fprintf(stderr, "[discover_rom] Found ROM in Android filesDir: %s\n",
+                        android_rom.string().c_str());
+                return android_rom;
+            }
+        }
     }
 #endif
 
@@ -3049,9 +3068,19 @@ static void handle_rom_setup_requests(const std::filesystem::path& config_path) 
                 "None selected", true);
             std::filesystem::path selected = prompt_for_rom_path();
             if (selected.empty()) {
+#ifdef __ANDROID__
+                // On Android, prompt_for_rom_path() fires the SAF picker and returns immediately
+                // with an empty path. The actual result arrives asynchronously via
+                // nativeOnRomSelected → start_rom_validation_thread. Show a waiting status and
+                // return; do NOT write "selection cancelled" — the picker is still open.
+                lod::ui::set_rom_setup_status("Selecting",
+                    "ROM file browser opened. Select your ROM file from the picker.",
+                    "Waiting...", true);
+#else
                 lod::ui::set_rom_setup_status("Missing",
                     "ROM selection cancelled. Select your ROM file to start the game.",
                     "None selected", false);
+#endif
                 return;
             }
             start_rom_validation_thread(std::move(selected), true, "file picker");

@@ -119,6 +119,45 @@ void request_rom_picker_from_java() {
     LOGI("Triggered requestRomPicker on MainActivity");
 }
 
+// Returns the app's private filesDir path (e.g. /data/user/0/org.cvlod.recomp/files).
+// This is where copyUriToCache writes rom.z64 after a SAF ROM pick, so
+// discover_rom_path can find it on subsequent launches or after a successful pick.
+// Returns an empty string if the JNI call fails.
+std::string get_files_dir() {
+    JNIEnv* env = static_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (env == nullptr) {
+        return {};
+    }
+
+    jobject activity = static_cast<jobject>(SDL_AndroidGetActivity());
+    if (activity == nullptr) {
+        return {};
+    }
+
+    jclass cls = env->GetObjectClass(activity);
+    std::string result;
+    if (cls != nullptr) {
+        jmethodID mid = env->GetStaticMethodID(cls, "getInternalStoragePath", "()Ljava/lang/String;");
+        if (mid != nullptr) {
+            jstring jstr = static_cast<jstring>(env->CallStaticObjectMethod(cls, mid));
+            if (jstr != nullptr) {
+                const char* chars = env->GetStringUTFChars(jstr, nullptr);
+                if (chars != nullptr) {
+                    result = chars;
+                    env->ReleaseStringUTFChars(jstr, chars);
+                }
+                env->DeleteLocalRef(jstr);
+            }
+        }
+        if (env->ExceptionCheck()) {
+            env->ExceptionClear();
+        }
+        env->DeleteLocalRef(cls);
+    }
+    env->DeleteLocalRef(activity);
+    return result;
+}
+
 } // namespace lod::android
 
 // NFD Stubs for Android
