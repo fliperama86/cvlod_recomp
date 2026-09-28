@@ -1,7 +1,7 @@
 # DL Test Harness — validates RT64 GBI pipeline stages
 # Built as part of the main project (shares rt64 target)
 
-add_executable(DLHarness main.cpp)
+add_executable(DLHarness main.cpp ${CMAKE_SOURCE_DIR}/tests/common/lod_ni_host_stubs.cpp)
 
 target_include_directories(DLHarness PRIVATE
     ${CMAKE_SOURCE_DIR}/lib/rt64/src

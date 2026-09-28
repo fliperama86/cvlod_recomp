@@ -1,7 +1,7 @@
 # Minimal RT64 sanity check — red fill-rect
 # Built as part of the main project (shares rt64 target)
 
-add_executable(SanityTest main.cpp)
+add_executable(SanityTest main.cpp ${CMAKE_SOURCE_DIR}/tests/common/lod_ni_host_stubs.cpp)
 
 target_include_directories(SanityTest PRIVATE
     ${CMAKE_SOURCE_DIR}/lib/rt64/src
