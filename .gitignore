@@ -40,3 +40,6 @@ backups/
 
 # Local N64Recomp builds (use the known-good binary instead)
 **/build_tool/
+
+# Python bytecode caches
+__pycache__/
