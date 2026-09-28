@@ -3,6 +3,8 @@
 ## v0.2.27 - 2026-09-28
 
 - Fixed geometry clipping and popping that appeared with widescreen or high framerate enabled, depending on the camera heading.
+- Fixed enemies and items disappearing near the left and right edges of the screen in widescreen.
+- Fixed a startup crash on systems without a hardware GPU driver (D3D12 software rendering).
 - Updated the RT64 renderer and the N64 runtime to their latest upstream versions, including Metal fixes and fixes for crashes and stalls around exit and timers.
 - Added optional testing cheats, configurable in `cheats.cfg` next to the other config files (all off by default).
 
