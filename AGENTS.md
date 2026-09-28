@@ -4,6 +4,7 @@
 - Be extremely methodical, performing one step at a time and ensuring it works properly before continuing.
 - Commit and push cohesive progress once the scope is understood; the user prefers a clean baseline over dangling local files.
 - Never commit unrelated changes silently. Summarize what was committed/pushed and keep commits intentional.
+- GitHub issue replies should be short and reporter-facing: mention the fixed version, release link, and request retest if useful. Do not include root-cause or technical implementation details unless explicitly asked.
 
 ## Project Tracking (Required)
 
