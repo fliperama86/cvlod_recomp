@@ -212,3 +212,114 @@ index 08f83e5..5887aca 100755
          SDL_GetWindowPosition(windowHandle, &newWindowLeft, &newWindowTop);
  #   elif defined(__linux__)
          XWindowAttributes attributes;
+diff --git a/src/hle/rt64_framebuffer.cpp b/src/hle/rt64_framebuffer.cpp
+index 873883d..41fe7c8 100644
+--- a/src/hle/rt64_framebuffer.cpp
++++ b/src/hle/rt64_framebuffer.cpp
+@@ -139,6 +139,15 @@ namespace RT64 {
+         assert(dstRowStart < height);
+         assert(dstRowEnd <= height);
+ 
++        if (nativeTarget.writeBufferHistoryIndex >= nativeTarget.writeBufferHistoryCount) {
++            // No readback was recorded for this framebuffer; leave RDRAM intact.
++            return;
++        }
++        if (!nativeTarget.writeBufferHistory[nativeTarget.writeBufferHistoryIndex].valid) {
++            nativeTarget.writeBufferHistoryIndex++;
++            return;
++        }
++
+         // Copy native target to RDRAM.
+         uint8_t *dstBytes = dst + dstRowStart * imageRowBytes(dstRowWidth);
+         uint32_t *dstWords = reinterpret_cast<uint32_t *>(dstBytes);
+@@ -199,4 +208,4 @@ namespace RT64 {
+     uint64_t FramebufferTile::hash() const {
+         return XXH3_64bits(this, sizeof(FramebufferTile));
+     }
+-};
+\ No newline at end of file
++};
+diff --git a/src/render/rt64_native_target.cpp b/src/render/rt64_native_target.cpp
+index 6891b7b..8509b27 100644
+--- a/src/render/rt64_native_target.cpp
++++ b/src/render/rt64_native_target.cpp
+@@ -88,6 +88,12 @@ namespace RT64 {
+ 
+         // Copy to the native upload resource.
+         const bool hasCurrentResource = !invalidateTargets && (readBufferHistoryCount > 0);
++        const ShaderRecord &shaderReadRecord = hasCurrentResource ? shaderLibrary->fbReadAnyChanges : shaderLibrary->fbReadAnyFull;
++        if (shaderReadRecord.pipeline == nullptr) {
++            // No shader output is available to apply as a framebuffer change.
++            return 0;
++        }
++
+         const uint32_t bufferSize = getNativeSize(width, height, siz);
+         while (readBufferHistoryCount >= readBufferHistory.size()) {
+             readBufferHistory.emplace_back();
+@@ -190,7 +196,6 @@ namespace RT64 {
+             RenderTextureBarrier(emptyFbChange.booleanTexture.get(), RenderTextureLayout::SHADER_READ)
+         };
+ 
+-        const ShaderRecord &shaderReadRecord = hasCurrentResource ? shaderLibrary->fbReadAnyChanges : shaderLibrary->fbReadAnyFull;
+         worker->commandList->barriers(RenderBarrierStage::COMPUTE, &counterBarrier, 1, beforeBarriers, uint32_t(std::size(beforeBarriers)));
+         worker->commandList->setPipeline(shaderReadRecord.pipeline.get());
+         worker->commandList->setComputePipelineLayout(shaderReadRecord.pipelineLayout.get());
+@@ -270,6 +275,17 @@ namespace RT64 {
+         else {
+             writeShader = &shaderLibrary->fbWriteColor;
+         }
++
++        while (writeBufferHistoryCount >= writeBufferHistory.size()) {
++            writeBufferHistory.emplace_back();
++        }
++
++        WriteBuffer &writeBuffer = writeBufferHistory[writeBufferHistoryCount++];
++        writeBuffer.valid = (writeShader->pipeline != nullptr);
++        if (!writeBuffer.valid) {
++            // Keep the readback sequence aligned while preserving RDRAM.
++            return;
++        }
+         
+         assert(((fmt != G_IM_FMT_DEPTH) || (siz == G_IM_SIZ_16b)) && "Depth format is not allowed outside of 16-bits.");
+         
+@@ -279,14 +295,8 @@ namespace RT64 {
+             readBufferHistoryCount = 1;
+         }
+ 
+-        while (writeBufferHistoryCount >= writeBufferHistory.size()) {
+-            writeBufferHistory.emplace_back();
+-        }
+-
+         ReadBuffer *smallerReadBuffer = nullptr;
+         ReadBuffer *readBuffer = &readBufferHistory[readBufferHistoryCount - 1];
+-        WriteBuffer &writeBuffer = writeBufferHistory[writeBufferHistoryCount];
+-        writeBufferHistoryCount++;
+         
+         const uint32_t bufferSize = getNativeSize(rowWidth, rowEnd, siz);
+         if (readBuffer->nativeBufferSize < bufferSize) {
+@@ -369,4 +379,4 @@ namespace RT64 {
+         writeBuffer.nativeReadbackBuffer->unmap();
+         writeBufferHistoryIndex++;
+     }
+-};
+\ No newline at end of file
++};
+diff --git a/src/render/rt64_native_target.h b/src/render/rt64_native_target.h
+index eb944a4..99658dd 100644
+--- a/src/render/rt64_native_target.h
++++ b/src/render/rt64_native_target.h
+@@ -34,6 +34,7 @@ namespace RT64 {
+             std::unique_ptr<FramebufferWriteDescriptorBufferSet> writeDescSet;
+             std::unique_ptr<RenderBuffer> nativeReadbackBuffer;
+             uint32_t nativeReadbackBufferSize = 0;
++            bool valid = false;
+         };
+ 
+         std::unique_ptr<RenderBuffer> changeCountBuffer;
+@@ -59,4 +60,4 @@ namespace RT64 {
+ 
+         static uint32_t getNativeSize(uint32_t width, uint32_t height, uint8_t siz);
+     };
+-};
+\ No newline at end of file
++};

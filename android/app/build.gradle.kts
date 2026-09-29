@@ -48,7 +48,8 @@ android {
                     "-DANDROID_STL=c++_shared",
                     "-DLOD_USE_ZELDA_MENU=ON",
                     "-DRT64_STATIC=TRUE",
-                    "-DRT64_SDL_WINDOW_VULKAN=TRUE"
+                    "-DRT64_SDL_WINDOW_VULKAN=TRUE",
+                    "-DLOD_ANDROID_SKIP_FAILED_FB_PIPELINES=ON"
                 )
                 targets("LodRecomp")
             }

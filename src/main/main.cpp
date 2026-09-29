@@ -85,6 +85,9 @@
 
 #ifdef __ANDROID__
 #include "android_touch_overlay.h"
+#if LOD_ENABLE_ANDROID_AUDIO_DIAGNOSTICS
+#include <android/log.h>
+#endif
 namespace lod::android {
     void update_touch_overlay_ui(int width, int height);
     void set_menu_music_gain(float gain);
@@ -216,6 +219,8 @@ static bool lod_audio_driver_supported_normalized(std::string_view driver) {
     return driver == "wasapi" || driver == "directsound";
 #elif defined(__APPLE__)
     return driver == "coreaudio";
+#elif defined(__ANDROID__)
+    return driver == "opensles" || driver == "aaudio";
 #elif defined(__linux__)
     return driver == "pulseaudio" || driver == "pipewire" || driver == "alsa";
 #else
@@ -226,6 +231,8 @@ static bool lod_audio_driver_supported_normalized(std::string_view driver) {
 static std::string lod_audio_platform_auto_driver() {
 #if defined(_WIN32)
     return "wasapi";
+#elif defined(__ANDROID__)
+    return "openslES";
 #elif defined(__linux__)
     // SDL's PipeWire backend has caused crackle/distortion reports on some
     // distros. PulseAudio is the safer default while still allowing overrides.
@@ -2163,6 +2170,14 @@ void update_audio_converter() {
 
 void queue_samples(int16_t* audio_data, size_t sample_count) {
     static std::vector<float> swap_buffer;
+#if LOD_ENABLE_ANDROID_AUDIO_DIAGNOSTICS
+    static uint32_t diagnostic_calls = 0;
+    static uint32_t empty_queue_calls = 0;
+    static uint32_t min_queued_bytes = UINT32_MAX;
+    static uint32_t max_queued_bytes = 0;
+    static uint64_t output_frames = 0;
+    static auto diagnostic_start = std::chrono::steady_clock::now();
+#endif
 
 #if LOD_ENABLE_AUDIO_TRACE
     static uint32_t queue_count = 0;
@@ -2273,6 +2288,23 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 #endif
 
     SDL_QueueAudio(audio_device, samples_to_queue, num_bytes_to_queue);
+#if LOD_ENABLE_ANDROID_AUDIO_DIAGNOSTICS
+    const uint32_t queued_bytes = SDL_GetQueuedAudioSize(audio_device);
+    diagnostic_calls++;
+    empty_queue_calls += (queued_bytes <= num_bytes_to_queue);
+    min_queued_bytes = std::min(min_queued_bytes, queued_bytes);
+    max_queued_bytes = std::max(max_queued_bytes, queued_bytes);
+    output_frames += num_bytes_to_queue / (output_channels * sizeof(float));
+    if ((diagnostic_calls % 240) == 0) {
+        const double seconds = std::chrono::duration<double>(
+            std::chrono::steady_clock::now() - diagnostic_start).count();
+        __android_log_print(ANDROID_LOG_INFO, "LodAudioTiming",
+                            "calls=%u input=%u output=%u frames_per_second=%.0f empty=%u queued_min=%u queued_max=%u queued_now=%u",
+                            diagnostic_calls, sample_rate, output_sample_rate,
+                            output_frames / seconds, empty_queue_calls,
+                            min_queued_bytes, max_queued_bytes, queued_bytes);
+    }
+#endif
 #if LOD_ENABLE_AUDIO_TRACE
     if (should_log) {
         fprintf(stderr,

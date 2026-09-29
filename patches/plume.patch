@@ -82,7 +82,7 @@ index 9dcfedf..d6153a5 100644
      struct RenderWindow {
          Display* display;
 diff --git a/plume_vulkan.cpp b/plume_vulkan.cpp
-index 2800022..68d350c 100644
+index 2800022..dfeab5a 100644
 --- a/plume_vulkan.cpp
 +++ b/plume_vulkan.cpp
 @@ -1899,7 +1899,11 @@ namespace plume {
@@ -150,3 +150,20 @@ index 2800022..68d350c 100644
          if (compatibleSurfaceFormats.empty()) {
              fprintf(stderr, "No compatible surface formats were found.\n");
              return;
+@@ -4167,7 +4205,15 @@ namespace plume {
+     }
+ 
+     std::unique_ptr<RenderPipeline> VulkanDevice::createComputePipeline(const RenderComputePipelineDesc &desc) {
+-        return std::make_unique<VulkanComputePipeline>(this, desc);
++        auto pipeline = std::make_unique<VulkanComputePipeline>(this, desc);
++#if defined(LOD_ANDROID_SKIP_FAILED_FB_PIPELINES) && defined(__ANDROID__)
++        if (pipeline->vk == VK_NULL_HANDLE) {
++            fprintf(stderr, "[RT64] Vulkan compute pipeline unavailable; skipping unsupported framebuffer transfer on Android.\n");
++            return nullptr;
++        }
++#endif
++
++        return pipeline;
+     }
+ 
+     std::unique_ptr<RenderPipeline> VulkanDevice::createGraphicsPipeline(const RenderGraphicsPipelineDesc &desc) {
