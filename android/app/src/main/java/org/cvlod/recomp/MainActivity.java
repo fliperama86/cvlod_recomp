@@ -177,13 +177,16 @@ public class MainActivity extends SDLActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CODE_ROM_PICK && resultCode == Activity.RESULT_OK) {
-            if (data != null && data.getData() != null) {
-                String cachedPath = copyUriToCache(data.getData());
-                if (cachedPath != null) {
-                    nativeOnRomSelected(cachedPath);
-                }
-            }
+        if (requestCode != REQUEST_CODE_ROM_PICK) {
+            return;
+        }
+        if (resultCode != Activity.RESULT_OK) {
+            nativeOnRomSelected(null); // cancelled
+        } else if (data == null || data.getData() == null) {
+            nativeOnRomSelected(""); // picker returned no readable file
+        } else {
+            String cachedPath = copyUriToCache(data.getData());
+            nativeOnRomSelected(cachedPath != null ? cachedPath : "");
         }
     }
 

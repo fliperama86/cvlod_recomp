@@ -10,9 +10,14 @@
 
 static JavaVM* g_jvm = nullptr;
 static jclass g_main_activity_class = nullptr;
-static std::filesystem::path g_android_selected_rom_path;
 
 extern void start_rom_validation_thread(std::filesystem::path rom_path, bool persist_selected_path, const char* source_label);
+
+#ifdef LOD_USE_ZELDA_MENU
+namespace lod::android {
+    void on_rom_picker_result(std::string path, bool copy_failed);
+}
+#endif
 
 
 
@@ -20,14 +25,27 @@ extern void start_rom_validation_thread(std::filesystem::path rom_path, bool per
 
 extern "C" JNIEXPORT void JNICALL
 Java_org_cvlod_recomp_MainActivity_nativeOnRomSelected(JNIEnv* env, jobject thiz, jstring romPath) {
-    const char* path_str = env->GetStringUTFChars(romPath, nullptr);
-    if (path_str != nullptr) {
-        g_android_selected_rom_path = path_str;
-        LOGI("Native received selected ROM path: %s", path_str);
-        env->ReleaseStringUTFChars(romPath, path_str);
-
-        start_rom_validation_thread(g_android_selected_rom_path, true, "Android SAF ROM Picker");
+    if (romPath == nullptr) {
+#ifdef LOD_USE_ZELDA_MENU
+        lod::android::on_rom_picker_result({}, false);
+#endif
+        return;
     }
+    const char* path_str = env->GetStringUTFChars(romPath, nullptr);
+    if (path_str == nullptr) {
+        return;
+    }
+    std::filesystem::path selected_rom_path = path_str;
+    LOGI("Native received selected ROM path: %s", path_str);
+    env->ReleaseStringUTFChars(romPath, path_str);
+
+#ifdef LOD_USE_ZELDA_MENU
+    lod::android::on_rom_picker_result(selected_rom_path.string(), selected_rom_path.empty());
+#else
+    if (!selected_rom_path.empty()) {
+        start_rom_validation_thread(selected_rom_path, true, "Android SAF ROM Picker");
+    }
+#endif
 }
 
 namespace lod::android {

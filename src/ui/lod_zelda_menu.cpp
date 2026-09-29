@@ -66,6 +66,8 @@ void lod_set_cheat_enabled_from_ui(size_t index, bool enabled);
 namespace lod::android {
     void start_menu_music();
     void stop_menu_music();
+    void request_rom_picker_from_java();
+    void on_rom_picker_result(std::string path, bool copy_failed);
 }
 #endif
 
@@ -1001,32 +1003,40 @@ std::string graphics_summary(const ultramodern::renderer::GraphicsConfig& config
     return out.str();
 }
 
+void finish_rom_selection(bool success, const std::filesystem::path& path, bool copy_failed = false) {
+    if (!success) {
+        g_rom_status = copy_failed ? "Could not copy the selected ROM. Try another file."
+                                   : "ROM selection cancelled.";
+        dirty_launcher();
+        return;
+    }
+
+    g_rom_file_name = path.filename().string();
+    g_rom_status = "Validating " + g_rom_file_name + "...";
+    dirty_launcher();
+
+    std::u8string game_id = lod_game_id();
+    recomp::RomValidationError result = recomp::select_rom(path, game_id);
+    g_rom_valid = (result == recomp::RomValidationError::Good);
+    if (g_rom_valid) {
+        lod::settings::persist_rom_path(path);
+        g_rom_status = "ROM ready: " + g_rom_file_name;
+    } else {
+        g_rom_status = rom_validation_message(result);
+    }
+    dirty_launcher();
+}
+
 void select_rom() {
     g_rom_status = "Opening ROM picker...";
     dirty_launcher();
-
+#ifdef __ANDROID__
+    lod::android::request_rom_picker_from_java();
+#else
     zelda64::open_file_dialog([](bool success, const std::filesystem::path& path) {
-        if (!success) {
-            g_rom_status = "ROM selection cancelled.";
-            dirty_launcher();
-            return;
-        }
-
-        g_rom_file_name = path.filename().string();
-        g_rom_status = "Validating " + g_rom_file_name + "...";
-        dirty_launcher();
-
-        std::u8string game_id = lod_game_id();
-        recomp::RomValidationError result = recomp::select_rom(path, game_id);
-        g_rom_valid = (result == recomp::RomValidationError::Good);
-        if (g_rom_valid) {
-            lod::settings::persist_rom_path(path);
-            g_rom_status = "ROM ready: " + g_rom_file_name;
-        } else {
-            g_rom_status = rom_validation_message(result);
-        }
-        dirty_launcher();
+        finish_rom_selection(success, path);
     });
+#endif
 }
 
 class LodLauncherMenu final : public recompui::MenuController {
@@ -1693,6 +1703,15 @@ public:
     }
 };
 } // namespace
+
+#ifdef __ANDROID__
+void lod::android::on_rom_picker_result(std::string path, bool copy_failed) {
+    // Android delivers activity results on its UI thread; RmlUi state belongs to the render thread.
+    recompui::queue_ui_thread_callback([path = std::move(path), copy_failed]() {
+        finish_rom_selection(!path.empty(), path, copy_failed);
+    });
+}
+#endif
 
 std::string recomp::InputField::to_string() const {
     switch (static_cast<recomp::InputType>(input_type)) {

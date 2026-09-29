@@ -319,6 +319,8 @@ Download `app-release.apk` from the GitHub release and install it by opening the
 launch the launcher asks you to pick your own legally dumped Castlevania: Legacy of Darkness (USA)
 ROM through the Android document picker. The ROM is copied into the app private storage
 (`/data/data/org.cvlod.recomp/files/`) and validated before the game will start.
+You do not need to place it under `Android/data` or grant the app broad storage access: tap
+**Select ROM** in the launcher and choose the file from Downloads or another document provider.
 
 Because the ROM, saves and settings all live in app private storage, **uninstalling the app deletes
 your saves**. Android also forces an uninstall when an APK is signed with a different key, so keep
