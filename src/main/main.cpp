@@ -93,6 +93,7 @@ namespace lod::android {
 
 #ifdef LOD_USE_ZELDA_MENU
 void lod_toggle_ingame_menu(recompui::ConfigTab tab, const char* source);
+void lod_touch_controls_changed_for_ui();
 #endif
 
 #ifdef __ANDROID__
@@ -656,7 +657,7 @@ struct ControlsConfig {
     bool right_stick_invert_x = true;
     bool right_stick_invert_y = true;
     float right_stick_deadzone = 0.5f;
-    // Android on-screen controls; off unless the player turns them on.
+    // Android on-screen controls; enabled by default on a fresh install.
     bool touch_controls_enabled = false;
 };
 
@@ -794,7 +795,9 @@ static ControlsConfig default_controls_config() {
     config.right_stick_invert_x = true;
     config.right_stick_invert_y = true;
     config.right_stick_deadzone = 0.5f;
-    config.touch_controls_enabled = false;
+#ifdef __ANDROID__
+    config.touch_controls_enabled = true;
+#endif
     return config;
 }
 
@@ -1268,6 +1271,9 @@ void lod_set_touch_controls_enabled_from_ui(bool enabled) {
     lod::android::set_touch_controls_enabled(enabled);
 #endif
     save_controls_config(g_controls_config);
+#ifdef LOD_USE_ZELDA_MENU
+    lod_touch_controls_changed_for_ui();
+#endif
 }
 
 // Cheats tab plumbing.
@@ -1969,6 +1975,14 @@ static void queue_zelda_ui_event(const SDL_Event& event) {
 
 void update_gfx(void*) {
 #ifdef __ANDROID__
+    static bool touch_toggle_mouse_sequence = false;
+    // A press on the persistent SHOW/HIDE button updates the touch core immediately. Persist that
+    // choice on the next frame so it matches the Controls screen and survives a restart.
+#ifdef LOD_USE_ZELDA_MENU
+    if (g_controls_config.touch_controls_enabled != lod::android::touch_controls_enabled()) {
+        lod_set_touch_controls_enabled_from_ui(lod::android::touch_controls_enabled());
+    }
+#endif
     // Keep the on-screen control overlay in sync with the window each frame; it rebuilds itself if
     // the surface was resized or rotated.
     if (window != nullptr) {
@@ -1997,7 +2011,7 @@ void update_gfx(void*) {
                 if (window != nullptr) {
                     SDL_GetWindowSize(window, &win_w, &win_h);
                 }
-                if (win_h > 0) {
+                if (ultramodern::is_game_started() && win_h > 0) {
                     lod::android::handle_touch_event(
                         event, static_cast<float>(win_w) / static_cast<float>(win_h));
                 }
@@ -2035,6 +2049,35 @@ void update_gfx(void*) {
             case SDL_MOUSEBUTTONDOWN:
             case SDL_MOUSEBUTTONUP:
             case SDL_MOUSEWHEEL:
+#ifdef __ANDROID__
+                if (event.type == SDL_MOUSEBUTTONDOWN || event.type == SDL_MOUSEBUTTONUP ||
+                    event.type == SDL_MOUSEMOTION) {
+                    const bool synthetic_touch = event.type == SDL_MOUSEMOTION
+                        ? event.motion.which == SDL_TOUCH_MOUSEID
+                        : event.button.which == SDL_TOUCH_MOUSEID;
+                    if (synthetic_touch && ultramodern::is_game_started()) {
+                        if (event.type == SDL_MOUSEBUTTONDOWN && window != nullptr) {
+                            int win_w = 0;
+                            int win_h = 0;
+                            SDL_GetWindowSize(window, &win_w, &win_h);
+                            if (win_w > 0 && win_h > 0) {
+                                const auto& toggle = lod::android::visibility_button_layout();
+                                const float dx = (static_cast<float>(event.button.x) / win_w - toggle.rel_x) *
+                                                 (static_cast<float>(win_w) / win_h);
+                                const float dy = static_cast<float>(event.button.y) / win_h - toggle.rel_y;
+                                touch_toggle_mouse_sequence = dx * dx + dy * dy <=
+                                                              toggle.rel_radius * toggle.rel_radius;
+                            }
+                        }
+                        if (touch_toggle_mouse_sequence) {
+                            if (event.type == SDL_MOUSEBUTTONUP) {
+                                touch_toggle_mouse_sequence = false;
+                            }
+                            break;
+                        }
+                    }
+                }
+#endif
             case SDL_CONTROLLERBUTTONDOWN:
             case SDL_CONTROLLERBUTTONUP:
             case SDL_CONTROLLERAXISMOTION:

@@ -34,6 +34,7 @@ constexpr TouchStickLayout kStick{ 0.18f, 0.72f, 0.14f };
 
 // mask 0: opens the emulator menu rather than feeding an N64 button.
 constexpr TouchButtonLayout kMenuButton{ 0u, 0.70f, 0.09f, 0.045f, "MENU" };
+constexpr TouchButtonLayout kVisibilityButton{ 0u, 0.50f, 0.90f, 0.045f, "HIDE" };
 
 struct ButtonState {
     bool pressed = false;
@@ -46,11 +47,14 @@ struct TouchPad {
     float stick_dx = 0.0f; // -1..1
     float stick_dy = 0.0f; // -1..1, positive is up (N64 convention)
     bool enabled = false;
+    bool suspended = false;
     bool menu_pressed = false;
     int64_t menu_owner = kNoFinger;
     bool menu_requested = false;
+    bool visibility_pressed = false;
+    int64_t visibility_owner = kNoFinger;
 
-    void reset() {
+    void reset_game_controls() {
         buttons = {};
         stick_owner = kNoFinger;
         stick_dx = 0.0f;
@@ -58,6 +62,12 @@ struct TouchPad {
         menu_pressed = false;
         menu_owner = kNoFinger;
         menu_requested = false;
+    }
+
+    void reset() {
+        reset_game_controls();
+        visibility_pressed = false;
+        visibility_owner = kNoFinger;
     }
 
     // Distance in height-normalised units so hit areas are circular on screen.
@@ -85,11 +95,11 @@ struct TouchPad {
     }
 
     void handle(TouchPhase phase, int64_t finger, float x, float y, float aspect) {
-        if (!enabled) {
-            return;
-        }
-
         if (phase == TouchPhase::Up) {
+            if (visibility_owner == finger) {
+                visibility_pressed = false;
+                visibility_owner = kNoFinger;
+            }
             if (stick_owner == finger) {
                 stick_owner = kNoFinger;
                 stick_dx = 0.0f;
@@ -105,6 +115,28 @@ struct TouchPad {
                 menu_pressed = false;
                 menu_owner = kNoFinger;
             }
+            return;
+        }
+
+        if (phase == TouchPhase::Down && visibility_owner == kNoFinger &&
+            distance(x, y, kVisibilityButton.rel_x, kVisibilityButton.rel_y, aspect) <=
+                kVisibilityButton.rel_radius) {
+            visibility_owner = finger;
+            visibility_pressed = true;
+            enabled = !enabled;
+            reset_game_controls();
+            return;
+        }
+        if (visibility_owner == finger) {
+            if (phase == TouchPhase::Motion &&
+                distance(x, y, kVisibilityButton.rel_x, kVisibilityButton.rel_y, aspect) >
+                    kVisibilityButton.rel_radius) {
+                visibility_pressed = false;
+                visibility_owner = kNoFinger;
+            }
+            return;
+        }
+        if (!enabled || suspended) {
             return;
         }
 
@@ -198,11 +230,18 @@ void set_touch_controls_enabled(bool enabled) {
         return;
     }
     g_pad.enabled = enabled;
-    g_pad.reset();
+    g_pad.reset_game_controls();
 }
 
 bool touch_controls_enabled() {
     return g_pad.enabled;
+}
+
+void set_touch_controls_suspended(bool suspended) {
+    if (g_pad.suspended != suspended) {
+        g_pad.suspended = suspended;
+        g_pad.reset_game_controls();
+    }
 }
 
 void reset_touch_controls() {
@@ -242,6 +281,14 @@ bool button_pressed(size_t index) {
 
 const TouchButtonLayout& menu_button_layout() {
     return kMenuButton;
+}
+
+const TouchButtonLayout& visibility_button_layout() {
+    return kVisibilityButton;
+}
+
+bool visibility_button_pressed() {
+    return g_pad.visibility_pressed;
 }
 
 bool consume_menu_request() {

@@ -27,9 +27,12 @@ struct TouchUiState {
     recompui::Element* stick_base = nullptr;
     recompui::Element* stick_thumb = nullptr;
     recompui::Element* menu_button = nullptr;
+    recompui::Element* visibility_button = nullptr;
+    recompui::Label* visibility_label = nullptr;
     int last_width = 0;
     int last_height = 0;
     bool shown = false;
+    bool controls_shown = false;
     bool failed = false;
 };
 
@@ -77,6 +80,7 @@ void build(int width, int height) {
     // Purely decorative: it must never swallow game input or gate off get_n64_input().
     g_ui.context.set_captures_input(false);
     g_ui.context.set_captures_mouse(false);
+    g_ui.context.get_document()->SetProperty("pointer-events", "none");
 
     g_ui.context.open();
 
@@ -113,6 +117,18 @@ void build(int width, int height) {
             ->set_color(kLabel);
     }
 
+    // Keep this control visible even when the game controls are hidden or a menu is open.
+    {
+        const lod::android::TouchButtonLayout& toggle = lod::android::visibility_button_layout();
+        const float d = toggle.rel_radius * 2.0f * h;
+        g_ui.visibility_button = g_ui.context.create_element<Element>(root);
+        style_circle(g_ui.visibility_button, d);
+        place_centred(g_ui.visibility_button, toggle.rel_x, toggle.rel_y, d);
+        g_ui.visibility_label = g_ui.context.create_element<Label>(
+            g_ui.visibility_button, toggle.label, LabelStyle::Small);
+        g_ui.visibility_label->set_color(kLabel);
+    }
+
     g_ui.button_elements.clear();
     for (size_t i = 0; i < lod::android::button_count(); i++) {
         const lod::android::TouchButtonLayout& layout = lod::android::button_layout(i);
@@ -128,10 +144,11 @@ void build(int width, int height) {
     g_ui.context.close();
     g_ui.last_width = width;
     g_ui.last_height = height;
+    g_ui.controls_shown = true;
 }
 
 void destroy() {
-    if (g_ui.context != recompui::ContextId::null()) {
+    if (g_ui.context != recompui::ContextId::null() && recompui::is_context_shown(g_ui.context)) {
         recompui::hide_context(g_ui.context);
     }
     g_ui.context = recompui::ContextId::null();
@@ -139,7 +156,10 @@ void destroy() {
     g_ui.stick_base = nullptr;
     g_ui.stick_thumb = nullptr;
     g_ui.menu_button = nullptr;
+    g_ui.visibility_button = nullptr;
+    g_ui.visibility_label = nullptr;
     g_ui.shown = false;
+    g_ui.controls_shown = false;
 }
 
 } // namespace
@@ -155,14 +175,13 @@ void update_touch_overlay_ui(int width, int height) {
     // dereferences a null ui_state. Gating on the game having started covers that and is also the
     // behaviour we want: on-screen controls belong in gameplay, not over the launcher. They also
     // step aside whenever a menu is capturing input.
-    const bool want = touch_controls_enabled() &&
-                      ultramodern::is_game_started() &&
-                      !recompui::is_context_capturing_input();
+    const bool game_started = ultramodern::is_game_started();
+    const bool menu_open = recompui::is_context_capturing_input();
+    set_touch_controls_suspended(!game_started || menu_open);
 
-    if (!want) {
+    if (!game_started) {
         if (g_ui.shown) {
             destroy();
-            reset_touch_controls();
         }
         return;
     }
@@ -177,13 +196,27 @@ void update_touch_overlay_ui(int width, int height) {
         }
     }
 
-    if (!g_ui.shown) {
+    // Opening a menu calls hide_all_contexts(), so restore the persistent toggle afterward.
+    if (!recompui::is_context_shown(g_ui.context)) {
         recompui::show_context(g_ui.context, "");
         g_ui.shown = true;
     }
 
     // Per-frame feedback: held buttons brighten, and the thumb follows the reported stick offset.
     g_ui.context.open();
+    const bool show_controls = touch_controls_enabled() && !menu_open;
+    if (g_ui.controls_shown != show_controls) {
+        const recompui::Display display = show_controls ? recompui::Display::Flex : recompui::Display::None;
+        g_ui.stick_base->set_display(display);
+        g_ui.stick_thumb->set_display(display);
+        g_ui.menu_button->set_display(display);
+        for (recompui::Element* button : g_ui.button_elements) {
+            button->set_display(display);
+        }
+        g_ui.controls_shown = show_controls;
+    }
+    g_ui.visibility_button->set_background_color(visibility_button_pressed() ? kHeldFill : kIdleFill);
+    g_ui.visibility_label->set_text(touch_controls_enabled() ? "HIDE" : "SHOW");
     for (size_t i = 0; i < g_ui.button_elements.size(); i++) {
         g_ui.button_elements[i]->set_background_color(button_pressed(i) ? kHeldFill : kIdleFill);
     }

@@ -331,9 +331,11 @@ to APKs from the same release stream if you care about your save files.
 A physical controller is picked up automatically through SDL, including the built-in pads on
 handhelds like the Retroid. For touch-only devices there is an on-screen overlay:
 
-- Enable it in **Settings -> Controls -> On-screen controls**. It is off by default and persists in
-  `controls.json`.
-- It appears during gameplay only, and steps aside whenever a menu is open.
+- It is on by default on Android and the choice persists in `controls.json`. Existing saved choices
+  are respected.
+- The game controls appear during gameplay and step aside whenever a menu is open. A small
+  `SHOW`/`HIDE` button remains visible in gameplay, including while a menu is open, so touch users
+  can restore the controls without a physical pad.
 - The full N64 layout is provided (analog stick, A, B, Z, L, R, Start and the four C buttons) plus a
   `MENU` button, which is the only way to reach the emulator menu without a keyboard or controller.
 - Touch input is additive, so the overlay and a physical pad can be used at the same time.

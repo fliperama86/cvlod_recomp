@@ -157,6 +157,31 @@ void test_disabled_ignores_input() {
     check(get_touch_controls_state().buttons == 0, "disabled overlay must not report presses");
 }
 
+void test_visibility_button_works_while_controls_are_hidden() {
+    begin("visibility button stays usable while controls are hidden");
+    set_touch_controls_enabled(false);
+    handle_touch(TouchPhase::Down, 1, 0.50f, 0.90f, kAspect);
+    check(touch_controls_enabled(), "SHOW should enable controls");
+    check(get_touch_controls_state().buttons == 0, "visibility button must not press N64 input");
+    handle_touch(TouchPhase::Up, 1, 0.50f, 0.90f, kAspect);
+    handle_touch(TouchPhase::Down, 2, 0.50f, 0.90f, kAspect);
+    check(!touch_controls_enabled(), "HIDE should disable controls");
+}
+
+void test_visibility_button_works_while_menu_suspends_game_controls() {
+    begin("visibility button remains usable while a menu suspends game controls");
+    set_touch_controls_suspended(true);
+    const TouchButtonLayout& a = button_layout(index_of(ULTRA_A));
+    handle_touch(TouchPhase::Down, 1, a.rel_x, a.rel_y, kAspect);
+    check(get_touch_controls_state().buttons == 0, "menu must suspend N64 touch input");
+    handle_touch(TouchPhase::Down, 2, 0.50f, 0.90f, kAspect);
+    check(!touch_controls_enabled(), "HIDE should work with menu open");
+    handle_touch(TouchPhase::Up, 2, 0.50f, 0.90f, kAspect);
+    handle_touch(TouchPhase::Down, 3, 0.50f, 0.90f, kAspect);
+    check(touch_controls_enabled(), "SHOW should work with menu open");
+    set_touch_controls_suspended(false);
+}
+
 void test_menu_button_requests_menu_without_n64_input() {
     begin("the menu button latches a request and feeds no N64 buttons");
     const TouchButtonLayout& m = menu_button_layout();
@@ -213,6 +238,8 @@ int main() {
     test_stick_range_and_clamp();
     test_hit_area_is_circular_not_squashed();
     test_disabled_ignores_input();
+    test_visibility_button_works_while_controls_are_hidden();
+    test_visibility_button_works_while_menu_suspends_game_controls();
     test_menu_button_requests_menu_without_n64_input();
     test_menu_button_does_not_overlap_other_controls();
     test_sliding_off_menu_button_does_not_refire();

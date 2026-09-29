@@ -1142,7 +1142,6 @@ public:
         });
         recompui::register_event(listener, "toggle_touch_controls", [](const std::string&, Rml::Event&) {
             lod_set_touch_controls_enabled_from_ui(!lod_touch_controls_enabled_for_ui());
-            dirty_controls();
         });
         recompui::register_event(listener, "toggle_input_device", [](const std::string&, Rml::Event&) {
             g_current_input_device = g_current_input_device == recomp::InputDevice::Controller
@@ -1703,6 +1702,10 @@ public:
     }
 };
 } // namespace
+
+void lod_touch_controls_changed_for_ui() {
+    dirty_controls();
+}
 
 #ifdef __ANDROID__
 void lod::android::on_rom_picker_result(std::string path, bool copy_failed) {

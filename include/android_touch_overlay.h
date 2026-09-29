@@ -63,6 +63,8 @@ enum class TouchPhase {
  * touch-only device. mask is 0 because it feeds no N64 input.
  */
 const TouchButtonLayout& menu_button_layout();
+const TouchButtonLayout& visibility_button_layout();
+bool visibility_button_pressed();
 
 /** True once per press of the menu button; reading it clears the request. */
 bool consume_menu_request();
@@ -77,6 +79,7 @@ TouchStickLayout stick_layout();
 
 void set_touch_controls_enabled(bool enabled);
 bool touch_controls_enabled();
+void set_touch_controls_suspended(bool suspended);
 
 /** Clears all pressed state; call when the overlay is hidden so nothing sticks down. */
 void reset_touch_controls();

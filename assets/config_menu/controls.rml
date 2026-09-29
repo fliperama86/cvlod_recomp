@@ -30,7 +30,7 @@
                         <div class="toggle__border" />
                         <div class="toggle__floater" />
                     </button>
-                    <div class="config-option__label">On-screen controls (in game)</div>
+                    <div class="config-option__label">On-screen controls (SHOW/HIDE stays visible)</div>
                 </div>
                 <div>
                     <button
