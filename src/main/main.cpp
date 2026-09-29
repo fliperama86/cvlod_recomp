@@ -136,7 +136,7 @@ ultramodern::gfx_callbacks_t::gfx_data_t create_gfx() {
     SDL_SetHint(SDL_HINT_JOYSTICK_HIDAPI_PS5_RUMBLE, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
 
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) > 0) {
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
         exit_error("Failed to initialize SDL2: %s\n", SDL_GetError());
     }
 
@@ -3471,7 +3471,8 @@ extern "C" __attribute__((visibility("default"))) int SDL_main(int argc, char** 
 #else
 int main(int argc, char** argv) {
 #endif
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) > 0) {
+    // Audio must be initialized after audio.json selects SDL_AUDIODRIVER below.
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
         fprintf(stderr, "[ERROR] Failed to initialize SDL2 early: %s\n", SDL_GetError());
     }
     LodCommandLineParseResult cli_parse = lod_parse_command_line(argc, argv);
@@ -3601,7 +3602,9 @@ int main(int argc, char** argv) {
             audio_config_path().string().c_str());
 
     lod_configure_sdl_audio_driver(audio_config);
-    SDL_InitSubSystem(SDL_INIT_AUDIO);
+    if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+        fprintf(stderr, "[ERROR] Failed to initialize SDL audio: %s\n", SDL_GetError());
+    }
     reset_audio(48000);
 
     for (const auto& game : supported_games) {
