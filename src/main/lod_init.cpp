@@ -142,17 +142,20 @@ void lod_on_init(uint8_t* rdram, recomp_context* ctx) {
     }
 
     // === Overlay loading ===
+    // Must match the ..common section size in castlevania2.syms.toml exactly:
+    // the runtime skips or refuses to unload a section whose size differs.
+    constexpr uint32_t kCommonSectionSize = 0x4AFE0;
     // Upstream init() loads sections by computing RAM linearly from ROM offsets.
     // For LoD, section 2 has a relocation gap (linear=0x800C1520, effective=0x80141870).
     // The upstream's linear computation puts section 2 functions at the wrong address.
     //
     // Fix: first UNLOAD section 2 at the wrong address, then reload all sections
     // at their correct effective addresses.
-    unload_overlays(0x800C1520, 0x4AEE0);  // Remove section 2 at wrong linear addr
+    unload_overlays(0x800C1520, kCommonSectionSize);  // Remove section 2 at wrong linear addr
 
     // Load sections at their correct effective addresses (from recomp_overlays.inl):
     // Section 2: common (ROM 0xC2120 → RAM 0x80141870)
-    load_overlays(0xC2120, 0x80141870, 0x4AEE0);
+    load_overlays(0xC2120, 0x80141870, kCommonSectionSize);
     // Section 3: initial overlay_system variant 0 (ROM 0x745230 → RAM 0x801CAEA0).
     // Register code through the recomp section; copy the full variant-0 DMA span
     // below so its tail jump tables/data are present in RDRAM.

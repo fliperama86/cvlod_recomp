@@ -199,6 +199,7 @@ obj1B0_dispatch            = 0x80175FB0; // type:func  // object 0x1B0 state dis
 obj1B0_selectMapData       = 0x80176020; // type:func  // obj 0x1B0 state 0: per-map data for maps 7/8/0x19/0x2A
 obj1B0_createModel         = 0x80176104; // type:func  // obj 0x1B0 state 1: builds scene node, marks spawn entry done (stubbed; patched)
 obj1B0_update              = 0x801761E4; // type:func  // obj 0x1B0 state 2: despawn check plus pulse/bob animation
+frameCounts_rescaleForFrameRate = 0x8018C680; // type:func  // rescales frame-count fields when the rate float (sys+0x8) is not 30
 sceneSelector_write        = 0x80149DE4; // type:func  // writes scene selector record to sys+0x7C
 sceneSelector_update1      = 0x80149BC4; // type:func  // updates scene selector globals
 sceneSelector_update2      = 0x80149D30; // type:func  // updates scene selector globals (variant)

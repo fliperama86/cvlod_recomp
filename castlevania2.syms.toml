@@ -2320,7 +2320,7 @@ functions = [
 name = "..common"
 rom = 0x000C2120
 vram = 0x80141870
-size = 0x4AEE0
+size = 0x4AFE0
 
 functions = [
     { name = "func_80141870", vram = 0x80141870, size = 0x70 },
@@ -3505,7 +3505,7 @@ functions = [
     { name = "func_8018C3CC", vram = 0x8018C3CC, size = 0x184 },
     { name = "func_8018C550", vram = 0x8018C550, size = 0xC8 },
     { name = "func_8018C618", vram = 0x8018C618, size = 0x68 },
-    { name = "func_8018C680", vram = 0x8018C680, size = 0xD0 },
+    { name = "frameCounts_rescaleForFrameRate", vram = 0x8018C680, size = 0x1C4 },
 ]
 
 [[section]]

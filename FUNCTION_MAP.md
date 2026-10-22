@@ -44,6 +44,7 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80176020 | obj1B0_selectMapData | Object `0x1B0` state 0: picks per-map data for maps 7, 8, 0x19 and 0x2A into `alloc_data[0]` |
 | 0x80176104 | obj1B0_createModel | Object `0x1B0` state 1: builds its scene node (`sceneLookup(0x210)`), calls `0x801D26A0` in the overlay_system window, then `spawnEntry_markDone`. Stubbed in `recomp.toml` (N64Recomp cannot resolve that jal); restored by `tools/apply_patches.py` behind `LOD_FIX_OBJ1B0_INIT`. Without it the post-Harpy room never activates (issue #27) |
 | 0x801761E4 | obj1B0_update | Object `0x1B0` state 2: despawn check, then pulse/bob animation |
+| 0x8018C680 | frameCounts_rescaleForFrameRate | Last function of `..common` (ends `0x8018C844`). If the rate float at sys+`0x8` (`0x801C82C8`) is not 30, scales two s16 frame-count fields per 0x16-byte entry by the factors at `0x8019D13C`/`0x8019D140` (2/3), keeping consecutive ranges non-empty. Called through `jalr` by NI overlays (e.g. 169-171). Was stubbed because `..common` cut off its last 0xF4 bytes; section is now `0x4AFE0` (must match `kCommonSectionSize` in `lod_init.cpp`) |
 
 ## Object Struct (from CV64 decomp: `Object`, size=0x74)
 | Offset | Type | Name | Description |

@@ -25,10 +25,9 @@ stubs = [
     # Branch to RSP IMEM / multi-register cop0
     "func_800AADA0",
     "func_800AADA8",
-    # Boundary issue: branches past common section end
+    # Boundary issue: its one jal targets the overlay_system window (0x801D26A0)
     # obj1B0_createModel is restored by tools/apply_patches.py (LOD_FIX_OBJ1B0_INIT)
     "obj1B0_createModel",
-    "func_8018C680",
     # Former Tower of Sorcery boundary stubs are now generated and fixed by the post-processing chain.
     # Overlay functions with branches to unmapped addresses
     "map_ovl_42_func_802E8A80",
@@ -36,8 +35,36 @@ stubs = [
     "map_ovl_42_func_802E8AAC",
     "map_ovl_42_func_802E8AD0",
     "map_ovl_42_func_802E8AF4",
-    # NI overlay with cross-segment jump table (0x0F code reads 0x0E data)
-    "ni_ovl_242_func_0F000358",
 ]
 
 ignored = []
+
+# ni_ovl_242_func_0F000358 dispatches through a 7-entry jump table at 0x0E000FC8
+# (the same NI file mapped at 0x0E). N64Recomp cannot see a table in another
+# segment, so replace the table load + jr with equivalent branches on the
+# index ($t3 = idx << 2): idx 0 -> 0x0F000568, idx 6 -> 0x0F000550,
+# idx 1..5 -> 0x0F00055C. Indices >= 7 already branch to 0x0F000568 earlier.
+[[patches.instruction]]
+func = "ni_ovl_242_func_0F000358"
+vram = 0x0F00053C
+value = 0x24010018 # addiu $at, $zero, 0x18
+
+[[patches.instruction]]
+func = "ni_ovl_242_func_0F000358"
+vram = 0x0F000540
+value = 0x11600009 # beq $t3, $zero, 0x0F000568
+
+[[patches.instruction]]
+func = "ni_ovl_242_func_0F000358"
+vram = 0x0F000544
+value = 0x00000000 # nop
+
+[[patches.instruction]]
+func = "ni_ovl_242_func_0F000358"
+vram = 0x0F000548
+value = 0x15610004 # bne $t3, $at, 0x0F00055C
+
+[[patches.instruction]]
+func = "ni_ovl_242_func_0F000358"
+vram = 0x0F00054C
+value = 0x00000000 # nop
