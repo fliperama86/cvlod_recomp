@@ -526,10 +526,6 @@ static void flush_ui_thread_callbacks() {
     }
 }
 
-static bool zelda_controller_button_toggles_menu(uint8_t button) {
-    return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
-}
-
 static bool scanned_input_is_menu_action() {
     const int scanned_input_index = recomp::get_scanned_input_index();
     return scanned_input_index == static_cast<int>(recomp::GameInput::TOGGLE_MENU) ||
@@ -547,6 +543,35 @@ static bool controller_button_is_dpad(uint8_t button) {
 static bool controller_button_matches_binding(uint8_t button, const recomp::InputField& field) {
     return field.input_type == static_cast<uint32_t>(recomp::InputType::ControllerDigital) &&
         button == field.input_id;
+}
+
+// The menu toggle follows the Toggle Menu bindings. If both slots are cleared,
+// fall back to the default (Back / Escape) so the menu stays reachable.
+static bool zelda_controller_button_toggles_menu(uint8_t button) {
+    const recomp::InputField binding_0 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 0, recomp::InputDevice::Controller);
+    const recomp::InputField binding_1 =
+        recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, 1, recomp::InputDevice::Controller);
+    if (binding_0.input_type == 0 && binding_1.input_type == 0) {
+        return button == SDL_GameControllerButton::SDL_CONTROLLER_BUTTON_BACK;
+    }
+    return controller_button_matches_binding(button, binding_0) ||
+        controller_button_matches_binding(button, binding_1);
+}
+
+static bool zelda_key_opens_menu(SDL_Scancode scancode) {
+    if (scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE) {
+        return true;
+    }
+    for (size_t slot = 0; slot < 2; slot++) {
+        const recomp::InputField binding =
+            recomp::get_input_binding(recomp::GameInput::TOGGLE_MENU, slot, recomp::InputDevice::Keyboard);
+        if (binding.input_type == static_cast<uint32_t>(recomp::InputType::Keyboard) &&
+            binding.input_id == static_cast<int32_t>(scancode)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 static bool handle_scanning_event(
@@ -897,7 +922,7 @@ void draw_hook(RenderCommandList* command_list, RenderFramebuffer* swap_chain_fr
 
             switch (cur_event.type) {
             case SDL_EventType::SDL_KEYDOWN:
-                if (cur_event.key.keysym.scancode == SDL_Scancode::SDL_SCANCODE_ESCAPE) {
+                if (zelda_key_opens_menu(cur_event.key.keysym.scancode)) {
                     open_config = true;
                 }
                 break;
