@@ -59,6 +59,13 @@ def _repair_funcs_h_partial_declarations(content):
                 # Truncated after the ctx argument — add the missing close.
                 line = line.rstrip() + ');'
                 changed = True
+            elif re.match(r'^void \w+\(', stripped):
+                # Truncated anywhere else after the name and '(' (e.g. inside
+                # "recomp_context* c"): the name is complete, so rewrite the
+                # whole prototype.
+                name = re.match(r'^void (\w+)\(', stripped).group(1)
+                line = f"void {name}(uint8_t* rdram, recomp_context* ctx);"
+                changed = True
             elif '(' in stripped and 'recomp_context' not in stripped:
                 # Truncated mid-declaration after '(' — complete it.
                 repaired = re.sub(
