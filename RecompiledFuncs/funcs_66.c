@@ -5051,7 +5051,7 @@ RECOMP_FUNC void Interactable_Init(uint8_t* rdram, recomp_context* ctx) {
     // 0x80186E70: jal         0x80143234
     // 0x80186E74: sw          $a3, 0x2C($sp)
     MEM_W(0X2C, ctx->r29) = ctx->r7;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x80186E74: sw          $a3, 0x2C($sp)
     MEM_W(0X2C, ctx->r29) = ctx->r7;
@@ -12971,7 +12971,7 @@ RECOMP_FUNC void func_80189700(uint8_t* rdram, recomp_context* ctx) {
     // 0x8018972C: jal         0x80143234
     // 0x80189730: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x80189730: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;

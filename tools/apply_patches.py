@@ -430,8 +430,7 @@ extern uint32_t lod_widescreen_cull_bound_hi(uint32_t hi);
 # LOOKUP_FUNC so it reaches whichever overlay_system variant is loaded.
 # The body below is a 1:1 translation of the original MIPS.
 # =============================================================================
-# Generated code from before the rename still uses the default name.
-OBJ1B0_INIT_STUB_NAMES = ("obj1B0_createModel", "func_80176104")
+OBJ1B0_INIT_STUB_NAMES = ("obj1B0_createModel",)
 
 OBJ1B0_INIT_BODY = """    // --- PATCH: restore stubbed object 0x1B0 state-1 init ---
 #ifndef LOD_FIX_OBJ1B0_INIT
@@ -531,7 +530,7 @@ OBJ1B0_INIT_BODY = """    // --- PATCH: restore stubbed object 0x1B0 state-1 ini
     // 0x801761B4: jal         0x80143234
     // 0x801761B8: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
     // 0x801761BC: lui         $t9, 0x8000
     ctx->r25 = S32(0X8000 << 16);
     // 0x801761C0: addiu       $t9, $t9, 0x1CE8

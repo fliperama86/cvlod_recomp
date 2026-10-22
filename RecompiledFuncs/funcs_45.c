@@ -2052,7 +2052,7 @@ L_80144734:
     // 0x80144740: jal         0x80143234
     // 0x80144744: sh          $t8, 0x26($t0)
     MEM_H(0X26, ctx->r8) = ctx->r24;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_11;
     // 0x80144744: sh          $t8, 0x26($t0)
     MEM_H(0X26, ctx->r8) = ctx->r24;

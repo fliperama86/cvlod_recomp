@@ -759,11 +759,11 @@ L_80141E64:
 // Round 13: activation-chain producer #2a (0x8019D198, the "activation
 // control block" +0x18 field bgState_activate's AND-gate also requires; see
 // docs/issue27-31-fix-design.md section 4.3 and
-// docs/issue27-31-ni0e-findings.md Round 13). func_80141E80 below tests
-// "still pending?" via func_801424C4 on (a) *(obj+0x38 != 0 ? obj :
+// docs/issue27-31-ni0e-findings.md Round 13). bgActivation_waitSpawnLists below tests
+// "still pending?" via spawnList_hasPending on (a) *(obj+0x38 != 0 ? obj :
 // *(obj+0x34))+0x38 and (b) obj+0x34 directly (only reached if (a) returned
 // not-pending); only when BOTH calls return 0 does it increment 0x8019D198
-// and finalize. The guard probe logs both func_801424C4 results (0 =
+// and finalize. The guard probe logs both spawnList_hasPending results (0 =
 // pending-clear, nonzero = still pending) plus which of the two checks
 // short-circuited (if any). Cap: first 40 + every 600th.
 static uint32_t lod_ni0e_actprod2a_guard_calls = 0;
@@ -789,7 +789,7 @@ static void lod_ni0e_actprod2a_incr_probe(uint32_t before, uint32_t after) {
             before, after, lod_current_map_overlay_rom());
 }
 #endif  // LOD_ENABLE_NI0E_TRACE
-RECOMP_FUNC void func_80141E80(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void bgActivation_waitSpawnLists(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80141E80: addiu       $sp, $sp, -0x18
@@ -815,7 +815,7 @@ RECOMP_FUNC void func_80141E80(uint8_t* rdram, recomp_context* ctx) {
     // 0x80141E9C: jal         0x801424C4
     // 0x80141EA0: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
-    func_801424C4(rdram, ctx);
+    spawnList_hasPending(rdram, ctx);
         goto after_0;
     // 0x80141EA0: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
@@ -847,7 +847,7 @@ L_80141EB0:
     // 0x80141EB8: jal         0x801424C4
     // 0x80141EBC: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
-    func_801424C4(rdram, ctx);
+    spawnList_hasPending(rdram, ctx);
         goto after_1;
     // 0x80141EBC: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
@@ -2099,7 +2099,7 @@ RECOMP_FUNC void func_801424A4(uint8_t* rdram, recomp_context* ctx) {
     // 0x801424C0: nop
 
 ;}
-RECOMP_FUNC void func_801424C4(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void spawnList_hasPending(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x801424C4: or          $v0, $a0, $zero
@@ -2926,7 +2926,7 @@ L_801429DC:
     // 0x801429E0: jal         0x80143234
     // 0x801429E4: sw          $a2, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->r6;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x801429E4: sw          $a2, 0x30($sp)
     MEM_W(0X30, ctx->r29) = ctx->r6;
@@ -3309,7 +3309,7 @@ RECOMP_FUNC void func_80142BC4(uint8_t* rdram, recomp_context* ctx) {
     // 0x80142BE0: jal         0x801424C4
     // 0x80142BE4: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
-    func_801424C4(rdram, ctx);
+    spawnList_hasPending(rdram, ctx);
         goto after_0;
     // 0x80142BE4: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
@@ -3332,7 +3332,7 @@ L_80142BF4:
     // 0x80142BFC: jal         0x80143234
     // 0x80142C00: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_1;
     // 0x80142C00: sw          $a2, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r6;
@@ -4698,7 +4698,7 @@ RECOMP_FUNC void func_80143218(uint8_t* rdram, recomp_context* ctx) {
     // 0x80143230: sh          $t7, 0x2($v1)
     MEM_H(0X2, ctx->r3) = ctx->r15;
 ;}
-RECOMP_FUNC void func_80143234(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void spawnEntry_markDone(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x80143234: lw          $v0, 0x70($a0)
@@ -4944,7 +4944,7 @@ RECOMP_FUNC void func_80143340(uint8_t* rdram, recomp_context* ctx) {
     // 0x801433A0: jal         0x80143234
     // 0x801433A4: sw          $a0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r4;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x801433A4: sw          $a0, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r4;
@@ -5790,7 +5790,7 @@ L_80143830:
     // 0x80143850: jal         0x80143234
     // 0x80143854: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x80143854: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
@@ -7005,7 +7005,7 @@ L_80143E54:
     // 0x80143E54: jal         0x80143234
     // 0x80143E58: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x80143E58: sw          $a2, 0x18($sp)
     MEM_W(0X18, ctx->r29) = ctx->r6;

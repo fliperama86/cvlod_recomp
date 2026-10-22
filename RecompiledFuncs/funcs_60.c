@@ -2,7 +2,7 @@
 #include "funcs.h"
 #include "lod_symbols.h"
 
-RECOMP_FUNC void func_80176104(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void obj1B0_createModel(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // --- PATCH: restore stubbed object 0x1B0 state-1 init ---
@@ -103,7 +103,7 @@ RECOMP_FUNC void func_80176104(uint8_t* rdram, recomp_context* ctx) {
     // 0x801761B4: jal         0x80143234
     // 0x801761B8: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
     // 0x801761BC: lui         $t9, 0x8000
     ctx->r25 = S32(0X8000 << 16);
     // 0x801761C0: addiu       $t9, $t9, 0x1CE8
@@ -127,7 +127,7 @@ L_801761D0:
 #endif
     // --- END PATCH ---
 ;}
-RECOMP_FUNC void func_801761E4(uint8_t* rdram, recomp_context* ctx) {
+RECOMP_FUNC void obj1B0_update(uint8_t* rdram, recomp_context* ctx) {
     uint64_t hi = 0, lo = 0, result = 0;
     int c1cs = 0;
     // 0x801761E4: addiu       $sp, $sp, -0x28

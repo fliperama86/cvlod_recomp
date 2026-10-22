@@ -822,7 +822,7 @@ L_80164CD0:
     // 0x80164CE8: jal         0x80143234
     // 0x80164CEC: sw          $a3, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r7;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_0;
     // 0x80164CEC: sw          $a3, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r7;
@@ -1787,7 +1787,7 @@ L_80165190:
     // 0x80165258: jal         0x80143234
     // 0x8016525C: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_6;
     // 0x8016525C: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
@@ -2694,7 +2694,7 @@ L_8016579C:
     // 0x801657CC: jal         0x80143234
     // 0x801657D0: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_9;
     // 0x801657D0: or          $a0, $s1, $zero
     ctx->r4 = ctx->r17 | 0;
@@ -3693,7 +3693,7 @@ L_80165D78:
     // 0x80165D78: jal         0x80143234
     // 0x80165D7C: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_7;
     // 0x80165D7C: or          $a0, $s0, $zero
     ctx->r4 = ctx->r16 | 0;
@@ -4744,7 +4744,7 @@ L_80166328:
     // 0x80166358: jal         0x80143234
     // 0x8016635C: sw          $v1, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r3;
-    func_80143234(rdram, ctx);
+    spawnEntry_markDone(rdram, ctx);
         goto after_8;
     // 0x8016635C: sw          $v1, 0x28($sp)
     MEM_W(0X28, ctx->r29) = ctx->r3;
