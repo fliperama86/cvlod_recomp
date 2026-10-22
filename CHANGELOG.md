@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.28 - 2026-10-22
+
+- Fixed the black screen after the Harpy fight as Henry (#27, #36).
+- Fixed the same underlying bug in the Harpy arena, the Tunnel and the Underground Waterway, the likely cause of black screens, missing floors and platforms, and pause not working there (#31, #33, #35, #38).
+- The Toggle Menu controller binding now works; the menu no longer opens only with Back (#28).
+- Restored two other parts of the game's code that had been disabled since early development.
+
 ## v0.2.27 - 2026-09-28
 
 - Fixed geometry clipping and popping that appeared with widescreen or high framerate enabled, depending on the camera heading.
