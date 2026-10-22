@@ -192,6 +192,13 @@ sceneNode_linkSibling      = 0x800058F8; // type:func  // links a scene node thr
 sceneLookup                = 0x80005A30; // type:func  // looks up scene state entry from descriptor table
 sceneNode_createLinked     = 0x80005ABC; // type:func  // allocates and links a scene node variant
 sceneStateCopy             = 0x801431CC; // type:func  // reads alloc_data[15] (+0x70), copies transform
+spawnEntry_markDone        = 0x80143234; // type:func  // sets the object's map spawn entry (+0x70) flags2 |= 0x4000 (done)
+spawnList_hasPending       = 0x801424C4; // type:func  // 1 if any 0x20-byte spawn entry has flags2 0x8000 without 0x4000
+bgActivation_waitSpawnLists = 0x80141E80; // type:func  // obj 0x1AE: bumps activation gate 0x8019D198 once its spawn lists are done
+obj1B0_dispatch            = 0x80175FB0; // type:func  // object 0x1B0 state dispatcher (table 0x80192710)
+obj1B0_selectMapData       = 0x80176020; // type:func  // obj 0x1B0 state 0: per-map data for maps 7/8/0x19/0x2A
+obj1B0_createModel         = 0x80176104; // type:func  // obj 0x1B0 state 1: builds scene node, marks spawn entry done (stubbed; patched)
+obj1B0_update              = 0x801761E4; // type:func  // obj 0x1B0 state 2: despawn check plus pulse/bob animation
 sceneSelector_write        = 0x80149DE4; // type:func  // writes scene selector record to sys+0x7C
 sceneSelector_update1      = 0x80149BC4; // type:func  // updates scene selector globals
 sceneSelector_update2      = 0x80149D30; // type:func  // updates scene selector globals (variant)

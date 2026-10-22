@@ -26,7 +26,8 @@ stubs = [
     "func_800AADA0",
     "func_800AADA8",
     # Boundary issue: branches past common section end
-    "func_80176104",
+    # obj1B0_createModel is restored by tools/apply_patches.py (LOD_FIX_OBJ1B0_INIT)
+    "obj1B0_createModel",
     "func_8018C680",
     # Former Tower of Sorcery boundary stubs are now generated and fixed by the post-processing chain.
     # Overlay functions with branches to unmapped addresses

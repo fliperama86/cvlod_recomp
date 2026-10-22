@@ -221,7 +221,13 @@ Status: user-validated in the intro lantern/table scene; promoted to default-on 
 
 ## Issue #27 Post-Harpy Portal Crystal (2026-07-03)
 
-Status: active investigation. User can reach the post-Harpy room, but LodRecomp is missing the bright crystal/portal that appears in original hardware/emulator behavior.
+Status: root cause found and fixed 2026-10-22 (`LOD_FIX_OBJ1B0_INIT`, default on). User-validated with the issue #27 save: after the Harpy fight the post-Harpy room activates and leads to the same next area as OpenEmu.
+
+Root cause: object `0x1B0` (spawn entry `0x802E40E8` in map `0x19`) never finished init because its state-1 function `obj1B0_createModel` (`0x80176104`) has been stubbed in `recomp.toml` since February bring-up ("branches past common section end": its one jal targets `0x801D26A0` in the overlay_system window, which N64Recomp cannot resolve). The stub compiles empty, so the object never builds its scene node and never calls `spawnEntry_markDone`. The room's activation producer `bgActivation_waitSpawnLists` (obj `0x1AE`) waits on `spawnList_hasPending` for that spawn list, so gate `0x8019D198` never rises, `bgState_activate` never fires and exec flags stay `0x20000000`: black screen, no control, no pause. Found from a live RDRAM dump of the black screen (`LOD_ENABLE_NI0E_TRACE` capture: loads all completed, scene built, `activation-prod2a-guard` stuck at `pending-check2`). The July pair-126 input-release shims forced exec flags in some runs, which is why the room once rendered with the crystal missing and pause dead. The July 0x0E-window and async-load theories below do not apply to #27.
+
+Follow-ups: `func_8018C680` is stubbed for the same reason and is a real function (texture-coordinate scaler called by NI overlays 169-171 and others through `jalr`); restore it the same way. Re-check #31/#33/#35/#36 against this fix, then decide whether the pair-126 shims can be retired.
+
+Earlier notes (superseded for the root cause, kept for reference): User can reach the post-Harpy room, but LodRecomp is missing the bright crystal/portal that appears in original hardware/emulator behavior.
 
 Current evidence:
 
@@ -560,6 +566,7 @@ Each override should be removed or documented as a required compatibility shim.
 | `LOD_FIX_RUN_DL_STALE_NI_FALLBACK` | **on** | General stale-NI render fix: shared owner-aware RT64 resolver validates live and stale `G_DL`/BranchZ/BranchW NI targets structurally, then recovers display lists from recent NI overlay snapshots when the current pair no longer owns the bytes | Keep on; disable only for A/B regressions in intro/model rendering |
 | `LOD_FIX_RT64_VIEWPROJ_DECOMPOSE` | **on** | Robust RT64 view/projection split for LoD's combined camera matrix; fixes heading-dependent clipping with widescreen or frame interpolation (RENDER-011, user-validated 2026-09-28) | Keep on; `LOD_ENABLE_RT64_VIEWPROJ_TRACE` (off) logs remaining split mismatches |
 | `LOD_FIX_WIDESCREEN_CULL` | **on** | Scales the game's hard-coded `+-160` screen-x cull bound in `gfx_build_cull_list` (`0x80007B94`) to the RT64 output aspect ratio so models don't pop near widescreen edges (RENDER-012); carried by `tools/apply_patches.py` on regen | Keep on; `=0` only for widescreen popping A/B |
+| `LOD_FIX_OBJ1B0_INIT` | **on** | Restores `obj1B0_createModel` (`0x80176104`), stubbed in `recomp.toml` since bring-up because N64Recomp cannot resolve its jal into the overlay_system window; the patch body calls `0x801D26A0` through `LOOKUP_FUNC`. Without it the post-Harpy room never activates (issue #27); carried by `tools/apply_patches.py` on regen | Keep on; `=0` only for issue #27 A/B |
 | `LOD_FIX_INTRO_6C_MODEL38_TLB` | **on** | Intro asset `0x6C` model setup needs TLB translation before storing model display-list pointers; carried by `tools/apply_patches.py` on regen | Keep on; disable only for table/lady intro A/B regression |
 | `LOD_ENABLE_GBI_MISS_TRACE` / `LOD_ENABLE_RUN_DL_SUSPICIOUS_TRACE` | off | Debug-only RT64 HLE diagnostics for unknown ucode hashes, preserve events, and suspicious NI `G_DL` parent dumps | Enable only for fresh black-screen/HLE regressions; keep off for normal gameplay |
 | `LOD_FIX_NI_SEG6_CPU_ALIAS` | **on** | Validated CPU-side segment-6 alias fix; mirrors active NI segment data into CPU-visible `0x06xxxxxx` so KSEG0-mirrored segmented pointers do not crash when read by recompiled CPU code | Keep on; use `=0` only for A/B regression of the Tower segment-6 crash |

@@ -37,6 +37,13 @@ Names updated in `castlevania2.syms.toml` — re-run N64Recomp to regenerate rec
 | 0x80010B84 | object_executeChildObject | Iterates parent GSS_SLOT entries, creates child objects |
 | 0x80010DD4 | object_execute | Dispatches object's state function |
 | 0x801431CC | sceneStateCopy | Reads alloc_data[15] (+0x70), copies transform data |
+| 0x80143234 | spawnEntry_markDone | Sets the object's map spawn entry (`obj+0x70`) flags2 bit `0x4000` (done) |
+| 0x801424C4 | spawnList_hasPending | Walks 0x20-byte map spawn entries until flags0 bit `0x8000`; returns 1 if any entry has flags2 `0x8000` without `0x4000`, 0 if none, -1 for NULL |
+| 0x80141E80 | bgActivation_waitSpawnLists | Object `0x1AE` state: increments activation gate `0x8019D198` once `spawnList_hasPending` is 0 for both of its spawn lists (`obj+0x34`/`obj+0x38`), then advances |
+| 0x80175FB0 | obj1B0_dispatch | Object `0x1B0` state dispatcher (state table `0x80192710`) |
+| 0x80176020 | obj1B0_selectMapData | Object `0x1B0` state 0: picks per-map data for maps 7, 8, 0x19 and 0x2A into `alloc_data[0]` |
+| 0x80176104 | obj1B0_createModel | Object `0x1B0` state 1: builds its scene node (`sceneLookup(0x210)`), calls `0x801D26A0` in the overlay_system window, then `spawnEntry_markDone`. Stubbed in `recomp.toml` (N64Recomp cannot resolve that jal); restored by `tools/apply_patches.py` behind `LOD_FIX_OBJ1B0_INIT`. Without it the post-Harpy room never activates (issue #27) |
+| 0x801761E4 | obj1B0_update | Object `0x1B0` state 2: despawn check, then pulse/bob animation |
 
 ## Object Struct (from CV64 decomp: `Object`, size=0x74)
 | Offset | Type | Name | Description |

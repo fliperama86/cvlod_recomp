@@ -418,6 +418,176 @@ extern uint32_t lod_widescreen_cull_bound_hi(uint32_t hi);
 
 
 # =============================================================================
+# Current patch: restore object 0x1B0's stubbed state-1 init
+# Target: func_80176104 (VRAM 0x80176104), stubbed in recomp.toml
+# Object 0x1B0 (dispatcher 0x80175FB0, state table 0x80192710) spawns in maps
+# 7, 8, 0x19 and 0x2A. State 1 builds its scene node and then sets its spawn
+# entry's done bit (0x4000) via func_80143234. The room's activation gate
+# (func_80141E80 -> func_801424C4) waits for that bit, so with the function
+# stubbed the post-Harpy room (map 0x19) never hands back control (issue #27).
+# It was stubbed because of its one jal into the overlay_system window
+# (0x801D26A0), which N64Recomp could not resolve; that call goes through
+# LOOKUP_FUNC so it reaches whichever overlay_system variant is loaded.
+# The body below is a 1:1 translation of the original MIPS.
+# =============================================================================
+# Generated code from before the rename still uses the default name.
+OBJ1B0_INIT_STUB_NAMES = ("obj1B0_createModel", "func_80176104")
+
+OBJ1B0_INIT_BODY = """    // --- PATCH: restore stubbed object 0x1B0 state-1 init ---
+#ifndef LOD_FIX_OBJ1B0_INIT
+#define LOD_FIX_OBJ1B0_INIT 0
+#endif
+#if LOD_FIX_OBJ1B0_INIT
+    // 0x80176104: addiu       $sp, $sp, -0x30
+    ctx->r29 = ADD32(ctx->r29, -0X30);
+    // 0x80176108: sw          $s0, 0x18($sp)
+    MEM_W(0X18, ctx->r29) = ctx->r16;
+    // 0x8017610C: or          $s0, $a0, $zero
+    ctx->r16 = ctx->r4 | 0;
+    // 0x80176110: sw          $ra, 0x1C($sp)
+    MEM_W(0X1C, ctx->r29) = ctx->r31;
+    // 0x80176114: lui         $a1, 0x801A
+    ctx->r5 = S32(0X801A << 16);
+    // 0x80176118: lw          $a1, -0x1A08($a1)
+    ctx->r5 = MEM_W(ctx->r5, -0X1A08);
+    // 0x8017611C: jal         0x80005A30
+    // 0x80176120: addiu       $a0, $zero, 0x210
+    ctx->r4 = ADD32(0, 0X210);
+    sceneLookup(rdram, ctx);
+    // 0x80176124: beq         $v0, $zero, L_801761D0
+    // 0x80176128: sw          $v0, 0x24($s0)
+    MEM_W(0X24, ctx->r16) = ctx->r2;
+    if (ctx->r2 == 0) {
+        goto L_801761D0;
+    }
+    // 0x8017612C: lui         $t6, 0x801D
+    ctx->r14 = S32(0X801D << 16);
+    // 0x80176130: lw          $t6, -0x5228($t6)
+    ctx->r14 = MEM_W(ctx->r14, -0X5228);
+    // 0x80176134: lhu         $t1, 0x2($v0)
+    ctx->r9 = MEM_HU(ctx->r2, 0X2);
+    // 0x80176138: lui         $t8, 0x600
+    ctx->r24 = S32(0X600 << 16);
+    // 0x8017613C: lui         $t7, 0x601
+    ctx->r15 = S32(0X601 << 16);
+    // 0x80176140: ori         $t3, $t1, 0x800
+    ctx->r11 = ctx->r9 | 0X800;
+    // 0x80176144: addiu       $t8, $t8, 0x5700
+    ctx->r24 = ADD32(ctx->r24, 0X5700);
+    // 0x80176148: lui         $at, 0x4000
+    ctx->r1 = S32(0X4000 << 16);
+    // 0x8017614C: addiu       $t7, $t7, -0x7428
+    ctx->r15 = ADD32(ctx->r15, -0X7428);
+    // 0x80176150: or          $t9, $t8, $at
+    ctx->r25 = ctx->r24 | ctx->r1;
+    // 0x80176154: addiu       $t0, $zero, 0x2
+    ctx->r8 = ADD32(0, 0X2);
+    // 0x80176158: sh          $t3, 0x2($v0)
+    MEM_H(0X2, ctx->r2) = ctx->r11;
+    // 0x8017615C: ori         $t4, $t3, 0x80
+    ctx->r12 = ctx->r11 | 0X80;
+    // 0x80176160: addiu       $t5, $zero, -0x1
+    ctx->r13 = ADD32(0, -0X1);
+    // 0x80176164: sw          $t7, 0x38($v0)
+    MEM_W(0X38, ctx->r2) = ctx->r15;
+    // 0x80176168: sw          $t9, 0x3C($v0)
+    MEM_W(0X3C, ctx->r2) = ctx->r25;
+    // 0x8017616C: sh          $zero, 0x28($v0)
+    MEM_H(0X28, ctx->r2) = 0;
+    // 0x80176170: sh          $t0, 0x2A($v0)
+    MEM_H(0X2A, ctx->r2) = ctx->r8;
+    // 0x80176174: sh          $t4, 0x2($v0)
+    MEM_H(0X2, ctx->r2) = ctx->r12;
+    // 0x80176178: sw          $t5, 0x18($v0)
+    MEM_W(0X18, ctx->r2) = ctx->r13;
+    // 0x8017617C: sw          $t6, 0x40($v0)
+    MEM_W(0X40, ctx->r2) = ctx->r14;
+    // 0x80176180: sw          $v0, 0x24($sp)
+    MEM_W(0X24, ctx->r29) = ctx->r2;
+    // 0x80176184: or          $a0, $s0, $zero
+    ctx->r4 = ctx->r16 | 0;
+    // 0x80176188: jal         0x801431CC
+    // 0x8017618C: or          $a1, $v0, $zero
+    ctx->r5 = ctx->r2 | 0;
+    sceneStateCopy(rdram, ctx);
+    // 0x80176190: lw          $a2, 0x24($sp)
+    ctx->r6 = MEM_W(ctx->r29, 0X24);
+    // 0x80176194: lw          $t6, 0x10($s0)
+    ctx->r14 = MEM_W(ctx->r16, 0X10);
+    // 0x80176198: lui         $t7, 0x8017
+    ctx->r15 = S32(0X8017 << 16);
+    // 0x8017619C: addiu       $t7, $t7, 0x66C8
+    ctx->r15 = ADD32(ctx->r15, 0X66C8);
+    // 0x801761A0: sw          $t7, 0x10($s0)
+    MEM_W(0X10, ctx->r16) = ctx->r15;
+    // 0x801761A4: or          $a0, $s0, $zero
+    ctx->r4 = ctx->r16 | 0;
+    // 0x801761A8: addiu       $a1, $a2, 0x50
+    ctx->r5 = ADD32(ctx->r6, 0X50);
+    // 0x801761AC: jal         0x801D26A0 (overlay_system window)
+    // 0x801761B0: sw          $t6, 0x3C($s0)
+    MEM_W(0X3C, ctx->r16) = ctx->r14;
+    LOOKUP_FUNC(0x801D26A0)(rdram, ctx);
+    // 0x801761B4: jal         0x80143234
+    // 0x801761B8: or          $a0, $s0, $zero
+    ctx->r4 = ctx->r16 | 0;
+    func_80143234(rdram, ctx);
+    // 0x801761BC: lui         $t9, 0x8000
+    ctx->r25 = S32(0X8000 << 16);
+    // 0x801761C0: addiu       $t9, $t9, 0x1CE8
+    ctx->r25 = ADD32(ctx->r25, 0X1CE8);
+    // 0x801761C4: addiu       $a0, $s0, 0x8
+    ctx->r4 = ADD32(ctx->r16, 0X8);
+    // 0x801761C8: jalr        $t9
+    // 0x801761CC: addiu       $a1, $s0, 0xE
+    ctx->r5 = ADD32(ctx->r16, 0XE);
+    LOOKUP_FUNC(ctx->r25)(rdram, ctx);
+L_801761D0:
+    // 0x801761D0: lw          $ra, 0x1C($sp)
+    ctx->r31 = MEM_W(ctx->r29, 0X1C);
+    // 0x801761D4: lw          $s0, 0x18($sp)
+    ctx->r16 = MEM_W(ctx->r29, 0X18);
+    // 0x801761D8: addiu       $sp, $sp, 0x30
+    ctx->r29 = ADD32(ctx->r29, 0X30);
+    // 0x801761DC: jr          $ra
+    // 0x801761E0: nop
+    return;
+#endif
+    // --- END PATCH ---
+"""
+
+
+@active_patch("Restore stubbed object 0x1B0 state-1 init (obj1B0_createModel, 0x80176104)")
+def patch_restore_obj1b0_init():
+    stub_headers = [(name, f"RECOMP_FUNC void {name}(uint8_t* rdram, recomp_context* ctx) {{\n"
+                           "    uint64_t hi = 0, lo = 0, result = 0;\n"
+                           "    int c1cs = 0;\n")
+                    for name in OBJ1B0_INIT_STUB_NAMES]
+    for fname in sorted(os.listdir(FUNC_DIR)):
+        if not (fname.startswith("funcs_") and fname.endswith(".c")):
+            continue
+        path = os.path.join(FUNC_DIR, fname)
+        with open(path) as f:
+            content = f.read()
+        for name, stub_header in stub_headers:
+            start = content.find(stub_header)
+            if start == -1:
+                continue
+            if "PATCH: restore stubbed object 0x1B0 state-1 init" in content:
+                return False
+            body_at = start + len(stub_header)
+            if not content.startswith(";}", body_at):
+                print(f"    WARNING: {name} is no longer an empty stub; not patching")
+                return False
+            content = content[:body_at] + OBJ1B0_INIT_BODY + content[body_at:]
+            with open(path, 'w', newline='\n') as f:
+                f.write(content)
+            return True
+    print(f"    WARNING: stub {OBJ1B0_INIT_STUB_NAMES[0]} not found")
+    return False
+
+
+# =============================================================================
 # Current patch: expand scene graph pool minimums
 # Target: scene4_init / scene_init calls to sceneGraphPools_init (VRAM 0x80004CB0)
 # =============================================================================
