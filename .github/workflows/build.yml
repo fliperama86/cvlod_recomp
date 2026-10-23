@@ -140,16 +140,19 @@ jobs:
       - name: Configure and build LodRecomp (ClangCL)
         shell: pwsh
         run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
           $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
           $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
-          $clang = "$vs\VC\Tools\Llvm\x64\bin\clang-cl.exe"
-          $msvcBin = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64"
-          $sdkBin = Join-Path $env:WindowsSdkVerBinPath "x64"
+          # CMake needs forward slashes; backslashes in these paths read as escapes.
+          $clang = "$vs/VC/Tools/Llvm/x64/bin/clang-cl.exe".Replace('\', '/')
+          $msvcBin = (Join-Path $env:VCToolsInstallDir "bin/Hostx64/x64").Replace('\', '/')
+          $sdkBin = (Join-Path $env:WindowsSdkVerBinPath "x64").Replace('\', '/')
           # Embedded (/Z7) debug info is required for caching; link still writes the PDB.
           cmake -S . -B build-win -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_C_COMPILER="$clang" -DCMAKE_CXX_COMPILER="$clang" `
-            -DCMAKE_LINKER="$msvcBin\link.exe" -DCMAKE_AR="$msvcBin\lib.exe" `
-            -DCMAKE_RC_COMPILER="$sdkBin\rc.exe" -DCMAKE_MT="$sdkBin\mt.exe" `
+            -DCMAKE_LINKER="$msvcBin/link.exe" -DCMAKE_AR="$msvcBin/lib.exe" `
+            -DCMAKE_RC_COMPILER="$sdkBin/rc.exe" -DCMAKE_MT="$sdkBin/mt.exe" `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
             -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
