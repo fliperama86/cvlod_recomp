@@ -149,13 +149,14 @@ jobs:
           $msvcBin = (Join-Path $env:VCToolsInstallDir "bin/Hostx64/x64").Replace('\', '/')
           $sdkBin = (Join-Path $env:WindowsSdkVerBinPath "x64").Replace('\', '/')
           # Embedded (/Z7) debug info is required for caching; link still writes the PDB.
+          # Precompiled headers can't be cached, so RmlUi builds without them in CI.
           cmake -S . -B build-win -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
             -DCMAKE_C_COMPILER="$clang" -DCMAKE_CXX_COMPILER="$clang" `
             -DCMAKE_LINKER="$msvcBin/link.exe" -DCMAKE_AR="$msvcBin/lib.exe" `
             -DCMAKE_RC_COMPILER="$sdkBin/rc.exe" -DCMAKE_MT="$sdkBin/mt.exe" `
             -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
             -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_TARGET_TRIPLET=x64-windows -DRMLUI_PRECOMPILED_HEADERS=OFF `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
           cmake --build build-win --target LodRecomp --parallel
           sccache --show-stats
@@ -298,8 +299,10 @@ jobs:
 
       - name: Configure and build LodRecomp (Clang)
         run: |
+          # Precompiled headers can't be cached, so RmlUi builds without them in CI.
           CC=clang CXX=clang++ cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DRMLUI_PRECOMPILED_HEADERS=OFF
           cmake --build build-linux --target LodRecomp --parallel
 
       - name: Package
@@ -410,8 +413,10 @@ jobs:
       - name: Configure and build LodRecomp
         run: |
           chmod +x .github/macos/ld64
+          # Precompiled headers can't be cached, so RmlUi builds without them in CI.
           cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DRMLUI_PRECOMPILED_HEADERS=OFF
           cmake --build build-macos --target LodRecomp --parallel
 
       - name: Package
