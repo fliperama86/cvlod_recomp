@@ -1,5 +1,9 @@
 # Changelog
 
+## v0.2.29 - 2026-10-23
+
+- Changing the audio driver under Settings > Sound now takes effect right away, without restarting.
+
 ## v0.2.28 - 2026-10-22
 
 - Fixed the black screen after the Harpy fight as Henry (#27, #36).
