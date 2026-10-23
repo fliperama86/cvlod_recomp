@@ -59,6 +59,21 @@ jobs:
           if (-not $path) { throw "VS Clang components not found on runner image" }
           & "$path\VC\Tools\Llvm\x64\bin\clang-cl.exe" --version
 
+      # Ninja instead of the Visual Studio generator so compiles can go
+      # through sccache. Same VS-bundled clang-cl and MSVC link/lib/rc/mt as
+      # the ClangCL toolset used.
+      - name: Set up MSVC environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Set up sccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          variant: sccache
+          key: windows-x64
+          max-size: 1G
+
       - name: Get vcpkg version
         id: vcpkg
         shell: pwsh
@@ -84,8 +99,10 @@ jobs:
         shell: pwsh
         run: |
           git -C lib\N64ModernRuntime\N64Recomp diff --quiet -- src/
-          cmake -S lib\N64ModernRuntime\N64Recomp -B build-n64recomp -G "Visual Studio 17 2022" -A x64
-          cmake --build build-n64recomp --config Release --target N64RecompCLI --parallel
+          cmake -S lib\N64ModernRuntime\N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release `
+            -DCMAKE_C_COMPILER=cl -DCMAKE_CXX_COMPILER=cl `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
+          cmake --build build-n64recomp --target N64RecompCLI --parallel
 
       - name: Regenerate RecompiledFuncs
         shell: pwsh
@@ -100,7 +117,7 @@ jobs:
           python tools\ni_ovl\step6_extended_rom.py rom.z64
           # N64Recomp exits non-zero on the known overlay_system message.
           $PSNativeCommandUseErrorActionPreference = $false
-          .\build-n64recomp\Release\N64Recomp.exe recomp.toml
+          .\build-n64recomp\N64Recomp.exe recomp.toml
           Write-Host "N64Recomp exited $LASTEXITCODE (expected overlay_system abort)"
           $PSNativeCommandUseErrorActionPreference = $true
           python tools\fix_n64recomp_truncation.py
@@ -123,9 +140,22 @@ jobs:
       - name: Configure and build LodRecomp (ClangCL)
         shell: pwsh
         run: |
-          cmake -S . -B build-win -G "Visual Studio 17 2022" -A x64 -T ClangCL `
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vs = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Llvm.Clang -property installationPath
+          $clang = "$vs\VC\Tools\Llvm\x64\bin\clang-cl.exe"
+          $msvcBin = Join-Path $env:VCToolsInstallDir "bin\Hostx64\x64"
+          $sdkBin = Join-Path $env:WindowsSdkVerBinPath "x64"
+          # Embedded (/Z7) debug info is required for caching; link still writes the PDB.
+          cmake -S . -B build-win -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo `
+            -DCMAKE_C_COMPILER="$clang" -DCMAKE_CXX_COMPILER="$clang" `
+            -DCMAKE_LINKER="$msvcBin\link.exe" -DCMAKE_AR="$msvcBin\lib.exe" `
+            -DCMAKE_RC_COMPILER="$sdkBin\rc.exe" -DCMAKE_MT="$sdkBin\mt.exe" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache `
+            -DCMAKE_POLICY_DEFAULT_CMP0141=NEW -DCMAKE_MSVC_DEBUG_INFORMATION_FORMAT=Embedded `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
             -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake"
-          cmake --build build-win --config RelWithDebInfo --target LodRecomp --parallel
+          cmake --build build-win --target LodRecomp --parallel
+          sccache --show-stats
 
       - name: Package
         id: pkg
@@ -134,13 +164,13 @@ jobs:
           $v = "${{ steps.ver.outputs.version }}"
           $name = "LodRecomp-$v-windows-x64"
           New-Item -ItemType Directory -Force "stage\$name" | Out-Null
-          Copy-Item build-win\RelWithDebInfo\LodRecomp.exe "stage\$name\"
-          Copy-Item build-win\RelWithDebInfo\*.dll "stage\$name\"
+          Copy-Item build-win\LodRecomp.exe "stage\$name\"
+          Copy-Item build-win\*.dll "stage\$name\"
           $vcpkgBin = Join-Path $env:VCPKG_INSTALLATION_ROOT "installed\x64-windows\bin"
           if (Test-Path $vcpkgBin) { Copy-Item (Join-Path $vcpkgBin "*.dll") "stage\$name\" -ErrorAction SilentlyContinue }
           python tools\copy_release_assets.py "stage\$name\assets"
           # Let the crash handler symbolize native stacks from the build's PDB.
-          $env:_NT_SYMBOL_PATH = (Resolve-Path build-win\RelWithDebInfo).Path
+          $env:_NT_SYMBOL_PATH = (Resolve-Path build-win).Path
           python tools\ci_smoke.py --cwd "stage\$name" --seconds 5 --log "$env:RUNNER_TEMP\lodrecomp-smoke.log" -- ".\LodRecomp.exe"
           Copy-Item .github\release\README-windows.txt "stage\$name\README.txt"
           Compress-Archive -Path "stage\$name" -DestinationPath "$name.zip" -CompressionLevel Optimal
