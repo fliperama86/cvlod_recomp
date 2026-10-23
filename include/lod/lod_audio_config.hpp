@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 
 namespace lod::settings {
@@ -28,5 +29,9 @@ void apply_and_save_audio_config(const AudioConfig& config, const char* reason);
 std::string normalize_audio_driver_setting(std::string driver);
 bool audio_driver_setting_supported(std::string driver);
 AudioStatus audio_status();
+
+// Switches to the saved SDL audio driver without a restart. The switch runs on
+// the main thread, which then calls on_done with whether a device opened.
+void request_audio_driver_reinit(std::function<void(bool device_open)> on_done);
 
 } // namespace lod::settings

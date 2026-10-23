@@ -83,7 +83,7 @@ std::string g_version_string;
 ultramodern::renderer::GraphicsConfig g_pending_graphics{};
 lod::settings::AudioConfig g_audio_config{};
 std::string g_config_status = "Graphics changes are staged until Apply.";
-std::string g_audio_status = "Volume and mute apply immediately. Audio driver changes require restarting LodRecomp.";
+std::string g_audio_status = "Volume, mute, and audio driver changes apply immediately.";
 std::string g_config_path_display;
 
 std::u8string lod_game_id() {
@@ -630,7 +630,7 @@ void reset_pending_graphics_from_active() {
         ? std::string{"Registered at startup"}
         : lod::settings::config_path().string();
     g_config_status = "Graphics changes are staged until Apply.";
-    g_audio_status = "Volume and mute apply immediately. Audio driver changes require restarting LodRecomp.";
+    g_audio_status = "Volume, mute, and audio driver changes apply immediately.";
     dirty_config();
 }
 
@@ -1413,8 +1413,16 @@ public:
                 }
                 g_audio_config.sdl_driver = new_driver;
                 apply_audio_config_from_ui("Zelda menu audio driver");
-                g_audio_status = "Audio driver saved. Restart LodRecomp for the new backend to take effect.";
+                g_audio_status = "Switching audio driver...";
                 dirty_config();
+                lod::settings::request_audio_driver_reinit([](bool device_open) {
+                    recompui::queue_ui_thread_callback([device_open]() {
+                        g_audio_status = device_open
+                            ? "Audio driver switched and saved."
+                            : "Audio driver saved, but no audio device opened. Try another driver.";
+                        dirty_config();
+                    });
+                });
             });
         constructor.BindFunc("audio_driver_windows_platform", [](Rml::Variant& out) {
             out = lod::settings::audio_driver_setting_supported("wasapi") ||

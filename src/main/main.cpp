@@ -228,6 +228,15 @@ static bool lod_audio_env_driver_is_known_bad(const std::string& driver) {
 
 static void lod_configure_sdl_audio_driver(const lod::settings::AudioConfig& config) {
     const std::string setting = lod::settings::normalize_audio_driver_setting(config.sdl_driver);
+
+    // Restore the user's launch-time SDL_AUDIODRIVER first, so a live driver
+    // switch doesn't mistake an earlier pick of ours for a user override.
+    static const std::string launch_env_driver = [] {
+        const char* value = SDL_getenv("SDL_AUDIODRIVER");
+        return value != nullptr ? std::string(value) : std::string();
+    }();
+    SDL_setenv("SDL_AUDIODRIVER", launch_env_driver.c_str(), true);
+
     const char* raw_driver = SDL_getenv("SDL_AUDIODRIVER");
     const std::string env_driver = raw_driver != nullptr ? lod_trim_ascii(raw_driver) : "";
     const std::string env_driver_lower = lod_ascii_lower(env_driver);
@@ -1790,6 +1799,8 @@ static void queue_zelda_ui_event(const SDL_Event& event) {
 }
 #endif
 
+static void service_audio_driver_reinit();
+
 void update_gfx(void*) {
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -1845,11 +1856,15 @@ void update_gfx(void*) {
     zelda64::process_pending_file_dialogs();
 #endif
 
+    service_audio_driver_reinit();
     handle_rom_setup_requests(g_config_path);
 }
 
 // ── Audio ───────────────────────────────────────────────────────────
 
+// Guards the device and converter state below: the game threads feed audio
+// while the main thread may swap the SDL audio driver.
+static std::mutex g_audio_device_mutex;
 static SDL_AudioDeviceID audio_device = 0;
 static SDL_AudioCVT audio_convert;
 static uint32_t sample_rate = 48000;
@@ -1890,6 +1905,7 @@ void update_audio_converter() {
 }
 
 void queue_samples(int16_t* audio_data, size_t sample_count) {
+    std::lock_guard<std::mutex> device_lock(g_audio_device_mutex);
     static std::vector<float> swap_buffer;
     static std::array<float, duplicated_input_frames * input_channels> duplicated_sample_buffer;
 
@@ -2008,6 +2024,7 @@ void queue_samples(int16_t* audio_data, size_t sample_count) {
 }
 
 size_t get_frames_remaining() {
+    std::lock_guard<std::mutex> device_lock(g_audio_device_mutex);
     constexpr float buffer_offset_frames = 1.0f;
     uint64_t buffered_byte_count = SDL_GetQueuedAudioSize(audio_device);
     buffered_byte_count = buffered_byte_count * 2 * sample_rate / output_sample_rate / output_channels;
@@ -2022,6 +2039,7 @@ size_t get_frames_remaining() {
 }
 
 void set_frequency(uint32_t freq) {
+    std::lock_guard<std::mutex> device_lock(g_audio_device_mutex);
     sample_rate = freq;
     update_audio_converter();
 #if LOD_ENABLE_AUDIO_TRACE
@@ -2082,6 +2100,7 @@ void reset_audio(uint32_t output_freq) {
 }
 
 lod::settings::AudioStatus lod::settings::audio_status() {
+    std::lock_guard<std::mutex> device_lock(g_audio_device_mutex);
     lod::settings::AudioStatus status{};
     const char* driver = SDL_GetCurrentAudioDriver();
     status.sdl_driver = driver != nullptr ? driver : "(none)";
@@ -2091,6 +2110,55 @@ lod::settings::AudioStatus lod::settings::audio_status() {
     status.device_open = audio_device != 0;
     status.queued_bytes = status.device_open ? SDL_GetQueuedAudioSize(audio_device) : 0;
     return status;
+}
+
+static std::atomic<bool> g_audio_reinit_pending{false};
+static std::mutex g_audio_reinit_mutex;
+static std::function<void(bool)> g_audio_reinit_on_done;
+
+void lod::settings::request_audio_driver_reinit(std::function<void(bool device_open)> on_done) {
+    std::lock_guard<std::mutex> lock(g_audio_reinit_mutex);
+    g_audio_reinit_on_done = std::move(on_done);
+    g_audio_reinit_pending.store(true, std::memory_order_release);
+}
+
+// Runs on the main thread, where SDL audio was first set up: some backends
+// (WASAPI's COM objects) expect init and teardown on the same thread.
+static void service_audio_driver_reinit() {
+    if (!g_audio_reinit_pending.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    std::function<void(bool)> on_done;
+    {
+        std::lock_guard<std::mutex> lock(g_audio_reinit_mutex);
+        g_audio_reinit_pending.store(false, std::memory_order_relaxed);
+        on_done = std::move(g_audio_reinit_on_done);
+        g_audio_reinit_on_done = nullptr;
+    }
+
+    const lod::settings::AudioConfig config = lod::settings::get_audio_config();
+    bool device_open = false;
+    {
+        std::lock_guard<std::mutex> device_lock(g_audio_device_mutex);
+        if (audio_device != 0) {
+            SDL_CloseAudioDevice(audio_device);
+            audio_device = 0;
+        }
+        SDL_QuitSubSystem(SDL_INIT_AUDIO);
+        lod_configure_sdl_audio_driver(config);
+        if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) {
+            fprintf(stderr, "[WARN] SDL audio init failed: %s (continuing without audio)\n",
+                    SDL_GetError());
+        } else {
+            reset_audio(output_sample_rate);
+        }
+        device_open = audio_device != 0;
+    }
+
+    if (on_done) {
+        on_done(device_open);
+    }
 }
 
 // ── RSP ─────────────────────────────────────────────────────────────

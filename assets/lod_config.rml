@@ -250,7 +250,7 @@ Display refresh: {{display_refresh_rate}}Hz
                                     </div>
                                 </div>
                                 <div class="config__wrapper">
-                                    <p data-if="cur_config_index == -1"><b>Sound</b> exposes LoD audio controls. Volume and mute apply immediately; audio driver changes save immediately but require restarting LodRecomp.</p>
+                                    <p data-if="cur_config_index == -1"><b>Sound</b> exposes LoD audio controls. Volume, mute, and audio driver changes apply immediately.</p>
                                     <p data-if="cur_config_index == 0">Controls the main output volume.</p>
                                     <p data-if="cur_config_index == 1">Toggles all audio output.</p>
                                     <p data-if="cur_config_index == 2">Selects the SDL audio backend for the next launch. Auto uses WASAPI on Windows, PulseAudio on Linux, and the platform default elsewhere. Only choose a backend available on your platform; SDL_AUDIODRIVER can still override Auto.</p>
