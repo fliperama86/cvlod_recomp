@@ -59,18 +59,25 @@ jobs:
           if (-not $path) { throw "VS Clang components not found on runner image" }
           & "$path\VC\Tools\Llvm\x64\bin\clang-cl.exe" --version
 
-      - name: Export GitHub Actions cache variables for vcpkg
-        uses: actions/github-script@v7
+      - name: Get vcpkg version
+        id: vcpkg
+        shell: pwsh
+        run: |
+          "sha=$(git -C $env:VCPKG_INSTALLATION_ROOT rev-parse HEAD)" >> $env:GITHUB_OUTPUT
+
+      - name: Restore vcpkg binary cache
+        uses: actions/cache@v4
         with:
-          script: |
-            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
-            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+          path: ${{ runner.temp }}/vcpkg-bincache
+          key: vcpkg-x64-windows-zlib-freetype-${{ steps.vcpkg.outputs.sha }}
+          restore-keys: vcpkg-x64-windows-zlib-freetype-
 
       - name: Install vcpkg dependencies
         shell: pwsh
         env:
-          VCPKG_BINARY_SOURCES: clear;x-gha,readwrite
+          VCPKG_BINARY_SOURCES: clear;files,${{ runner.temp }}/vcpkg-bincache,readwrite
         run: |
+          New-Item -ItemType Directory -Force "${{ runner.temp }}/vcpkg-bincache" | Out-Null
           & "$env:VCPKG_INSTALLATION_ROOT\vcpkg.exe" install zlib:x64-windows freetype:x64-windows
 
       - name: Build N64Recomp CLI (clean pinned submodule)
@@ -162,6 +169,13 @@ jobs:
     needs: validate-version
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    env:
+      APT_PACKAGES: >-
+        cmake ninja-build pkg-config python3 clang lld
+        libsdl2-dev libfreetype-dev zlib1g-dev libvulkan-dev libgtk-3-dev
+        libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
+        xvfb mesa-vulkan-drivers
+      CCACHE_COMPILERCHECK: "%compiler% -v"
     steps:
       - name: Checkout (recursive)
         uses: actions/checkout@v4
@@ -174,14 +188,39 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = "tag" ]; then v="$GITHUB_REF_NAME"; else v="${GITHUB_SHA:0:8}"; fi
           echo "version=$v" >> "$GITHUB_OUTPUT"
 
+      # Cached .deb downloads protect against slow Ubuntu mirrors; apt still
+      # installs normally. The key changes with the runner image or package list.
+      - name: Compute apt cache key
+        id: apt
+        run: |
+          echo "prefix=apt-$ImageOS-" >> "$GITHUB_OUTPUT"
+          echo "key=apt-$ImageOS-$ImageVersion-$(echo "$APT_PACKAGES" | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore apt package cache
+        uses: actions/cache@v4
+        with:
+          path: ~/apt-archives
+          key: ${{ steps.apt.outputs.key }}
+          restore-keys: ${{ steps.apt.outputs.prefix }}
+
       - name: Install dependencies
         run: |
+          mkdir -p ~/apt-archives/partial
           sudo apt-get update
           sudo apt-get install -y \
-            cmake ninja-build pkg-config python3 clang lld \
-            libsdl2-dev libfreetype-dev zlib1g-dev libvulkan-dev libgtk-3-dev \
-            libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev \
-            xvfb mesa-vulkan-drivers
+            -o Dir::Cache::Archives="$HOME/apt-archives" \
+            -o APT::Keep-Downloaded-Packages=true \
+            -o APT::Sandbox::User=root \
+            $APT_PACKAGES
+          sudo chown -R "$USER" ~/apt-archives
+          rm -f ~/apt-archives/lock
+
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: linux-x64
+          max-size: 1G
+          evict-old-files: job
 
       - name: Fetch ROM from private assets repo
         run: |
@@ -194,7 +233,8 @@ jobs:
       - name: Build N64Recomp CLI (clean pinned submodule)
         run: |
           git -C lib/N64ModernRuntime/N64Recomp diff --quiet -- src/
-          cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build-n64recomp --target N64RecompCLI --parallel
 
       - name: Regenerate RecompiledFuncs
@@ -225,7 +265,8 @@ jobs:
 
       - name: Configure and build LodRecomp (Clang)
         run: |
-          CC=clang CXX=clang++ cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          CC=clang CXX=clang++ cmake -S . -B build-linux -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build-linux --target LodRecomp --parallel
 
       - name: Package
@@ -268,6 +309,8 @@ jobs:
     needs: validate-version
     runs-on: macos-14
     timeout-minutes: 120
+    env:
+      CCACHE_COMPILERCHECK: "%compiler% -v"
     steps:
       - name: Checkout (recursive)
         uses: actions/checkout@v4
@@ -283,6 +326,13 @@ jobs:
       - name: Install dependencies
         run: brew install ninja sdl2 freetype
 
+      - name: Set up ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: macos-arm64
+          max-size: 1G
+          evict-old-files: job
+
       - name: Fetch ROM from private assets repo
         run: |
           git clone --depth 1 "${{ secrets.CVLOD_ASSETS_REPO_WITH_PAT }}" cvlod-assets
@@ -294,7 +344,8 @@ jobs:
       - name: Build N64Recomp CLI (clean pinned submodule)
         run: |
           git -C lib/N64ModernRuntime/N64Recomp diff --quiet -- src/
-          cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake -S lib/N64ModernRuntime/N64Recomp -B build-n64recomp -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build-n64recomp --target N64RecompCLI --parallel
 
       - name: Regenerate RecompiledFuncs
@@ -326,7 +377,8 @@ jobs:
       - name: Configure and build LodRecomp
         run: |
           chmod +x .github/macos/ld64
-          cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build-macos -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build-macos --target LodRecomp --parallel
 
       - name: Package
