@@ -205,7 +205,7 @@ jobs:
     timeout-minutes: 120
     env:
       APT_PACKAGES: >-
-        cmake ninja-build pkg-config python3 clang lld
+        cmake ninja-build pkg-config python3 clang lld ccache
         libsdl2-dev libfreetype-dev zlib1g-dev libvulkan-dev libgtk-3-dev
         libx11-dev libxrandr-dev libxi-dev libxcursor-dev libxinerama-dev
         xvfb mesa-vulkan-drivers
